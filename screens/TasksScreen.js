@@ -69,7 +69,7 @@ const TasksScreen = ({ navigation }) => {
             {item.title || 'Sin título'}
           </Text>
           <Text style={styles.taskUser}>
-            por {item.user?.first_name || item.user?.email || 'Anónimo'}
+             {item.user?.first_name || item.user?.email || 'Anónimo'}
           </Text>
         </View>
         <Text style={styles.taskDate}>
@@ -255,7 +255,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   taskUser: {
-    fontSize: 12,
+    fontSize: 9,
     color: '#999',
     marginTop: 4,
   },
