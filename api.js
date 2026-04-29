@@ -1,7 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api/';
+const API_BASE_URL = 'http://192.168.0.103:8001/api/'; 
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -11,25 +11,37 @@ const api = axios.create({
   timeout: 10000,
 });
 
-export async function authHeaders() {
-  const token = await AsyncStorage.getItem('token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+// Interceptor para inyectar el token automáticamente
+api.interceptors.request.use(
+  async (config) => {
+    const token = await AsyncStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-export async function saveAuthData({ access, refresh, user }) {
-  await AsyncStorage.setItem('token', access);
-  if (refresh) {
-    await AsyncStorage.setItem('refreshToken', refresh);
+// EXPORTS NOMBRADOS (Vital para que los otros archivos los encuentren)
+export const saveAuthData = async ({ access, refresh, user }) => {
+  try {
+    await AsyncStorage.setItem('token', access);
+    if (refresh) await AsyncStorage.setItem('refreshToken', refresh);
+    if (user) await AsyncStorage.setItem('user', JSON.stringify(user));
+  } catch (e) {
+    console.error("Error guardando auth data", e);
   }
-  if (user) {
-    await AsyncStorage.setItem('user', JSON.stringify(user));
-  }
-}
+};
 
-export async function clearAuthData() {
-  await AsyncStorage.removeItem('token');
-  await AsyncStorage.removeItem('refreshToken');
-  await AsyncStorage.removeItem('user');
-}
+export const clearAuthData = async () => {
+  try {
+    await AsyncStorage.removeItem('token');
+    await AsyncStorage.removeItem('refreshToken');
+    await AsyncStorage.removeItem('user');
+  } catch (e) {
+    console.error("Error limpiando auth data", e);
+  }
+};
 
 export default api;

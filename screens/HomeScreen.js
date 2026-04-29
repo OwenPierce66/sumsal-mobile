@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, FlatList, StyleSheet, Button, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, StyleSheet, Button, Alert, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import api, { authHeaders, clearAuthData } from '../api';
+import api, { clearAuthData } from '../api'; // Importamos lo que realmente usamos
 
 const HomeScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
@@ -11,18 +11,21 @@ const HomeScreen = ({ navigation }) => {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const headers = await authHeaders();
+      
+      // ELIMINAMOS: const headers = await authHeaders();
+      // El interceptor se encarga de todo ahora.
 
       const [userResponse, tasksResponse] = await Promise.all([
-        api.get('users/me/', { headers }),
-        api.get('tasks/', { headers }),
+        api.get('users/me/'), // Sin headers manuales
+        api.get('tasks/'),    // Sin headers manuales
       ]);
 
       setUser(userResponse.data);
       setTasks(tasksResponse.data.results ?? tasksResponse.data ?? []);
     } catch (error) {
       console.error('Error loading home data:', error.response?.data || error.message);
-      Alert.alert('Error', 'No se pudo cargar información. Por favor inicia sesión de nuevo.');
+      // Si el error es 401, podrías forzar el logout aquí
+      Alert.alert('Error', 'No se pudo cargar la información.');
     } finally {
       setLoading(false);
     }
@@ -34,18 +37,21 @@ const HomeScreen = ({ navigation }) => {
     }, [fetchData])
   );
 
-  const handleLogout = async () => {
-    await clearAuthData();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Login' }],
-    });
-  };
+const handleLogout = async () => {
+  await clearAuthData();
+  // No uses navigation.reset, simplemente reinicia la App o 
+  // deja que el estado global de App.js (si usas Context) haga el trabajo.
+  // Como solución rápida para tu estructura actual:
+  Alert.alert("Sesión Cerrada", "Vuelve a abrir la app para ingresar.");
+};
 
   const renderTask = ({ item }) => (
     <TouchableOpacity
       style={styles.taskItem}
-      onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}
+      onPress={() => navigation.navigate('Tasks', { 
+        screen: 'TaskDetail', 
+        params: { taskId: item.id } 
+      })}
     >
       <Text style={styles.taskTitle}>{item.title}</Text>
       <Text style={styles.taskDescription}>{item.description}</Text>
@@ -57,19 +63,25 @@ const HomeScreen = ({ navigation }) => {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>
-          Bienvenido{user?.first_name ? `, ${user.first_name}` : ''}
+          Sumsal{user?.first_name ? `, ${user.first_name}` : ''} 🖤
         </Text>
-        <Button title="Cerrar sesión" onPress={handleLogout} />
+        <TouchableOpacity onPress={handleLogout}>
+          <Text style={{ color: '#ff6b6b', fontWeight: 'bold' }}>Cerrar sesión</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.topRow}>
-        <Text style={styles.subtitle}>Tus tareas</Text>
-        <Button title="Nueva tarea" onPress={() => navigation.navigate('CreateTask')} />
+        <Text style={styles.subtitle}>Explorar</Text>
+        <Button 
+          title="Nueva tarea" 
+          onPress={() => navigation.navigate('Tasks', { screen: 'CreateTask' })} 
+          color="#4dabf7"
+        />
       </View>
 
       {loading ? (
         <View style={styles.centered}>
-          <Text>Cargando...</Text>
+          <ActivityIndicator size="large" color="#4dabf7" />
         </View>
       ) : tasks.length === 0 ? (
         <View style={styles.centered}>
@@ -81,6 +93,7 @@ const HomeScreen = ({ navigation }) => {
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderTask}
           contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
         />
       )}
     </View>

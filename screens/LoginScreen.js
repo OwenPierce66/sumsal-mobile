@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import api, { saveAuthData } from '../api';
 
-const LoginScreen = ({ navigation }) => {
+const LoginScreen = ({ navigation, onLoginSuccess }) => { // <--- Recibe onLoginSuccess
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -31,6 +31,8 @@ const LoginScreen = ({ navigation }) => {
         index: 0,
         routes: [{ name: 'Home' }],
       });
+
+      onLoginSuccess(response.data.access);
     } catch (error) {
       const backendData = error.response?.data;
       let message = 'No se pudo iniciar sesión. Revisa tus credenciales.';

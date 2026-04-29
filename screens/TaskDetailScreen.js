@@ -26,21 +26,19 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [userHasLiked, setUserHasLiked] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
 
-  const fetchComments = useCallback(async () => {
+const fetchComments = useCallback(async () => {
     try {
-      const headers = await authHeaders();
-      const response = await api.get(`tasks/${taskId}/comments/`, { headers });
+      const response = await api.get(`tasks/${taskId}/comments/`);
       setComments(response.data.results ?? response.data ?? []);
     } catch (error) {
       console.error('Error fetching comments:', error.response?.data || error.message);
     }
   }, [taskId]);
 
-  const fetchTaskDetail = useCallback(async () => {
+const fetchTaskDetail = useCallback(async () => {
     try {
       setLoading(true);
-      const headers = await authHeaders();
-      const response = await api.get(`tasks/${taskId}/`, { headers });
+      const response = await api.get(`tasks/${taskId}/`);
       setTask(response.data);
       setUserHasLiked(response.data.user_has_liked ?? false);
       await fetchComments();
@@ -58,11 +56,10 @@ const TaskDetailScreen = ({ route, navigation }) => {
     }, [fetchTaskDetail])
   );
 
-  const handleLike = async () => {
+const handleLike = async () => {
     try {
-      const headers = await authHeaders();
-      await api.post(`tasks/${taskId}/like/`, {}, { headers });
-
+      await api.post(`tasks/${taskId}/like/`, {});
+      
       setUserHasLiked((prev) => !prev);
       setTask((prevTask) => ({
         ...prevTask,
@@ -75,7 +72,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
     }
   };
 
-  const handleAddComment = async () => {
+const handleAddComment = async () => {
     if (!commentText.trim()) {
       Alert.alert('Error', 'El comentario no puede estar vacío');
       return;
@@ -83,19 +80,15 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
     setIsCreatingComment(true);
     try {
-      const headers = await authHeaders();
       const formData = new FormData();
       formData.append('text', commentText);
 
-      await api.post(`tasks/${taskId}/comments/`, formData, {
-        headers: {
-          ...headers,
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      // No pasamos headers manuales, el interceptor inyecta el token.
+      // Axios detecta automáticamente el Content-Type para FormData.
+      await api.post(`tasks/${taskId}/comments/`, formData);
 
       setCommentText('');
-      await fetchTaskDetail();
+      await fetchComments(); // Refrescar solo comentarios para no recargar toda la vista
     } catch (error) {
       console.error('Error adding comment:', error.response?.data || error.message);
       Alert.alert('Error', 'No se pudo agregar el comentario');
@@ -104,20 +97,19 @@ const TaskDetailScreen = ({ route, navigation }) => {
     }
   };
 
-  const handleShare = async () => {
+const handleShare = async () => {
     try {
-      const headers = await authHeaders();
-      await api.post('shared-tasks/', { task_id: taskId }, { headers });
+      await api.post('shared-tasks/', { task_id: taskId });
       Alert.alert('Éxito', 'Tarea compartida correctamente');
       setShowShareModal(false);
-      await fetchTaskDetail();
+      fetchTaskDetail();
     } catch (error) {
       console.error('Error sharing task:', error.response?.data || error.message);
       Alert.alert('Error', 'No se pudo compartir la tarea');
     }
   };
 
-  const renderComment = ({ item }) => (
+const renderComment = ({ item }) => (
     <View style={styles.comment}>
       <View style={styles.commentHeader}>
         <Text style={styles.commentAuthor}>
@@ -128,8 +120,8 @@ const TaskDetailScreen = ({ route, navigation }) => {
         </Text>
       </View>
       <Text style={styles.commentText}>{item.text}</Text>
-
-      {item.children && item.children.length > 0 && (
+      {/* Recursividad de respuestas si existen */}
+      {item.children?.length > 0 && (
         <View style={styles.replies}>
           {item.children.map((reply) => (
             <View key={reply.id} style={styles.reply}>
@@ -144,21 +136,8 @@ const TaskDetailScreen = ({ route, navigation }) => {
     </View>
   );
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4dabf7" />
-      </View>
-    );
-  }
-
-  if (!task) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Tarea no encontrada</Text>
-      </View>
-    );
-  }
+if (loading) return <ActivityIndicator size="large" color="#4dabf7" style={{ marginTop: 50 }} />;
+  if (!task) return <View style={styles.container}><Text>Tarea no encontrada</Text></View>;
 
   return (
     <View style={styles.container}>

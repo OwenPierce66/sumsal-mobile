@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import api, { authHeaders } from '../api';
+import api, { saveAuthData } from '../api';
 
 const CreateTaskScreen = ({ navigation }) => {
   const [title, setTitle] = useState('');
@@ -30,8 +30,7 @@ const CreateTaskScreen = ({ navigation }) => {
 
   const fetchCategories = async () => {
     try {
-      const headers = await authHeaders();
-      const response = await api.get('new-categories/', { headers });
+      const response = await api.get('new-categories/');
       setCategories(response.data.results ?? response.data ?? []);
     } catch (error) {
       console.error('Error fetching categories:', error);

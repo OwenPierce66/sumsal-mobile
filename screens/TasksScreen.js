@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import api, { authHeaders } from '../api';
+import api from '../api';
 
 const TasksScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
@@ -20,13 +20,14 @@ const TasksScreen = ({ navigation }) => {
   const [searchText, setSearchText] = useState('');
   const [tema, setTema] = useState('consejos');
 
-  const fetchTasks = useCallback(async () => {
+const fetchTasks = useCallback(async () => {
     try {
-      const headers = await authHeaders();
-      const response = await api.get('tasks/', {
-        headers,
-        params: { pch: tema },
+      setLoading(true);
+      // 2. LLAMADA DIRECTA: El interceptor ya puso el Authorization Header por ti
+      const response = await api.get('tasks/', { 
+        params: { pch: tema } 
       });
+
       setTasks(response.data.results ?? response.data ?? []);
     } catch (error) {
       console.error('Error fetching tasks:', error.response?.data || error.message);
