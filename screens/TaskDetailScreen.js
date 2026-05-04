@@ -1,32 +1,30 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, Image, TextInput, FlatList, Modal, Platform, KeyboardAvoidingView
+  ActivityIndicator, Alert, Image, TextInput, FlatList, Platform, KeyboardAvoidingView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import moment from 'moment'; // Usamos moment igual que en tu web
-import 'moment/locale/es'; // Para que las fechas salgan en español
+import moment from 'moment'; 
+import 'moment/locale/es'; 
 import api from '../api';
 
 moment.locale('es');
 
-// Helper para URLs (el mismo de TasksScreen)
 const getImageUrl = (path) => {
   if (!path) return null;
-  let cleanPath = path.replace('localhost', '192.168.100.76').replace('127.0.0.1', '192.168.100.76');
+  let cleanPath = path.replace('localhost', '192.168.0.103').replace('127.0.0.1', '192.168.0.103');
   if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.100.76:8001${cleanPath}`;
+  return `http://192.168.0.103:8001${cleanPath}`;
 };
 
 // =====================================================================
-// COMPONENTE RECURSIVO: EL CLON DE TU 'NewPeticionComment' WEB
+// COMPONENTE RECURSIVO (COMENTARIOS)
 // =====================================================================
-const CommentItem = ({ comment, depth = 0, onReply, onLike }) => {
+const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUserId }) => {
   const [showReplies, setShowReplies] = useState(false);
   const hasChildren = comment.children && comment.children.length > 0;
 
-  // Calculamos el margen izquierdo basado en la profundidad (recursividad)
   const marginLeft = depth > 0 ? 16 : 0;
   const borderLeftWidth = depth > 0 ? 2 : 0;
 
@@ -35,33 +33,36 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike }) => {
       <View style={styles.commentHeader}>
         <View style={styles.commentUserInfo}>
           <Image
-            source={{ uri: getImageUrl(comment.created_by?.user_image) || 'https://via.placeholder.com/40' }}
+            source={{ uri: getImageUrl(comment.created_by?.user_image) || 'https://ui-avatars.com/api/?name=Usuario' }}
             style={styles.commentAvatar}
           />
           <View>
             <Text style={styles.commentAuthor}>
               {comment.created_by?.username || 'Anónimo'}
             </Text>
-            <Text style={styles.commentDate}>
-              {moment(comment.created_at).fromNow()}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.commentDate}>
+                {moment(comment.created_at).fromNow()}
+              </Text>
+              
+              {/* ⚡ BOTÓN DE ELIMINAR: Aparece si soy el dueño del comentario */}
+              {currentUserId === comment.created_by?.id && (
+                <TouchableOpacity onPress={() => onDelete(comment.id)} style={{ marginLeft: 10 }}>
+                  <Ionicons name="trash-outline" size={14} color="#ff6b6b" />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
 
-        {/* Botón de Like del comentario */}
         <TouchableOpacity style={styles.commentLikeBtn} onPress={() => onLike(comment.id)}>
           <Text style={styles.commentLikeCount}>{comment.likes_count || 0}</Text>
-          <Ionicons 
-            name={comment.user_has_liked ? "heart" : "heart-outline"} 
-            size={16} 
-            color={comment.user_has_liked ? "#ff6b6b" : "#999"} 
-          />
+          <Ionicons name={comment.user_has_liked ? "heart" : "heart-outline"} size={16} color={comment.user_has_liked ? "#ff6b6b" : "#999"} />
         </TouchableOpacity>
       </View>
 
       <Text style={styles.commentText}>{comment.text}</Text>
 
-      {/* Botones de acción del comentario */}
       <View style={styles.commentFooter}>
         <TouchableOpacity onPress={() => onReply(comment)}>
           <Text style={styles.replyActionText}>Responder</Text>
@@ -76,7 +77,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike }) => {
         )}
       </View>
 
-      {/* MAGIA RECURSIVA: Se llama a sí mismo si hay hijos y el usuario quiere verlos */}
+      {/* RENDERIZADO RECURSIVO DE RESPUESTAS */}
       {showReplies && hasChildren && (
         <View style={styles.repliesContainer}>
           {comment.children.map(child => (
@@ -86,6 +87,8 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike }) => {
               depth={depth + 1} 
               onReply={onReply} 
               onLike={onLike}
+              onDelete={onDelete}
+              currentUserId={currentUserId}
             />
           ))}
         </View>
@@ -96,27 +99,23 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike }) => {
 
 
 // =====================================================================
-// PANTALLA PRINCIPAL: EL CLON DE TU 'NewPeticionPost' WEB
+// PANTALLA PRINCIPAL DE DETALLE
 // =====================================================================
 const TaskDetailScreen = ({ route, navigation }) => {
   const { taskId } = route.params;
   const [task, setTask] = useState(null);
   const [loading, setLoading] = useState(true);
-  
-  // Lista de comentarios que vienen del backend
   const [comments, setComments] = useState([]);
-  
-  // Estado para el Input
   const [commentText, setCommentText] = useState('');
   const [isCreatingComment, setIsCreatingComment] = useState(false);
-  
-  // A quién estamos respondiendo (null si es comentario principal)
   const [replyingTo, setReplyingTo] = useState(null);
+  
+  // ⚡ ID del usuario logueado
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   const fetchComments = useCallback(async () => {
     try {
       const response = await api.get(`tasks/${taskId}/comments/`);
-      // Filtramos para asegurar que solo renderizamos los padres en la raíz
       const allComments = response.data.results ?? response.data ?? [];
       const parentComments = allComments.filter(c => c.is_parent || !c.parent);
       setComments(parentComments);
@@ -141,31 +140,36 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
   useFocusEffect(
     useCallback(() => {
+      // ⚡ Obtenemos el ID del usuario
+      api.get('users/me/')
+         .then(res => {
+            console.log("ID del usuario logueado:", res.data.id); // Agregamos log
+            setCurrentUserId(res.data.id);
+         })
+         .catch(err => console.error("Error al obtener usuario:", err));
+
       fetchTaskDetail();
     }, [fetchTaskDetail])
   );
 
-const handleAddComment = async () => {
+  const handleAddComment = async () => {
     if (!commentText.trim()) return;
     setIsCreatingComment(true);
 
     try {
       const formData = new FormData();
       formData.append('text', commentText);
-      
-      // ⚡ EL FIX: Le decimos a Django a qué tarea pertenece este comentario
       formData.append('post', taskId); 
 
       if (replyingTo) {
-        formData.append('parent', replyingTo.id); // Lógica de respuesta
+        formData.append('parent', replyingTo.id);
       }
 
-      const uploadHeaders = Platform.OS === 'web' ? {} : { 'Content-Type': 'multipart/form-data' };
-      await api.post(`tasks/${taskId}/comments/`, formData, { headers: uploadHeaders });
+      await api.post(`tasks/${taskId}/comments/`, formData);
 
       setCommentText('');
       setReplyingTo(null);
-      await fetchComments(); // Refrescamos el árbol de comentarios
+      await fetchComments();
     } catch (error) {
       console.error('Error adding comment:', error.response?.data || error.message);
       Alert.alert('Error', 'No se pudo publicar el comentario');
@@ -176,8 +180,8 @@ const handleAddComment = async () => {
 
   const handleLikeTask = async () => {
     try {
-      await api.post(`tasks/${taskId}/like/`, {});
-      fetchTaskDetail(); // Refrescamos para ver los likes actualizados
+      await api.post(`tasks/${taskId}/like/`);
+      fetchTaskDetail(); 
     } catch (error) {
       console.error('Error liking task:', error);
     }
@@ -185,10 +189,48 @@ const handleAddComment = async () => {
 
   const handleLikeComment = async (commentId) => {
     try {
-      await api.post(`tasks/${taskId}/comments/${commentId}/like/`);
-      fetchComments(); // Refrescamos los comentarios
+      await api.post(`comments/${commentId}/like/`); 
+      fetchComments(); 
     } catch (error) {
-      console.error('Error liking comment:', error);
+      console.error('Error liking comment:', error.response?.data || error.message);
+    }
+  };
+
+  // ⚡ FUNCIÓN DE ELIMINAR BLINDADA
+// ⚡ LA FUNCIÓN PARA ELIMINAR (Soporte Web + Móvil)
+  const handleDeleteComment = (commentId) => {
+    const executeDelete = async () => {
+      try {
+        await api.delete(`tasks/${taskId}/comments/${commentId}/`);
+        fetchComments(); // Recargamos para que desaparezca
+        if (Platform.OS !== 'web') Alert.alert("Éxito", "Comentario eliminado.");
+      } catch (error) {
+        console.error("Error eliminando comentario:", error.response?.data || error.message);
+        if (Platform.OS !== 'web') Alert.alert("Error", "No se pudo eliminar el comentario.");
+        else window.alert("Error: No se pudo eliminar el comentario.");
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      // En Web usamos el confirm nativo del navegador
+      const confirmDelete = window.confirm("¿Estás seguro de que deseas eliminar este comentario de forma permanente?");
+      if (confirmDelete) {
+        executeDelete();
+      }
+    } else {
+      // En Móvil usamos el Alert nativo de iOS/Android
+      Alert.alert(
+        "Eliminar Comentario",
+        "¿Estás seguro de que deseas eliminar este comentario de forma permanente?",
+        [
+          { text: "Cancelar", style: "cancel" },
+          { 
+            text: "Eliminar", 
+            style: "destructive",
+            onPress: executeDelete
+          }
+        ]
+      );
     }
   };
 
@@ -244,6 +286,8 @@ const handleAddComment = async () => {
                 comment={comment} 
                 onReply={onReplyPress} 
                 onLike={handleLikeComment}
+                onDelete={handleDeleteComment} 
+                currentUserId={currentUserId} 
               />
             ))
           )}
@@ -293,7 +337,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
   content: { flex: 1 },
   
-  // Tarea Base
   taskCard: { backgroundColor: '#fff', margin: 12, borderRadius: 12, overflow: 'hidden' },
   taskInfo: { padding: 16 },
   taskTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8 },
@@ -302,7 +345,6 @@ const styles = StyleSheet.create({
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'center' },
   actionBtnText: { color: '#666', fontWeight: 'bold' },
 
-  // Comentarios
   commentsSection: { padding: 16, paddingBottom: 40 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 16 },
   noComments: { textAlign: 'center', color: '#999', marginTop: 20 },
@@ -324,7 +366,6 @@ const styles = StyleSheet.create({
   
   repliesContainer: { marginTop: 12 },
 
-  // Input
   replyBanner: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#e3f2fd', padding: 10, alignItems: 'center', borderTopWidth: 1, borderColor: '#b3e5fc' },
   replyBannerText: { fontSize: 13, color: '#333' },
   commentInputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', alignItems: 'flex-end', gap: 8 },

@@ -102,6 +102,83 @@ const CreateTaskScreen = ({ navigation }) => {
     }
   };
 
+// ⚡ Actualiza los props de CommentItem
+const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUserId }) => {
+  const [showReplies, setShowReplies] = useState(false);
+  const hasChildren = comment.children && comment.children.length > 0;
+
+  const marginLeft = depth > 0 ? 16 : 0;
+  const borderLeftWidth = depth > 0 ? 2 : 0;
+
+  return (
+    <View style={[styles.commentWrapper, { marginLeft, borderLeftWidth }]}>
+      <View style={styles.commentHeader}>
+        <View style={styles.commentUserInfo}>
+          <Image
+            source={{ uri: getImageUrl(comment.created_by?.user_image) || 'https://ui-avatars.com/api/?name=Usuario' }}
+            style={styles.commentAvatar}
+          />
+          <View>
+            <Text style={styles.commentAuthor}>
+              {comment.created_by?.username || 'Anónimo'}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.commentDate}>
+                {moment(comment.created_at).fromNow()}
+              </Text>
+              
+              {/* ⚡ BOTÓN DE ELIMINAR: Solo si el comentario es mío */}
+              {currentUserId === comment.created_by?.id && (
+                <TouchableOpacity onPress={() => onDelete(comment.id)} style={{ marginLeft: 10 }}>
+                  <Ionicons name="trash-outline" size={14} color="#ff6b6b" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.commentLikeBtn} onPress={() => onLike(comment.id)}>
+          <Text style={styles.commentLikeCount}>{comment.likes_count || 0}</Text>
+          <Ionicons name={comment.user_has_liked ? "heart" : "heart-outline"} size={16} color={comment.user_has_liked ? "#ff6b6b" : "#999"} />
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.commentText}>{comment.text}</Text>
+
+      <View style={styles.commentFooter}>
+        <TouchableOpacity onPress={() => onReply(comment)}>
+          <Text style={styles.replyActionText}>Responder</Text>
+        </TouchableOpacity>
+
+        {hasChildren && (
+          <TouchableOpacity onPress={() => setShowReplies(!showReplies)} style={styles.toggleRepliesBtn}>
+            <Text style={styles.toggleRepliesText}>
+              {showReplies ? "Ocultar respuestas" : `Ver respuestas (${comment.children.length})`}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* ⚡ NO OLVIDES PASAR LOS NUEVOS PROPS AL HIJO RECURSIVO */}
+      {showReplies && hasChildren && (
+        <View style={styles.repliesContainer}>
+          {comment.children.map(child => (
+            <CommentItem 
+              key={child.id} 
+              comment={child} 
+              depth={depth + 1} 
+              onReply={onReply} 
+              onLike={onLike}
+              onDelete={onDelete}
+              currentUserId={currentUserId}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
+
   const renderSection = (title, state, setState) => (
     <View style={styles.sectionContainer}>
       <Text style={styles.sectionTitle}>{title}</Text>
