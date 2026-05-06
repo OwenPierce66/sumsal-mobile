@@ -1,10 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react'; // ⚡ IMPORTAMOS useContext
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import api, { saveAuthData } from '../api';
+import { AuthContext } from '../App';
 
-const LoginScreen = ({ navigation, onLoginSuccess }) => { // <--- Recibe onLoginSuccess
+// Ya no necesitamos recibir onLoginSuccess como prop, usamos el Contexto
+const LoginScreen = ({ navigation }) => { 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
+  // ⚡ Obtenemos signIn del Contexto Global
+  const { signIn } = useContext(AuthContext);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -13,6 +18,7 @@ const LoginScreen = ({ navigation, onLoginSuccess }) => { // <--- Recibe onLogin
     }
 
     try {
+      // ⚡ Volvemos a armar el payload con tu lógica original
       const payload = {
         password,
       };
@@ -26,14 +32,16 @@ const LoginScreen = ({ navigation, onLoginSuccess }) => { // <--- Recibe onLogin
       console.log('Login payload:', payload);
 
       const response = await api.post('auth/login/', payload);
+      
+      // Guardas los tokens en el teléfono
       await saveAuthData(response.data);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Home' }],
-      });
+      
+      // ⚡ Le avisas a App.js que ya hay sesión
+      // Esto montará AuthenticatedTabs automáticamente sin usar navigation.reset()
+      signIn(response.data.access); 
 
-      onLoginSuccess(response.data.access);
     } catch (error) {
+      // Tu lógica para manejar errores de Django (intacta)
       const backendData = error.response?.data;
       let message = 'No se pudo iniciar sesión. Revisa tus credenciales.';
 

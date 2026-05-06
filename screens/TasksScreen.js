@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
-  RefreshControl, TextInput, Image, Platform
+  RefreshControl, TextInput, Image, Platform, ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -15,29 +15,69 @@ const TasksScreen = ({ navigation }) => {
   const [tema, setTema] = useState('consejos');
   const [visibleSections, setVisibleSections] = useState({});
 
-  const fetchTasks = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await api.get('tasks/', { params: { pch: tema } });
-      const data = response.data.results ?? response.data ?? [];
-      setTasks(data);
+  // ⚡ NUEVOS ESTADOS PARA EL INFINITE SCROLL
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
+  // Modificamos fetchTasks para que acepte el número de página
+  const fetchTasks = useCallback(async (pageNumber = 1) => {
+    try {
+      if (pageNumber === 1) setLoading(true);
+      else setLoadingMore(true);
+
+      // Enviamos el parámetro 'page' a Django
+      const response = await api.get('tasks/', { params: { pch: tema, page: pageNumber } });
+      const data = response.data.results ?? response.data ?? [];
+
+      // Si es la página 1, reemplazamos. Si es mayor, concatenamos.
+      if (pageNumber === 1) {
+        setTasks(data);
+      } else {
+        setTasks(prev => [...prev, ...data]);
+      }
+
+      // Verificamos si Django nos dice que hay una página siguiente
+      if (response.data.next) {
+        setHasMore(true);
+      } else {
+        setHasMore(false);
+      }
+
+      // Mantenemos tu lógica de secciones
       const sections = {};
       data.forEach(t => { sections[t.id] = 'subtasks'; });
-      setVisibleSections(sections);
+      setVisibleSections(prev => pageNumber === 1 ? sections : { ...prev, ...sections });
+
     } catch (error) {
       console.error('Error fetching tasks:', error.response?.data || error.message);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
       setRefreshing(false);
     }
   }, [tema]);
 
-  useFocusEffect(useCallback(() => { fetchTasks(); }, [fetchTasks]));
+  useFocusEffect(useCallback(() => { 
+    // Al entrar a la pantalla o cambiar de tema, siempre empezamos en la página 1
+    setPage(1);
+    fetchTasks(1); 
+  }, [fetchTasks]));
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchTasks();
+    setPage(1);
+    setHasMore(true);
+    fetchTasks(1);
+  };
+
+  // ⚡ FUNCIÓN PARA CARGAR MÁS DATOS AL BAJAR
+  const loadMoreTasks = () => {
+    if (!loadingMore && hasMore) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchTasks(nextPage);
+    }
   };
 
   const changeSection = (taskId, section) => {
@@ -49,8 +89,7 @@ const TasksScreen = ({ navigation }) => {
     task.description?.toLowerCase().includes(searchText.toLowerCase())
   );
 
-  // HELPER INFALIBLE CON LA NUEVA IP
-// HELPER INFALIBLE CON LA IP ACTUAL
+  // HELPER INFALIBLE CON LA IP ACTUAL
   const getImageUrl = (path) => {
     if (!path) return null;
     let cleanPath = path.replace('localhost', '192.168.0.103').replace('127.0.0.1', '192.168.0.103');
@@ -174,7 +213,12 @@ const TasksScreen = ({ navigation }) => {
           <TouchableOpacity
             key={t}
             style={[styles.temaBadge, tema === t && styles.temaBadgeActive]}
-            onPress={() => setTema(t)}
+            onPress={() => {
+              // Si cambian de pestaña, forzamos la página a 1
+              setPage(1);
+              setHasMore(true);
+              setTema(t);
+            }}
           >
             <Text style={[styles.temaBadgeText, tema === t && styles.temaBadgeTextActive]}>
               {t.toUpperCase()}
@@ -189,6 +233,17 @@ const TasksScreen = ({ navigation }) => {
         renderItem={renderTaskCard}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={styles.listContent}
+        
+        // ⚡ LAS PROPS MÁGICAS DE RENDIMIENTO Y SCROLL INFINITO
+        onEndReached={loadMoreTasks}
+        onEndReachedThreshold={0.5} // Ejecuta loadMoreTasks cuando falte media pantalla para llegar al final
+        ListFooterComponent={
+          loadingMore ? <ActivityIndicator size="small" color="#4dabf7" style={{ marginVertical: 20 }} /> : null
+        }
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        initialNumToRender={8}
       />
     </View>
   );

@@ -1,34 +1,23 @@
 import axios from 'axios';
-import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = 'http://192.168.0.103:8001/api/'; 
-// En api.js
-// const API_BASE_URL = 'http://192.168.100.76:8001/api/';
+// ⚡ Volvemos a la IP fija que funciona perfecto en tu red actual
+export const LOCAL_IP = '192.168.0.103'; 
+const API_URL = `http://${LOCAL_IP}:8001/api/`;
+// const API_URL = 'http://192.168.100.76:8001/api/'; 
+
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_URL,
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000,
 });
 
-// Interceptor para inyectar el token automáticamente
+// ⚡ 1. INTERCEPTOR DE PETICIÓN (Inyectar Token)
 api.interceptors.request.use(
   async (config) => {
-    let token = null;
-
-    try {
-      // 🛡️ Lógica Multiplataforma para leer el token
-      if (Platform.OS === 'web') {
-        token = localStorage.getItem('token');
-      } else {
-        token = await AsyncStorage.getItem('token');
-      }
-    } catch (e) {
-      console.error("Error leyendo auth data en el interceptor", e);
-    }
-
+    const token = await AsyncStorage.getItem('accessToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -37,38 +26,54 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// EXPORTS NOMBRADOS
-export const saveAuthData = async ({ access, refresh, user }) => {
-  try {
-    // 🛡️ Lógica Multiplataforma para GUARDAR el token
-    if (Platform.OS === 'web') {
-      if (access) localStorage.setItem('token', access);
-      if (refresh) localStorage.setItem('refreshToken', refresh);
-      if (user) localStorage.setItem('user', JSON.stringify(user));
-    } else {
-      if (access) await AsyncStorage.setItem('token', access);
-      if (refresh) await AsyncStorage.setItem('refreshToken', refresh);
-      if (user) await AsyncStorage.setItem('user', JSON.stringify(user));
+// ⚡ 2. INTERCEPTOR DE RESPUESTA (Refresh Token Automático)
+api.interceptors.response.use(
+  (response) => response, 
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true; 
+
+      try {
+        const refreshToken = await AsyncStorage.getItem('refreshToken');
+        
+        const refreshResponse = await axios.post(`${API_URL}auth/refresh/`, {
+          refresh: refreshToken,
+        });
+
+        const newAccessToken = refreshResponse.data.access;
+        await AsyncStorage.setItem('accessToken', newAccessToken);
+
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        return api(originalRequest);
+        
+      } catch (refreshError) {
+        // Si el refresh falla, limpiamos la sesión
+        await clearAuthData();
+        return Promise.reject(refreshError);
+      }
     }
-  } catch (e) {
-    console.error("Error guardando auth data", e);
+    return Promise.reject(error);
+  }
+);
+
+// ⚡ FUNCIONES EXPORTADAS PARA LOGIN/LOGOUT
+export const saveAuthData = async (data) => {
+  try {
+    await AsyncStorage.setItem('accessToken', data.access);
+    await AsyncStorage.setItem('refreshToken', data.refresh);
+  } catch (error) {
+    console.error("Error guardando tokens:", error);
   }
 };
 
 export const clearAuthData = async () => {
   try {
-    // 🛡️ Lógica Multiplataforma para BORRAR el token
-    if (Platform.OS === 'web') {
-      localStorage.removeItem('token');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('user');
-    } else {
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('refreshToken');
-      await AsyncStorage.removeItem('user');
-    }
-  } catch (e) {
-    console.error("Error limpiando auth data", e);
+    await AsyncStorage.removeItem('accessToken');
+    await AsyncStorage.removeItem('refreshToken');
+  } catch (error) {
+    console.error("Error limpiando tokens:", error);
   }
 };
 

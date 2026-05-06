@@ -28,25 +28,45 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
   const marginLeft = depth > 0 ? 16 : 0;
   const borderLeftWidth = depth > 0 ? 2 : 0;
 
+  // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DEL COMENTARIO
+// ⚡ HELPER PARA EL NOMBRE DEL COMENTARIO (Basado en tu modelo de Django)
+  const getCommentAuthorName = (c) => {
+    const userObj = c.created_by || c.user;
+    
+    if (userObj) {
+      // 1. Intentamos usar el nombre y apellido real
+      if (userObj.first_name) {
+        return `${userObj.first_name} ${userObj.last_name || ''}`.trim();
+      }
+      // 2. Si no ha puesto nombre, usamos la primera parte de su email
+      if (userObj.email) {
+        return userObj.email.split('@')[0];
+      }
+    }
+    // 3. Fallback final
+    return c.username || 'Anónimo';
+  };
+
   return (
     <View style={[styles.commentWrapper, { marginLeft, borderLeftWidth }]}>
       <View style={styles.commentHeader}>
         <View style={styles.commentUserInfo}>
           <Image
-            source={{ uri: getImageUrl(comment.created_by?.user_image) || 'https://ui-avatars.com/api/?name=Usuario' }}
+            source={{ uri: getImageUrl(comment.created_by?.user_image || comment.user?.user_image) || 'https://ui-avatars.com/api/?name=Usuario' }}
             style={styles.commentAvatar}
           />
           <View>
+            {/* ⚡ APLICAMOS EL HELPER PARA EL NOMBRE DEL COMENTARIO */}
             <Text style={styles.commentAuthor}>
-              {comment.created_by?.username || 'Anónimo'}
+              {getCommentAuthorName(comment)}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Text style={styles.commentDate}>
                 {moment(comment.created_at).fromNow()}
               </Text>
               
-              {/* ⚡ BOTÓN DE ELIMINAR: Aparece si soy el dueño del comentario */}
-              {currentUserId === comment.created_by?.id && (
+              {/* BOTÓN DE ELIMINAR */}
+              {(currentUserId === comment.created_by?.id || currentUserId === comment.user?.id) && (
                 <TouchableOpacity onPress={() => onDelete(comment.id)} style={{ marginLeft: 10 }}>
                   <Ionicons name="trash-outline" size={14} color="#ff6b6b" />
                 </TouchableOpacity>
@@ -61,7 +81,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.commentText}>{comment.text}</Text>
+      <Text style={styles.commentText}>{comment.text || comment.content}</Text>
 
       <View style={styles.commentFooter}>
         <TouchableOpacity onPress={() => onReply(comment)}>
@@ -109,14 +129,18 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [commentText, setCommentText] = useState('');
   const [isCreatingComment, setIsCreatingComment] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
-  
-  // ⚡ ID del usuario logueado
   const [currentUserId, setCurrentUserId] = useState(null);
 
-  const fetchComments = useCallback(async () => {
+const fetchComments = useCallback(async () => {
     try {
       const response = await api.get(`tasks/${taskId}/comments/`);
       const allComments = response.data.results ?? response.data ?? [];
+      
+      // ⚡ LOG DE DEBUGEO: Imprimimos el primer comentario si existe
+      if (allComments.length > 0) {
+        console.log("🐛 DATA DEL PRIMER COMENTARIO:", JSON.stringify(allComments[0], null, 2));
+      }
+
       const parentComments = allComments.filter(c => c.is_parent || !c.parent);
       setComments(parentComments);
     } catch (error) {
@@ -128,6 +152,10 @@ const TaskDetailScreen = ({ route, navigation }) => {
     try {
       setLoading(true);
       const response = await api.get(`tasks/${taskId}/`);
+      
+      // ⚡ LOG DE DEBUGEO: Imprimimos toda la estructura de la tarea
+      console.log("🐛 DATA DE LA TAREA:", JSON.stringify(response.data, null, 2));
+
       setTask(response.data);
       await fetchComments();
     } catch (error) {
@@ -138,14 +166,11 @@ const TaskDetailScreen = ({ route, navigation }) => {
     }
   }, [taskId, fetchComments]);
 
+
   useFocusEffect(
     useCallback(() => {
-      // ⚡ Obtenemos el ID del usuario
       api.get('users/me/')
-         .then(res => {
-            console.log("ID del usuario logueado:", res.data.id); // Agregamos log
-            setCurrentUserId(res.data.id);
-         })
+         .then(res => setCurrentUserId(res.data.id))
          .catch(err => console.error("Error al obtener usuario:", err));
 
       fetchTaskDetail();
@@ -196,13 +221,11 @@ const TaskDetailScreen = ({ route, navigation }) => {
     }
   };
 
-  // ⚡ FUNCIÓN DE ELIMINAR BLINDADA
-// ⚡ LA FUNCIÓN PARA ELIMINAR (Soporte Web + Móvil)
   const handleDeleteComment = (commentId) => {
     const executeDelete = async () => {
       try {
         await api.delete(`tasks/${taskId}/comments/${commentId}/`);
-        fetchComments(); // Recargamos para que desaparezca
+        fetchComments(); 
         if (Platform.OS !== 'web') Alert.alert("Éxito", "Comentario eliminado.");
       } catch (error) {
         console.error("Error eliminando comentario:", error.response?.data || error.message);
@@ -212,23 +235,16 @@ const TaskDetailScreen = ({ route, navigation }) => {
     };
 
     if (Platform.OS === 'web') {
-      // En Web usamos el confirm nativo del navegador
-      const confirmDelete = window.confirm("¿Estás seguro de que deseas eliminar este comentario de forma permanente?");
-      if (confirmDelete) {
+      if (window.confirm("¿Estás seguro de que deseas eliminar este comentario de forma permanente?")) {
         executeDelete();
       }
     } else {
-      // En Móvil usamos el Alert nativo de iOS/Android
       Alert.alert(
         "Eliminar Comentario",
         "¿Estás seguro de que deseas eliminar este comentario de forma permanente?",
         [
           { text: "Cancelar", style: "cancel" },
-          { 
-            text: "Eliminar", 
-            style: "destructive",
-            onPress: executeDelete
-          }
+          { text: "Eliminar", style: "destructive", onPress: executeDelete }
         ]
       );
     }
@@ -237,6 +253,43 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const onReplyPress = (comment) => {
     setReplyingTo(comment);
   };
+
+  // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA PRINCIPAL
+// ⚡ HELPER PARA EL NOMBRE DE LA TAREA PRINCIPAL
+  const getTaskAuthorName = () => {
+    if (!task) return 'Anónimo';
+    
+    // 1. Intentamos el nombre real del usuario relacional
+    if (task.user?.first_name) {
+      return `${task.user.first_name} ${task.user.last_name || ''}`.trim();
+    }
+    // 2. Intentamos el campo de texto 'username' que tienes en el modelo Task
+    if (task.username) {
+      return task.username;
+    }
+    // 3. Fallback al inicio del correo electrónico
+    if (task.user?.email) {
+      return task.user.email.split('@')[0];
+    }
+    
+    return 'Anónimo';
+  };
+
+  // ⚡ HELPER PARA EL AVATAR DE LA TAREA PRINCIPAL
+  const getTaskAuthorAvatar = () => {
+    if (!task) return 'https://ui-avatars.com/api/?name=A';
+    
+    // SimpleUserSerializer devuelve 'user_image' directamente en el objeto user
+    const uri = task.user?.user_image || task.image;
+    return getImageUrl(uri) || 'https://ui-avatars.com/api/?name=' + getTaskAuthorName();
+  };
+
+  // ⚡ HELPER PARA EXTRAER EL AVATAR DEL AUTOR DE LA TAREA PRINCIPAL
+  // const getTaskAuthorAvatar = () => {
+  //   if (!task) return 'https://ui-avatars.com/api/?name=A';
+  //   const uri = task.user_image || task.user?.user_image;
+  //   return getImageUrl(uri) || 'https://ui-avatars.com/api/?name=' + getTaskAuthorName();
+  // };
 
   if (loading || !task) return <ActivityIndicator size="large" color="#4dabf7" style={{ marginTop: 50 }} />;
 
@@ -257,6 +310,15 @@ const TaskDetailScreen = ({ route, navigation }) => {
       <ScrollView style={styles.content}>
         {/* LA TAREA PRINCIPAL */}
         <View style={styles.taskCard}>
+          {/* ⚡ AÑADIMOS EL HEADER CON EL NOMBRE Y AVATAR DEL AUTOR */}
+          <View style={styles.taskAuthorHeader}>
+            <Image source={{ uri: getTaskAuthorAvatar() }} style={styles.taskAuthorAvatar} />
+            <View>
+              <Text style={styles.taskAuthorName}>{getTaskAuthorName()}</Text>
+              <Text style={styles.taskDate}>{moment(task.created_at).format('LL')}</Text>
+            </View>
+          </View>
+
           <View style={styles.taskInfo}>
             <Text style={styles.taskTitle}>{task.title}</Text>
             <Text style={styles.taskDescription}>{task.description}</Text>
@@ -298,7 +360,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
       {replyingTo && (
         <View style={styles.replyBanner}>
           <Text style={styles.replyBannerText}>
-            Respondiendo a: <Text style={{fontWeight: 'bold'}}>{replyingTo.created_by?.username}</Text>
+            Respondiendo a: <Text style={{fontWeight: 'bold'}}>{replyingTo.created_by?.username || replyingTo.user?.username || 'Usuario'}</Text>
           </Text>
           <TouchableOpacity onPress={() => setReplyingTo(null)}>
             <Ionicons name="close-circle" size={20} color="#666" />
@@ -338,6 +400,13 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   
   taskCard: { backgroundColor: '#fff', margin: 12, borderRadius: 12, overflow: 'hidden' },
+  
+  // ⚡ ESTILOS NUEVOS PARA EL AUTOR DE LA TAREA
+  taskAuthorHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, paddingBottom: 0, gap: 10 },
+  taskAuthorAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#eee' },
+  taskAuthorName: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  taskDate: { fontSize: 12, color: '#999' },
+  
   taskInfo: { padding: 16 },
   taskTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8 },
   taskDescription: { fontSize: 15, color: '#555', lineHeight: 22 },

@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, createContext } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { clearAuthData } from './api'; // Importamos tu función de limpieza
 
 // Tus pantallas
 import HomeScreen from './screens/HomeScreen';
@@ -17,7 +18,9 @@ import TaskDetailScreen from './screens/TaskDetailScreen';
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
-// 1. Stack para la sección de Tareas
+// ⚡ 1. CREAMOS EL CONTEXTO GLOBAL
+export const AuthContext = createContext();
+
 const TasksStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -28,7 +31,6 @@ const TasksStackNavigator = () => {
   );
 };
 
-// 2. Stack para la sección de Inicio
 const HomeStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -37,7 +39,6 @@ const HomeStackNavigator = () => {
   );
 };
 
-// 3. ¡EL COMPONENTE QUE FALTABA! Definición de los Tabs
 const AuthenticatedTabs = () => {
   return (
     <Tab.Navigator
@@ -45,31 +46,23 @@ const AuthenticatedTabs = () => {
         headerShown: false,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
-          if (route.name === 'Home') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Tasks') {
-            iconName = focused ? 'list' : 'list-outline';
-          } else if (route.name === 'Profile') {
-            iconName = focused ? 'person' : 'person-outline';
-          }
+          if (route.name === 'HomeTab') iconName = focused ? 'home' : 'home-outline';
+          else if (route.name === 'Tasks') iconName = focused ? 'list' : 'list-outline';
+          else if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
+          
           return <Ionicons name={iconName} size={size} color={color} />;
         },
         tabBarActiveTintColor: '#4dabf7',
         tabBarInactiveTintColor: '#999',
       })}
     >
-      <Tab.Screen 
-  name="HomeTab" // Antes decía "Home"
-  component={HomeStackNavigator} 
-  options={{ tabBarLabel: 'Inicio' }} 
-/>
+      <Tab.Screen name="HomeTab" component={HomeStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
       <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
       <Tab.Screen name="Profile" component={HomeScreen} options={{ tabBarLabel: 'Perfil' }} />
     </Tab.Navigator>
   );
 };
 
-// 4. COMPONENTE PRINCIPAL (Export Default al final)
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [userToken, setUserToken] = useState(null);
@@ -78,7 +71,8 @@ export default function App() {
     const bootstrapAsync = async () => {
       let token;
       try {
-        token = await AsyncStorage.getItem('token');
+        // CORRECCIÓN: Buscamos 'accessToken' para que coincida con api.js
+        token = await AsyncStorage.getItem('accessToken');
       } catch (e) {
         console.log("Error leyendo el token", e);
       }
@@ -87,6 +81,17 @@ export default function App() {
     };
     bootstrapAsync();
   }, []);
+
+  // ⚡ 2. DEFINIMOS LAS FUNCIONES DEL CONTROL REMOTO
+  const authContext = useMemo(() => ({
+    signIn: (token) => {
+      setUserToken(token); // Cambia el estado a logueado
+    },
+    signOut: async () => {
+      await clearAuthData(); // Borra los tokens físicamente
+      setUserToken(null); // Cambia el estado a deslogueado instantáneamente
+    },
+  }), []);
 
   if (isLoading) {
     return (
@@ -97,17 +102,19 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {userToken == null ? (
-          // Pasamos setUserToken como prop para que LoginScreen pueda "avisar"
-          <Stack.Screen name="Login">
-            {(props) => <LoginScreen {...props} onLoginSuccess={setUserToken} />}
-          </Stack.Screen>
-        ) : (
-          <Stack.Screen name="Home" component={AuthenticatedTabs} />
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
+    // ⚡ 3. ENVOLVEMOS LA APP CON EL CONTEXTO
+    <AuthContext.Provider value={authContext}>
+      <NavigationContainer>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {userToken == null ? (
+            // Si no hay token, SOLO existe el Login. Ni siquiera cargan las tabs.
+            <Stack.Screen name="Login" component={LoginScreen} />
+          ) : (
+            // Si hay token, cargan las tabs.
+            <Stack.Screen name="Home" component={AuthenticatedTabs} />
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </AuthContext.Provider>
   );
 }

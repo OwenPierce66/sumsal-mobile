@@ -1,12 +1,15 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useContext } from 'react';
 import { View, Text, FlatList, StyleSheet, Button, Alert, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import api, { clearAuthData } from '../api'; // Importamos lo que realmente usamos
+import { AuthContext } from '../App';
 
 const HomeScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const { signOut } = useContext(AuthContext);
 
   const fetchData = useCallback(async () => {
     try {
@@ -37,13 +40,10 @@ const HomeScreen = ({ navigation }) => {
     }, [fetchData])
   );
 
-const handleLogout = async () => {
-  await clearAuthData();
-  // No uses navigation.reset, simplemente reinicia la App o 
-  // deja que el estado global de App.js (si usas Context) haga el trabajo.
-  // Como solución rápida para tu estructura actual:
-  Alert.alert("Sesión Cerrada", "Vuelve a abrir la app para ingresar.");
-};
+const handleLogout = () => {
+    // Esto borra los tokens y le avisa a App.js que te expulse al Login de inmediato
+    signOut(); 
+  };
 
   const renderTask = ({ item }) => (
     <TouchableOpacity
