@@ -102,13 +102,16 @@ export default function App() {
   }
 
   return (
-    // ⚡ 3. ENVOLVEMOS LA APP CON EL CONTEXTO
+   // ⚡ 3. ENVOLVEMOS LA APP CON EL CONTEXTO
     <AuthContext.Provider value={authContext}>
       <NavigationContainer>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {userToken == null ? (
-            // Si no hay token, SOLO existe el Login. Ni siquiera cargan las tabs.
-            <Stack.Screen name="Login" component={LoginScreen} />
+            // ⚡ EL ARREGLO: Agrupamos Login y Register para los que no tienen sesión
+            <>
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="Register" component={RegisterScreen} />
+            </>
           ) : (
             // Si hay token, cargan las tabs.
             <Stack.Screen name="Home" component={AuthenticatedTabs} />

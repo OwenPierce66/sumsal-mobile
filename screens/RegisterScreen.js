@@ -1,17 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react'; // ⚡ IMPORTAMOS useContext
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import api, { saveAuthData } from '../api';
+import { AuthContext } from '../App'; // ⚡ IMPORTAMOS EL CONTEXTO GLOBAL
 
 const RegisterScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState(''); // ⚡ NUEVO ESTADO PARA USERNAME
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  // ⚡ Obtenemos signIn del control remoto de App.js
+  const { signIn } = useContext(AuthContext);
+
   const handleRegister = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Email y contraseña son obligatorios.');
+    if (!email || !password || !username) {
+      Alert.alert('Error', 'Email, username y contraseña son obligatorios.');
       return;
     }
 
@@ -28,16 +33,18 @@ const RegisterScreen = ({ navigation }) => {
     try {
       const response = await api.post('auth/register/', {
         email,
+        username: username.toLowerCase().trim(), // Lo mandamos en minúsculas y sin espacios
         first_name: firstName,
         last_name: lastName,
         password,
       });
 
+      // Guardamos los tokens
       await saveAuthData(response.data);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Home' }],
-      });
+      
+      // ⚡ Le avisamos a App.js que ya hay sesión y entramos directo a Home
+      signIn(response.data.access);
+
     } catch (error) {
       const backendData = error.response?.data;
       let message = 'No se pudo registrar. Verifica los datos.';
@@ -67,9 +74,19 @@ const RegisterScreen = ({ navigation }) => {
         keyboardType="email-address"
         autoCapitalize="none"
       />
+      
+      {/* ⚡ NUEVO INPUT PARA EL USERNAME */}
       <TextInput
         style={styles.input}
-        placeholder="Nombre"
+        placeholder="Nombre de usuario (@apodo)"
+        value={username}
+        onChangeText={setUsername}
+        autoCapitalize="none"
+      />
+
+      <TextInput
+        style={styles.input}
+        placeholder="Nombre real"
         value={firstName}
         onChangeText={setFirstName}
       />
