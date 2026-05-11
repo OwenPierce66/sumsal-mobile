@@ -14,6 +14,8 @@ import RegisterScreen from './screens/RegisterScreen';
 import TasksScreen from './screens/TasksScreen';
 import CreateTaskScreen from './screens/CreateTaskScreen';
 import TaskDetailScreen from './screens/TaskDetailScreen';
+import ForumScreen from './screens/ForumScreen';
+import PostDetailScreen from './screens/PostDetailScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -39,6 +41,15 @@ const HomeStackNavigator = () => {
   );
 };
 
+const ForumStackNavigator = () => {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="ForumMain" component={ForumScreen} />
+      <Stack.Screen name="PostDetail" component={PostDetailScreen} />
+    </Stack.Navigator>
+  );
+};
+
 const AuthenticatedTabs = () => {
   return (
     <Tab.Navigator
@@ -48,6 +59,7 @@ const AuthenticatedTabs = () => {
           let iconName;
           if (route.name === 'HomeTab') iconName = focused ? 'home' : 'home-outline';
           else if (route.name === 'Tasks') iconName = focused ? 'list' : 'list-outline';
+          else if (route.name === 'Forum') iconName = focused ? 'chatbox' : 'chatbox-outline';
           else if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
           
           return <Ionicons name={iconName} size={size} color={color} />;
@@ -58,6 +70,7 @@ const AuthenticatedTabs = () => {
     >
       <Tab.Screen name="HomeTab" component={HomeStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
       <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
+      <Tab.Screen name="Forum" component={ForumStackNavigator} options={{ tabBarLabel: 'Foro' }} />
       <Tab.Screen name="Profile" component={HomeScreen} options={{ tabBarLabel: 'Perfil' }} />
     </Tab.Navigator>
   );

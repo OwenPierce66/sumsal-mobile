@@ -97,6 +97,28 @@ const TasksScreen = ({ navigation }) => {
     return `http://192.168.0.103:8001${cleanPath}`;
   };
 
+  // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA
+  const getAuthorName = (item) => {
+    const userObj = item.user;
+    
+    if (userObj) {
+      // 1. Intentamos usar el nombre y apellido real
+      if (userObj.first_name) {
+        return `${userObj.first_name} ${userObj.last_name || ''}`.trim();
+      }
+      // 2. Usamos username si existe
+      if (userObj.username) {
+        return userObj.username;
+      }
+      // 3. Si no ha puesto nombre, usamos la primera parte de su email
+      if (userObj.email) {
+        return userObj.email.split('@')[0];
+      }
+    }
+    // 4. Fallback final
+    return item.username || 'Anónimo';
+  };
+
   const renderSubContent = (task, section) => {
     const content = task[section] || []; 
     if (content.length === 0) return <Text style={styles.noContent}>Sin datos en esta sección</Text>;
@@ -133,12 +155,12 @@ const TasksScreen = ({ navigation }) => {
         {/* HEADER LIMPIO: Solo el avatar del usuario y los 3 puntitos */}
         <View style={styles.taskHeader}>
           <Image 
-            source={{ uri: item.user_image || 'https://via.placeholder.com/40' }} 
+            source={{ uri: getImageUrl(item.user?.user_image) || 'https://via.placeholder.com/40' }} 
             style={styles.avatar} 
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.taskTitle}>{item.title}</Text>
-            <Text style={styles.taskUser}>{item.user?.username || item.username || 'Anónimo'}</Text>
+            <Text style={styles.taskUser}>{getAuthorName(item)}</Text>
           </View>
           <TouchableOpacity onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
             <Ionicons name="ellipsis-vertical" size={20} color="#ccc" />
