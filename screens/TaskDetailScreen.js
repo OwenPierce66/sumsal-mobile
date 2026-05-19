@@ -21,9 +21,9 @@ const getImageUrl = (path) => {
 // =====================================================================
 // COMPONENTE RECURSIVO (COMENTARIOS)
 // =====================================================================
-const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUserId }) => {
-  const [showReplies, setShowReplies] = useState(false);
+const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUserId, expandedCommentIds, toggleExpand }) => {
   const hasChildren = comment.children && comment.children.length > 0;
+  const isExpanded = expandedCommentIds.includes(comment.id);
 
   const marginLeft = depth > 0 ? 16 : 0;
   const borderLeftWidth = depth > 0 ? 2 : 0;
@@ -89,16 +89,16 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
         </TouchableOpacity>
 
         {hasChildren && (
-          <TouchableOpacity onPress={() => setShowReplies(!showReplies)} style={styles.toggleRepliesBtn}>
+          <TouchableOpacity onPress={() => toggleExpand(comment.id)} style={styles.toggleRepliesBtn}>
             <Text style={styles.toggleRepliesText}>
-              {showReplies ? "Ocultar respuestas" : `Ver respuestas (${comment.children.length})`}
+              {isExpanded ? "Ocultar respuestas" : `Ver respuestas (${comment.children.length})`}
             </Text>
           </TouchableOpacity>
         )}
       </View>
 
       {/* RENDERIZADO RECURSIVO DE RESPUESTAS */}
-      {showReplies && hasChildren && (
+      {isExpanded && hasChildren && (
         <View style={styles.repliesContainer}>
           {comment.children.map(child => (
             <CommentItem 
@@ -109,6 +109,8 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
               onLike={onLike}
               onDelete={onDelete}
               currentUserId={currentUserId}
+              expandedCommentIds={expandedCommentIds}
+              toggleExpand={toggleExpand}
             />
           ))}
         </View>
@@ -130,6 +132,13 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [isCreatingComment, setIsCreatingComment] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
+  const [expandedCommentIds, setExpandedCommentIds] = useState([]);
+
+  const toggleCommentExpansion = (commentId) => {
+    setExpandedCommentIds((prev) =>
+      prev.includes(commentId) ? prev.filter((id) => id !== commentId) : [...prev, commentId]
+    );
+  };
 
 const fetchComments = useCallback(async () => {
     try {
@@ -182,17 +191,19 @@ const fetchComments = useCallback(async () => {
     setIsCreatingComment(true);
 
     try {
-      const formData = new FormData();
-      formData.append('text', commentText);
-      formData.append('post', taskId); 
+      // ⚡ ENVIAMOS UN JSON EN LUGAR DE FORMDATA
+      // Esto evita conflictos con el header 'Content-Type: application/json' predeterminado de Axios
+      const payload = {
+        text: commentText,
+        ...(replyingTo && { parent: replyingTo.id })
+      };
 
-      if (replyingTo) {
-        formData.append('parent', replyingTo.id);
-      }
-
-      await api.post(`tasks/${taskId}/comments/`, formData);
+      await api.post(`tasks/${taskId}/comments/`, payload);
 
       setCommentText('');
+      if (replyingTo) {
+        setExpandedCommentIds((prev) => [...new Set([...prev, replyingTo.id])]);
+      }
       setReplyingTo(null);
       await fetchComments();
     } catch (error) {
@@ -252,6 +263,11 @@ const fetchComments = useCallback(async () => {
 
   const onReplyPress = (comment) => {
     setReplyingTo(comment);
+  };
+
+  // ⚡ HELPER PARA CONTAR COMENTARIOS ANIDADOS
+  const countNestedComments = (comments = []) => {
+    return comments.reduce((total, comment) => total + 1 + countNestedComments(comment.children || []), 0);
   };
 
   // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA PRINCIPAL
@@ -331,7 +347,7 @@ const fetchComments = useCallback(async () => {
             </TouchableOpacity>
             <View style={styles.actionBtn}>
               <Ionicons name="chatbubble-outline" size={20} color="#999" />
-              <Text style={styles.actionBtnText}>{task.comments_count || 0}</Text>
+              <Text style={styles.actionBtnText}>{countNestedComments(comments)}</Text>
             </View>
           </View>
         </View>
@@ -349,7 +365,9 @@ const fetchComments = useCallback(async () => {
                 onReply={onReplyPress} 
                 onLike={handleLikeComment}
                 onDelete={handleDeleteComment} 
-                currentUserId={currentUserId} 
+                currentUserId={currentUserId}
+                expandedCommentIds={expandedCommentIds}
+                toggleExpand={toggleCommentExpansion}
               />
             ))
           )}

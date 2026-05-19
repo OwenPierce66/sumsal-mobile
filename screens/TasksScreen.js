@@ -5,10 +5,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import moment from 'moment';
 import api from '../api';
 
 const TasksScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
+  const [sharedTasks, setSharedTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -18,6 +20,8 @@ const TasksScreen = ({ navigation }) => {
   // ⚡ NUEVOS ESTADOS PARA EL INFINITE SCROLL
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [sharedPage, setSharedPage] = useState(1);
+  const [sharedHasMore, setSharedHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
   // Modificamos fetchTasks para que acepte el número de página
@@ -26,25 +30,18 @@ const TasksScreen = ({ navigation }) => {
       if (pageNumber === 1) setLoading(true);
       else setLoadingMore(true);
 
-      // Enviamos el parámetro 'page' a Django
       const response = await api.get('tasks/', { params: { pch: tema, page: pageNumber } });
       const data = response.data.results ?? response.data ?? [];
 
-      // Si es la página 1, reemplazamos. Si es mayor, concatenamos.
       if (pageNumber === 1) {
         setTasks(data);
       } else {
         setTasks(prev => [...prev, ...data]);
       }
 
-      // Verificamos si Django nos dice que hay una página siguiente
-      if (response.data.next) {
-        setHasMore(true);
-      } else {
-        setHasMore(false);
-      }
+      setPage(pageNumber);
+      setHasMore(!!response.data.next);
 
-      // Mantenemos tu lógica de secciones
       const sections = {};
       data.forEach(t => { sections[t.id] = 'subtasks'; });
       setVisibleSections(prev => pageNumber === 1 ? sections : { ...prev, ...sections });
@@ -58,25 +55,100 @@ const TasksScreen = ({ navigation }) => {
     }
   }, [tema]);
 
-  useFocusEffect(useCallback(() => { 
-    // Al entrar a la pantalla o cambiar de tema, siempre empezamos en la página 1
+  const fetchSharedTasks = useCallback(async (pageNumber = 1) => {
+    try {
+      const response = await api.get('shared-tasks/', { params: { page: pageNumber } });
+      const data = response.data.results ?? response.data ?? [];
+
+      if (pageNumber === 1) {
+        setSharedTasks(data);
+      } else {
+        setSharedTasks(prev => [...prev, ...data]);
+      }
+
+      setSharedHasMore(!!response.data.next);
+      setSharedPage(pageNumber);
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      if (detail === 'Invalid page.') {
+        setSharedHasMore(false);
+        return;
+      }
+      console.error('Error fetching shared tasks:', error.response?.data || error.message);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => {
     setPage(1);
-    fetchTasks(1); 
-  }, [fetchTasks]));
+    setSharedPage(1);
+    setHasMore(true);
+    setSharedHasMore(true);
+    fetchTasks(1);
+    fetchSharedTasks(1);
+  }, [fetchTasks, fetchSharedTasks]));
 
   const onRefresh = () => {
     setRefreshing(true);
     setPage(1);
+    setSharedPage(1);
     setHasMore(true);
-    fetchTasks(1);
+    setSharedHasMore(true);
+    Promise.all([fetchTasks(1), fetchSharedTasks(1)]).finally(() => setRefreshing(false));
+  };
+
+  const handleShareTask = async (taskId) => {
+    if (!taskId) return;
+
+    try {
+      await api.post('shared-tasks/', { task_id: taskId, description: '' });
+      fetchTasks(1);
+      fetchSharedTasks(1);
+    } catch (error) {
+      console.error('Error sharing task:', error.response?.data || error.message);
+    }
+  };
+
+  const handleLikeSharedTask = async (sharedTaskId) => {
+    try {
+      const response = await api.post(`shared-tasks/${sharedTaskId}/like/`);
+      setSharedTasks((prev) => prev.map((item) => {
+        if (item.id !== sharedTaskId) return item;
+        return {
+          ...item,
+          likes_count: response.data.likes_count_shared ?? response.data.likes_count ?? item.likes_count,
+          user_has_liked: response.data.liked ?? item.user_has_liked,
+        };
+      }));
+    } catch (error) {
+      console.error('Error liking shared task:', error.response?.data || error.message);
+    }
+  };
+
+  const handleCommentSharedTask = (sharedTaskId) => {
+    navigation.navigate('SharedTaskDetail', { sharedTaskId });
+  };
+
+  const handleShareSharedTask = async (taskId) => {
+    if (!taskId) return;
+
+    try {
+      await api.post('shared-tasks/', { task_id: taskId, description: '' });
+      fetchSharedTasks(1);
+    } catch (error) {
+      console.error('Error sharing task:', error.response?.data || error.message);
+    }
   };
 
   // ⚡ FUNCIÓN PARA CARGAR MÁS DATOS AL BAJAR
   const loadMoreTasks = () => {
-    if (!loadingMore && hasMore) {
-      const nextPage = page + 1;
-      setPage(nextPage);
-      fetchTasks(nextPage);
+    if (!loadingMore && (hasMore || sharedHasMore)) {
+      setLoadingMore(true);
+      const promises = [];
+
+      if (hasMore) promises.push(fetchTasks(page + 1));
+      if (sharedHasMore) promises.push(fetchSharedTasks(sharedPage + 1));
+
+      Promise.all(promises).finally(() => setLoadingMore(false));
     }
   };
 
@@ -84,10 +156,25 @@ const TasksScreen = ({ navigation }) => {
     setVisibleSections(prev => ({ ...prev, [taskId]: section }));
   };
 
-  const filteredTasks = tasks.filter((task) =>
-    task.title?.toLowerCase().includes(searchText.toLowerCase()) ||
-    task.description?.toLowerCase().includes(searchText.toLowerCase())
-  );
+  const feedItems = React.useMemo(() => {
+    const plainTasks = tasks.map((task) => ({ ...task, feedType: 'task' }));
+    const sharedItems = sharedTasks.map((shared) => ({ ...shared, feedType: 'shared' }));
+    return [...plainTasks, ...sharedItems].sort(
+      (a, b) => new Date(b.created_at) - new Date(a.created_at)
+    );
+  }, [tasks, sharedTasks]);
+
+  const filteredTasks = feedItems.filter((item) => {
+    const title = item.feedType === 'shared' ? item.task?.title : item.title;
+    const description = item.feedType === 'shared'
+      ? (item.description || item.task?.description)
+      : item.description;
+
+    return (
+      title?.toLowerCase().includes(searchText.toLowerCase()) ||
+      description?.toLowerCase().includes(searchText.toLowerCase())
+    );
+  });
 
   // HELPER INFALIBLE CON LA IP ACTUAL
   const getImageUrl = (path) => {
@@ -119,6 +206,11 @@ const TasksScreen = ({ navigation }) => {
     return item.username || 'Anónimo';
   };
 
+  // ⚡ HELPER PARA CONTAR COMENTARIOS ANIDADOS
+  const countNestedComments = (comments = []) => {
+    return comments.reduce((total, comment) => total + 1 + countNestedComments(comment.children || []), 0);
+  };
+
   const renderSubContent = (task, section) => {
     const content = task[section] || []; 
     if (content.length === 0) return <Text style={styles.noContent}>Sin datos en esta sección</Text>;
@@ -147,12 +239,78 @@ const TasksScreen = ({ navigation }) => {
     });
   };
 
-  const renderTaskCard = ({ item }) => {
+  const renderSharedItemCard = (shared) => {
+    const task = shared.task || {};
+
+    return (
+      <View style={styles.taskCard}>
+        <View style={styles.sharedByHeader}>
+          <Text style={styles.sharedByName}>{shared.shared_by?.first_name || 'Usuario'} compartió</Text>
+          <Text style={styles.sharedDate}>{moment(shared.created_at).fromNow()}</Text>
+        </View>
+
+        {shared.description ? (
+          <Text style={styles.sharedDescription}>{shared.description}</Text>
+        ) : null}
+
+        <View style={styles.originalTaskCard}>
+          <View style={styles.taskHeader}>
+            <Image 
+              source={{ uri: getImageUrl(task.user?.user_image) || 'https://via.placeholder.com/40' }} 
+              style={styles.avatar} 
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.taskTitle}>{task.title}</Text>
+              <Text style={styles.taskUser}>{task.user?.first_name || 'Usuario'}</Text>
+            </View>
+            <TouchableOpacity onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}>
+              <Ionicons name="ellipsis-vertical" size={20} color="#ccc" />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.taskDescription}>{task.description}</Text>
+        </View>
+
+        <View style={styles.taskFooter}>
+          <View style={styles.statsContainer}>
+            <TouchableOpacity style={styles.stat} onPress={() => handleLikeSharedTask(shared.id)}>
+              <Ionicons
+                name={shared.user_has_liked ? 'heart' : 'heart-outline'}
+                size={18}
+                color={shared.user_has_liked ? '#ff6b6b' : '#999'}
+              />
+              <Text style={styles.statText}>{shared.likes_count ?? 0}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.stat}
+              onPress={() => handleCommentSharedTask(shared.id)}
+            >
+              <Ionicons name="chatbubble-outline" size={18} color="#4dabf7" />
+              <Text style={styles.statText}>{shared.comments_count || 0}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.stat}
+              onPress={() => handleShareSharedTask(shared.task?.id)}
+            >
+              <Ionicons name="share-social-outline" size={18} color="#51cf66" />
+              <Text style={styles.statText}>Compartir</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderFeedItem = ({ item }) => {
+    if (item.feedType === 'shared') {
+      return renderSharedItemCard(item);
+    }
     const currentSec = visibleSections[item.id] || 'subtasks';
 
     return (
       <View style={styles.taskCard}>
-        {/* HEADER LIMPIO: Solo el avatar del usuario y los 3 puntitos */}
         <View style={styles.taskHeader}>
           <Image 
             source={{ uri: getImageUrl(item.user?.user_image) || 'https://via.placeholder.com/40' }} 
@@ -167,10 +325,8 @@ const TasksScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        {/* DESCRIPCIÓN PRINCIPAL */}
         <Text style={styles.taskDescription}>{item.description}</Text>
 
-        {/* TAB SELECTOR */}
         <View style={styles.sectionTabs}>
           {['subtasks', 'subfactores', 'subfuentes'].map((s) => (
             <TouchableOpacity 
@@ -185,12 +341,10 @@ const TasksScreen = ({ navigation }) => {
           ))}
         </View>
 
-        {/* CONTENIDO DINÁMICO */}
         <View style={styles.dynamicContent}>
           {renderSubContent(item, currentSec)}
         </View>
 
-        {/* FOOTER: Interacciones */}
         <View style={styles.taskFooter}>
           <View style={styles.statsContainer}>
             <View style={styles.stat}>
@@ -199,12 +353,12 @@ const TasksScreen = ({ navigation }) => {
             </View>
             <TouchableOpacity style={styles.stat} onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
               <Ionicons name="chatbubble-outline" size={18} color="#4dabf7" />
-              <Text style={styles.statText}>{item.comments_count ?? 0}</Text>
+              <Text style={styles.statText}>{item.comments_count || 0}</Text>
             </TouchableOpacity>
-            <View style={styles.stat}>
+            <TouchableOpacity style={styles.stat} onPress={() => handleShareTask(item.id)}>
               <Ionicons name="share-social-outline" size={18} color="#51cf66" />
               <Text style={styles.statText}>{item.share_count ?? 0}</Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -251,8 +405,8 @@ const TasksScreen = ({ navigation }) => {
 
       <FlatList
         data={filteredTasks}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={renderTaskCard}
+        keyExtractor={(item) => `${item.feedType}-${item.id}`}
+        renderItem={renderFeedItem}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={styles.listContent}
         
@@ -305,6 +459,11 @@ const styles = StyleSheet.create({
   statsContainer: { flexDirection: 'row', gap: 20 },
   stat: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   statText: { fontSize: 13, color: '#666', fontWeight: '600' },
+  sharedByHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  sharedByName: { fontSize: 14, fontWeight: 'bold', color: '#333' },
+  sharedDate: { fontSize: 12, color: '#999' },
+  sharedDescription: { fontSize: 13, color: '#555', marginBottom: 10 },
+  originalTaskCard: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 12, borderLeftWidth: 3, borderLeftColor: '#4dabf7', marginBottom: 10 },
 });
 
 export default TasksScreen;

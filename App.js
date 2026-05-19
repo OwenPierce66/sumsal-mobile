@@ -16,6 +16,7 @@ import CreateTaskScreen from './screens/CreateTaskScreen';
 import TaskDetailScreen from './screens/TaskDetailScreen';
 import ForumScreen from './screens/ForumScreen';
 import PostDetailScreen from './screens/PostDetailScreen';
+import SharedTaskDetailScreen from './screens/SharedTaskDetailScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -29,6 +30,7 @@ const TasksStackNavigator = () => {
       <Stack.Screen name="TasksList" component={TasksScreen} />
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
   );
 };
@@ -60,6 +62,7 @@ const AuthenticatedTabs = () => {
           if (route.name === 'HomeTab') iconName = focused ? 'home' : 'home-outline';
           else if (route.name === 'Tasks') iconName = focused ? 'list' : 'list-outline';
           else if (route.name === 'Forum') iconName = focused ? 'chatbox' : 'chatbox-outline';
+          else if (route.name === 'SharedTasks') iconName = focused ? 'share' : 'share-outline';
           else if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
           
           return <Ionicons name={iconName} size={size} color={color} />;

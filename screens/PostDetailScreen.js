@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Alert, ScrollView, Image, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import { useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import 'moment/locale/es';
@@ -92,6 +92,7 @@ const ReplyItem = ({ reply, depth = 0, onLike, onReply, replyingToId, getAuthorN
 };
 
 const PostDetailScreen = () => {
+  const navigation = useNavigation();
   const route = useRoute();
   const { postId } = route.params;
   const [post, setPost] = useState(null);
@@ -227,6 +228,13 @@ const PostDetailScreen = () => {
     >
       <ScrollView style={styles.scrollView}>
         {/* POST PRINCIPAL */}
+        <View style={styles.screenHeader}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.screenHeaderTitle}>Detalle</Text>
+        </View>
+
         <View style={styles.postCard}>
           <View style={styles.postHeader}>
             <View style={{ flex: 1 }}>
@@ -337,6 +345,9 @@ const styles = StyleSheet.create({
   postLikeBtn: { alignItems: 'center', justifyContent: 'center' },
   postLikeCount: { fontSize: 12, color: '#666', fontWeight: 'bold', marginTop: 4 },
   postContent: { fontSize: 15, color: '#444', lineHeight: 22 },
+  screenHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16, paddingHorizontal: 0 },
+  screenHeaderTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  backBtn: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#eee' },
 
   // REPLIES
   repliesSection: { marginBottom: 100 },

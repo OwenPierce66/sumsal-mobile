@@ -45,6 +45,10 @@ const ForumScreen = ({ navigation }) => {
     return 'Anónimo';
   };
 
+  const countNestedReplies = (replies = []) => {
+    return replies.reduce((total, reply) => total + 1 + countNestedReplies(reply.replies || []), 0);
+  };
+
   const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
@@ -149,7 +153,7 @@ const ForumScreen = ({ navigation }) => {
         </TouchableOpacity>
         <View style={styles.stat}>
           <Ionicons name="chatbubble-outline" size={16} color="#4dabf7" />
-          <Text style={styles.statText}>{item.replies?.length || 0}</Text>
+          <Text style={styles.statText}>{countNestedReplies(item.replies) || 0}</Text>
         </View>
       </View>
     </TouchableOpacity>
@@ -158,6 +162,11 @@ const ForumScreen = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        {navigation.canGoBack() && (
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color="#333" />
+          </TouchableOpacity>
+        )}
         <Text style={styles.headerTitle}>Foro</Text>
         <TouchableOpacity
           style={styles.createBtn}
@@ -238,6 +247,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#333' },
+  backBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
   createBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
   
   listContent: { paddingHorizontal: 12, paddingVertical: 10 },
