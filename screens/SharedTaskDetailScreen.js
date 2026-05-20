@@ -40,6 +40,12 @@ const SharedCommentItem = ({
   const marginLeft = depth > 0 ? 16 : 0;
   const borderLeftWidth = depth > 0 ? 2 : 0;
 
+  // ⚡ HELPER PARA CONTAR TODAS LAS RESPUESTAS ANIDADAS (HIJOS Y NIETOS)
+  const countAllReplies = (children = []) => {
+    return children.reduce((total, child) => total + 1 + countAllReplies(child.children || []), 0);
+  };
+  const totalReplies = countAllReplies(comment.children);
+
   const getCommentAuthorName = (c) => {
     if (c?.created_by?.first_name || c?.created_by?.last_name) {
       return `${c.created_by.first_name || ''} ${c.created_by.last_name || ''}`.trim();
@@ -105,7 +111,7 @@ const SharedCommentItem = ({
             onPress={() => toggleExpand(comment.id)}
           >
             <Text style={styles.toggleRepliesText}>
-              {isExpanded ? '−' : '+'} {comment.children?.length || 0}
+              {isExpanded ? '−' : '+'} {totalReplies}
             </Text>
           </TouchableOpacity>
         )}
@@ -162,15 +168,15 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
     }
   };
 
-  const fetchSharedTask = async () => {
+  const fetchSharedTask = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const response = await api.get(`shared-tasks/${sharedTaskId}/`);
       setSharedTask(response.data);
     } catch (error) {
-      console.error('Error fetching shared task:', error.response?.data || error.message);
+      console.error('Error fetching shared task:', error);
     } finally {
-      setLoading(false);
+      if (showLoader) setLoading(false);
     }
   };
 
@@ -190,6 +196,9 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
         parent: replyingTo?.id || null,
       };
 
+      // ⚡ ACTUALIZACIÓN OPTIMISTA: Subimos el contador inmediatamente
+      setSharedTask(prev => prev ? { ...prev, comments_count: (prev.comments_count || 0) + 1 } : prev);
+
       const response = await api.post(`shared-tasks/${sharedTaskId}/comments/`, payload);
 
       // Auto-expandir el comentario padre si se está respondiendo
@@ -200,42 +209,116 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
       setNewCommentText('');
       setReplyingTo(null);
 
-      // Recargar comentarios
-      fetchSharedTask();
+      // Recargar comentarios (Silencioso)
+      fetchSharedTask(false);
     } catch (error) {
       console.error('Error creating comment:', error);
+      setSharedTask(prev => prev ? { ...prev, comments_count: Math.max(0, (prev.comments_count || 0) - 1) } : prev);
     } finally {
       setSubmittingComment(false);
     }
   };
 
   const handleLikeComment = async (commentId) => {
+    const updateCommentLike = (commentsList, id, liked, count) => {
+      return commentsList.map(comment => {
+        if (comment.id === id) {
+          const newLiked = liked !== undefined ? liked : !comment.user_has_liked;
+          const newCount = count !== undefined ? count : comment.likes_count + (comment.user_has_liked ? -1 : 1);
+          return { ...comment, user_has_liked: newLiked, likes_count: newCount };
+        }
+        if (comment.children && comment.children.length > 0) {
+          return { ...comment, children: updateCommentLike(comment.children, id, liked, count) };
+        }
+        return comment;
+      });
+    };
+
+    // ⚡ ACTUALIZACIÓN OPTIMISTA AL DAR LIKE A COMENTARIO
+    setSharedTask(prev => {
+      if (!prev) return prev;
+      return { ...prev, comments: updateCommentLike(prev.comments, commentId) };
+    });
+
     try {
       setLiking(commentId);
-      await api.post(`shared-tasks/${sharedTaskId}/comments/${commentId}/like/`);
-      fetchSharedTask();
+      const response = await api.post(`shared-tasks/${sharedTaskId}/comments/${commentId}/like/`);
+      setSharedTask(prev => {
+        if (!prev) return prev;
+        return { ...prev, comments: updateCommentLike(prev.comments, commentId, response.data.liked, response.data.likes_count) };
+      });
     } catch (error) {
       console.error('Error liking comment:', error);
+      fetchSharedTask(false); // Revertir si hay error
     } finally {
       setLiking(null);
     }
   };
 
   const handleDeleteComment = async (commentId) => {
+    // ⚡ ACTUALIZACIÓN OPTIMISTA AL BORRAR
+    const removeComment = (list) => {
+      return list.filter(c => c.id !== commentId).map(c => {
+        if (c.children) {
+            return { ...c, children: removeComment(c.children) };
+        }
+        return c;
+      });
+    };
+
+    setSharedTask(prev => {
+      if (!prev) return prev;
+      return { 
+          ...prev, 
+          comments: removeComment(prev.comments),
+          comments_count: Math.max(0, (prev.comments_count || 0) - 1)
+      };
+    });
+
     try {
       await api.delete(`shared-tasks/${sharedTaskId}/comments/${commentId}/`);
-      fetchSharedTask();
     } catch (error) {
       console.error('Error deleting comment:', error);
+      fetchSharedTask(false); // Descargar real si falló el borrado
     }
   };
 
   const handleLikeSharedTask = async () => {
+    // ⚡ ACTUALIZACIÓN OPTIMISTA AL DAR LIKE A LA TAREA COMPARTIDA
+    setSharedTask(prev => {
+      if (!prev) return prev;
+      const isLiked = prev.user_has_liked;
+      return {
+        ...prev,
+        user_has_liked: !isLiked,
+        likes_count: prev.likes_count + (isLiked ? -1 : 1)
+      };
+    });
+
     try {
-      await api.post(`shared-tasks/${sharedTaskId}/like/`);
-      fetchSharedTask();
+      const response = await api.post(`shared-tasks/${sharedTaskId}/like/`);
+      setSharedTask(prev => prev ? { 
+        ...prev, 
+        user_has_liked: response.data.liked, 
+        likes_count: response.data.likes_count_shared 
+      } : prev);
     } catch (error) {
       console.error('Error liking shared task:', error.response?.data || error.message);
+      fetchSharedTask(false);
+    }
+  };
+
+  const handleShareTask = async () => {
+    if (!task) return;
+
+    // ⚡ ACTUALIZACIÓN OPTIMISTA
+    setSharedTask(prev => prev ? { ...prev, task: { ...prev.task, share_count: (prev.task.share_count || 0) + 1 } } : prev);
+
+    try {
+      await api.post('shared-tasks/', { task_id: task.id, description: '' });
+      fetchSharedTask(false);
+    } catch (error) {
+      console.error('Error sharing task:', error);
     }
   };
 
@@ -257,6 +340,15 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
 
   const task = sharedTask.task;
 
+  // ⚡ HELPER PARA NOMBRES
+  const getUserName = (userObj) => {
+    if (!userObj) return 'Usuario';
+    if (userObj.first_name) return `${userObj.first_name} ${userObj.last_name || ''}`.trim();
+    if (userObj.username) return userObj.username;
+    if (userObj.email) return userObj.email.split('@')[0];
+    return 'Usuario';
+  };
+
   return (
     <View style={styles.container}>
       {/* ENCABEZADO CON BOTÓN ATRÁS */}
@@ -273,11 +365,11 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
         <View style={styles.sharedByCard}>
           <View style={styles.sharedByInfo}>
             <Image
-              source={{ uri: getImageUrl(sharedTask.shared_by?.profile?.user_image) }}
+              source={{ uri: getImageUrl(sharedTask.shared_by?.user_image) }}
               style={styles.sharedByAvatar}
             />
             <View style={{ flex: 1 }}>
-              <Text style={styles.sharedByName}>{sharedTask.shared_by?.first_name || 'Usuario'}</Text>
+              <Text style={styles.sharedByName}>{getUserName(sharedTask.shared_by)}</Text>
               <Text style={styles.sharedByText}>compartió una tarea</Text>
               <Text style={styles.sharedByDate}>{moment(sharedTask.created_at).fromNow()}</Text>
             </View>
@@ -291,11 +383,11 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
         <View style={styles.taskCard}>
           <View style={styles.taskAuthorHeader}>
             <Image
-              source={{ uri: getImageUrl(task.user?.profile?.user_image) }}
+              source={{ uri: getImageUrl(task.user?.user_image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
               style={styles.taskAuthorAvatar}
             />
             <View>
-              <Text style={styles.taskAuthorName}>{task.user?.first_name || 'Usuario'}</Text>
+              <Text style={styles.taskAuthorName}>{getUserName(task.user) !== 'Usuario' ? getUserName(task.user) : (task.username || 'Anónimo')}</Text>
               <Text style={styles.taskDate}>{moment(task.created_at).fromNow()}</Text>
             </View>
           </View>
@@ -303,6 +395,14 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
           <View style={styles.taskInfo}>
             <Text style={styles.taskTitle}>{task.title}</Text>
             <Text style={styles.taskDescription}>{task.description}</Text>
+
+            {/* ⚡ EXTRAEMOS LA PRIMERA IMAGEN DISPONIBLE */}
+            {(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) && (
+              <Image
+                source={{ uri: getImageUrl(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
+                style={styles.taskImage}
+              />
+            )}
           </View>
 
           {/* ACCIONES DE TAREA */}
@@ -318,6 +418,10 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
             <TouchableOpacity style={styles.actionBtn}>
               <Ionicons name="chatbubble-outline" size={18} color="#4dabf7" />
               <Text style={styles.actionBtnText}>{sharedTask.comments_count || 0}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionBtn} onPress={handleShareTask}>
+              <Ionicons name="share-social-outline" size={18} color="#51cf66" />
+              <Text style={styles.actionBtnText}>{task?.share_count || 0}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -421,6 +525,7 @@ const styles = StyleSheet.create({
   taskInfo: { padding: 16 },
   taskTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8 },
   taskDescription: { fontSize: 15, color: '#555', lineHeight: 22 },
+  taskImage: { width: '100%', height: 220, borderRadius: 12, marginTop: 12, backgroundColor: '#eee' },
 
   actions: {
     flexDirection: 'row',

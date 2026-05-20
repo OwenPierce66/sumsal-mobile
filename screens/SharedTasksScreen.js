@@ -72,14 +72,25 @@ const SharedTasksScreen = ({ navigation }) => {
   };
 
   const handleLikeSharedTask = async (sharedTaskId) => {
+    const sharedItem = sharedTasks.find(s => s.id === sharedTaskId);
+    const isLiked = !sharedItem?.user_has_liked;
+
+    // ⚡ ACTUALIZACIÓN OPTIMISTA AL INSTANTE
+    setSharedTasks((prev) => prev.map((item) => {
+      if (item.id === sharedTaskId) {
+        return { ...item, user_has_liked: isLiked, likes_count: (item.likes_count || 0) + (isLiked ? 1 : -1) };
+      }
+      return item;
+    }));
+
     try {
       const response = await api.post(`shared-tasks/${sharedTaskId}/like/`);
       setSharedTasks((prev) => prev.map((item) => {
         if (item.id !== sharedTaskId) return item;
         return {
           ...item,
-          likes_count: response.data.likes_count_shared ?? response.data.likes_count ?? item.likes_count,
-          user_has_liked: response.data.liked ?? item.user_has_liked,
+          likes_count: response.data.likes_count_shared,
+          user_has_liked: response.data.liked,
         };
       }));
     } catch (error) {
@@ -93,12 +104,24 @@ const SharedTasksScreen = ({ navigation }) => {
 
   const handleShareSharedTask = async (taskId) => {
     if (!taskId) return;
+
+    // ⚡ ACTUALIZACIÓN OPTIMISTA
+    setSharedTasks((prev) => prev.map(s => s.task?.id === taskId ? { ...s, task: { ...s.task, share_count: (s.task.share_count || 0) + 1 } } : s));
+
     try {
       await api.post('shared-tasks/', { task_id: taskId, description: '' });
       fetchSharedTasks(1);
     } catch (error) {
       console.error('Error re-sharing task:', error.response?.data || error.message);
     }
+  };
+
+  const getUserName = (userObj, fallbackName = 'Usuario') => {
+    if (!userObj) return fallbackName;
+    if (userObj.first_name) return `${userObj.first_name} ${userObj.last_name || ''}`.trim();
+    if (userObj.username) return userObj.username;
+    if (userObj.email) return userObj.email.split('@')[0];
+    return fallbackName;
   };
 
   const renderSharedTaskCard = ({ item }) => {
@@ -115,11 +138,11 @@ const SharedTasksScreen = ({ navigation }) => {
         {/* ENCABEZADO: QUIÉN COMPARTIÓ */}
         <View style={styles.sharedByHeader}>
           <Image
-            source={{ uri: getImageUrl(item.shared_by?.profile?.user_image) }}
+            source={{ uri: getImageUrl(item.shared_by?.user_image) }}
             style={styles.sharedByAvatar}
           />
           <View style={{ flex: 1 }}>
-            <Text style={styles.sharedByName}>{item.shared_by?.first_name || 'Usuario'}</Text>
+            <Text style={styles.sharedByName}>{getUserName(item.shared_by)}</Text>
             <Text style={styles.sharedBySubtext}>compartió una tarea</Text>
           </View>
           <Text style={styles.sharedDate}>{moment(item.created_at).fromNow()}</Text>
@@ -134,13 +157,13 @@ const SharedTasksScreen = ({ navigation }) => {
         <View style={styles.originalTaskCard}>
           <View style={styles.taskHeader}>
             <Image
-              source={{ uri: getImageUrl(task.user?.profile?.user_image) }}
+              source={{ uri: getImageUrl(task.user?.user_image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
               style={styles.taskAvatar}
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.taskTitle}>{task.title}</Text>
               <Text style={styles.taskAuthor}>
-                {task.user?.first_name || 'Usuario'}
+                {getUserName(task.user) !== 'Usuario' ? getUserName(task.user) : (task.username || 'Anónimo')}
               </Text>
             </View>
           </View>
@@ -148,6 +171,14 @@ const SharedTasksScreen = ({ navigation }) => {
           <Text style={styles.taskDescription} numberOfLines={2}>
             {task.description}
           </Text>
+
+          {/* ⚡ EXTRAEMOS LA PRIMERA IMAGEN DISPONIBLE */}
+          {(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) && (
+            <Image
+              source={{ uri: getImageUrl(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
+              style={styles.taskImage}
+            />
+          )}
 
           {/* ACCIONES */}
           <View style={styles.actions}>
@@ -176,7 +207,7 @@ const SharedTasksScreen = ({ navigation }) => {
               onPress={() => handleShareSharedTask(task?.id)}
             >
               <Ionicons name="share-social-outline" size={16} color="#51cf66" />
-              <Text style={styles.actionText}>Compartir</Text>
+              <Text style={styles.actionText}>{task?.share_count ?? 0}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -275,6 +306,7 @@ const styles = StyleSheet.create({
   taskAuthor: { fontSize: 11, color: '#4dabf7', fontWeight: '600' },
 
   taskDescription: { fontSize: 13, color: '#555', lineHeight: 18, marginBottom: 10 },
+  taskImage: { width: '100%', height: 180, borderRadius: 10, marginTop: 10, backgroundColor: '#eee' },
 
   actions: {
     flexDirection: 'row',

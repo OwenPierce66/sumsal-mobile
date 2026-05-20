@@ -1,0 +1,5 @@
+En aplicaciones gigantes como Twitter, Facebook o Instagram, esto se conoce como Normalización del Estado o Sincronización de Estado Local.
+
+
+
+Las aplicaciones modernas (como Facebook, Instagram o X) usan una técnica llamada "Optimistic Updates" (Actualizaciones Optimistas). Esto significa que cuando el usuario interactúa, nosotros actualizamos la interfaz al instante usando JavaScript, y por detrás le mandamos la orden silenciosa a la API.

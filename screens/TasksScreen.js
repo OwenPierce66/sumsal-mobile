@@ -99,9 +99,12 @@ const TasksScreen = ({ navigation }) => {
   const handleShareTask = async (taskId) => {
     if (!taskId) return;
 
+    // ⚡ ACTUALIZACIÓN OPTIMISTA
+    setTasks((prev) => prev.map(t => t.id === taskId ? { ...t, share_count: (t.share_count || 0) + 1 } : t));
+    setSharedTasks((prev) => prev.map(s => s.task?.id === taskId ? { ...s, task: { ...s.task, share_count: (s.task.share_count || 0) + 1 } } : s));
+
     try {
       await api.post('shared-tasks/', { task_id: taskId, description: '' });
-      fetchTasks(1);
       fetchSharedTasks(1);
     } catch (error) {
       console.error('Error sharing task:', error.response?.data || error.message);
@@ -109,16 +112,47 @@ const TasksScreen = ({ navigation }) => {
   };
 
   const handleLikeSharedTask = async (sharedTaskId) => {
+    // ⚡ 1. Buscamos la tarea original asociada a esta publicación compartida
+    const sharedItem = sharedTasks.find(s => s.id === sharedTaskId);
+    const originalTaskId = sharedItem?.task?.id;
+    const isLiked = !sharedItem?.user_has_liked;
+
+    // ⚡ 2. ACTUALIZACIÓN OPTIMISTA - En Compartidas
+    setSharedTasks((prev) => prev.map((item) => {
+      if (item.id === sharedTaskId) {
+        return { ...item, user_has_liked: isLiked, likes_count: (item.likes_count || 0) + (isLiked ? 1 : -1) };
+      }
+      return item;
+    }));
+
+    // ⚡ 3. ACTUALIZACIÓN OPTIMISTA - En Originales (Si la tarea original está visible en el feed al mismo tiempo)
+    if (originalTaskId) {
+      setTasks((prev) => prev.map((t) => {
+        if (t.id === originalTaskId) {
+          return { ...t, user_has_liked: isLiked, likes_count: (t.likes_count || 0) + (isLiked ? 1 : -1) };
+        }
+        return t;
+      }));
+    }
+
     try {
+      // ⚡ 4. Confirmar con el servidor en segundo plano
       const response = await api.post(`shared-tasks/${sharedTaskId}/like/`);
+      const { liked, likes_count_shared, likes_count_original } = response.data;
+
       setSharedTasks((prev) => prev.map((item) => {
         if (item.id !== sharedTaskId) return item;
-        return {
-          ...item,
-          likes_count: response.data.likes_count_shared ?? response.data.likes_count ?? item.likes_count,
-          user_has_liked: response.data.liked ?? item.user_has_liked,
-        };
+        return { ...item, likes_count: likes_count_shared, user_has_liked: liked };
       }));
+
+      if (originalTaskId) {
+        setTasks((prev) => prev.map((t) => {
+          if (t.id === originalTaskId) {
+            return { ...t, user_has_liked: liked, likes_count: likes_count_original };
+          }
+          return t;
+        }));
+      }
     } catch (error) {
       console.error('Error liking shared task:', error.response?.data || error.message);
     }
@@ -130,6 +164,10 @@ const TasksScreen = ({ navigation }) => {
 
   const handleShareSharedTask = async (taskId) => {
     if (!taskId) return;
+
+    // ⚡ ACTUALIZACIÓN OPTIMISTA
+    setTasks((prev) => prev.map(t => t.id === taskId ? { ...t, share_count: (t.share_count || 0) + 1 } : t));
+    setSharedTasks((prev) => prev.map(s => s.task?.id === taskId ? { ...s, task: { ...s.task, share_count: (s.task.share_count || 0) + 1 } } : s));
 
     try {
       await api.post('shared-tasks/', { task_id: taskId, description: '' });
@@ -206,6 +244,15 @@ const TasksScreen = ({ navigation }) => {
     return item.username || 'Anónimo';
   };
 
+  // ⚡ HELPER PARA EXTRAER EL NOMBRE DE QUIEN COMPARTE
+  const getSharerName = (userObj) => {
+    if (!userObj) return 'Usuario';
+    if (userObj.first_name) return `${userObj.first_name} ${userObj.last_name || ''}`.trim();
+    if (userObj.username) return userObj.username;
+    if (userObj.email) return userObj.email.split('@')[0];
+    return 'Usuario';
+  };
+
   // ⚡ HELPER PARA CONTAR COMENTARIOS ANIDADOS
   const countNestedComments = (comments = []) => {
     return comments.reduce((total, comment) => total + 1 + countNestedComments(comment.children || []), 0);
@@ -245,7 +292,7 @@ const TasksScreen = ({ navigation }) => {
     return (
       <View style={styles.taskCard}>
         <View style={styles.sharedByHeader}>
-          <Text style={styles.sharedByName}>{shared.shared_by?.first_name || 'Usuario'} compartió</Text>
+          <Text style={styles.sharedByName}>{getSharerName(shared.shared_by)} compartió</Text>
           <Text style={styles.sharedDate}>{moment(shared.created_at).fromNow()}</Text>
         </View>
 
@@ -261,7 +308,7 @@ const TasksScreen = ({ navigation }) => {
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.taskTitle}>{task.title}</Text>
-              <Text style={styles.taskUser}>{task.user?.first_name || 'Usuario'}</Text>
+              <Text style={styles.taskUser}>{getAuthorName(task)}</Text>
             </View>
             <TouchableOpacity onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}>
               <Ionicons name="ellipsis-vertical" size={20} color="#ccc" />
@@ -269,6 +316,14 @@ const TasksScreen = ({ navigation }) => {
           </View>
 
           <Text style={styles.taskDescription}>{task.description}</Text>
+
+          {/* ⚡ EXTRAEMOS LA PRIMERA IMAGEN DISPONIBLE (SUBTASKS, SUBFACTORES O SUBFUENTES) */}
+          {(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) && (
+            <Image
+              source={{ uri: getImageUrl(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
+              style={styles.taskImage}
+            />
+          )}
         </View>
 
         <View style={styles.taskFooter}>
@@ -295,7 +350,7 @@ const TasksScreen = ({ navigation }) => {
               onPress={() => handleShareSharedTask(shared.task?.id)}
             >
               <Ionicons name="share-social-outline" size={18} color="#51cf66" />
-              <Text style={styles.statText}>Compartir</Text>
+              <Text style={styles.statText}>{shared.task?.share_count ?? 0}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -464,6 +519,7 @@ const styles = StyleSheet.create({
   sharedDate: { fontSize: 12, color: '#999' },
   sharedDescription: { fontSize: 13, color: '#555', marginBottom: 10 },
   originalTaskCard: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 12, borderLeftWidth: 3, borderLeftColor: '#4dabf7', marginBottom: 10 },
+  taskImage: { width: '100%', height: 200, borderRadius: 10, marginTop: 12, backgroundColor: '#e0e0e0' },
 });
 
 export default TasksScreen;

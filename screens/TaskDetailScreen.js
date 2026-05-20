@@ -28,6 +28,12 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
   const marginLeft = depth > 0 ? 16 : 0;
   const borderLeftWidth = depth > 0 ? 2 : 0;
 
+  // ⚡ HELPER PARA CONTAR TODAS LAS RESPUESTAS ANIDADAS (HIJOS Y NIETOS)
+  const countAllReplies = (children = []) => {
+    return children.reduce((total, child) => total + 1 + countAllReplies(child.children || []), 0);
+  };
+  const totalReplies = countAllReplies(comment.children);
+
   // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DEL COMENTARIO
 // ⚡ HELPER PARA EL NOMBRE DEL COMENTARIO (Basado en tu modelo de Django)
   const getCommentAuthorName = (c) => {
@@ -91,7 +97,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
         {hasChildren && (
           <TouchableOpacity onPress={() => toggleExpand(comment.id)} style={styles.toggleRepliesBtn}>
             <Text style={styles.toggleRepliesText}>
-              {isExpanded ? "Ocultar respuestas" : `Ver respuestas (${comment.children.length})`}
+              {isExpanded ? "Ocultar respuestas" : `Ver respuestas (${totalReplies})`}
             </Text>
           </TouchableOpacity>
         )}
@@ -205,9 +211,13 @@ const fetchComments = useCallback(async () => {
         setExpandedCommentIds((prev) => [...new Set([...prev, replyingTo.id])]);
       }
       setReplyingTo(null);
+      
+      // ⚡ ACTUALIZACIÓN OPTIMISTA: Incrementamos el conteo global al instante
+      setTask(prev => prev ? { ...prev, comments_count: (prev.comments_count || 0) + 1 } : prev);
       await fetchComments();
     } catch (error) {
       console.error('Error adding comment:', error.response?.data || error.message);
+      setTask(prev => prev ? { ...prev, comments_count: Math.max(0, (prev.comments_count || 0) - 1) } : prev); // Revertimos si hay error
       Alert.alert('Error', 'No se pudo publicar el comentario');
     } finally {
       setIsCreatingComment(false);
@@ -215,31 +225,88 @@ const fetchComments = useCallback(async () => {
   };
 
   const handleLikeTask = async () => {
+    // ⚡ ACTUALIZACIÓN OPTIMISTA: Cambiamos el corazón y el conteo al instante
+    setTask(prev => {
+      if (!prev) return prev;
+      const isLiked = prev.user_has_liked;
+      return {
+        ...prev,
+        user_has_liked: !isLiked,
+        likes_count: prev.likes_count + (isLiked ? -1 : 1)
+      };
+    });
+
     try {
-      await api.post(`tasks/${taskId}/like/`);
-      fetchTaskDetail(); 
+      const response = await api.post(`tasks/${taskId}/like/`);
+      // Confirmamos con los datos exactos del servidor en segundo plano
+      setTask(prev => prev ? { ...prev, user_has_liked: response.data.liked, likes_count: response.data.likes_count } : prev);
     } catch (error) {
       console.error('Error liking task:', error);
+      fetchTaskDetail(); // Revertimos descargando de nuevo si falló
+    }
+  };
+
+  const handleShareTask = async () => {
+    if (!task) return;
+    
+    // ⚡ ACTUALIZACIÓN OPTIMISTA
+    setTask(prev => prev ? { ...prev, share_count: (prev.share_count || 0) + 1 } : prev);
+
+    try {
+      await api.post('shared-tasks/', { task_id: task.id, description: '' });
+    } catch (error) {
+      console.error('Error sharing task:', error);
     }
   };
 
   const handleLikeComment = async (commentId) => {
+    // Helper para actualizar recursivamente los likes sin recargar
+    const updateCommentLike = (commentsList, id, liked, count) => {
+      return commentsList.map(comment => {
+        if (comment.id === id) {
+          const newLiked = liked !== undefined ? liked : !comment.user_has_liked;
+          const newCount = count !== undefined ? count : comment.likes_count + (comment.user_has_liked ? -1 : 1);
+          return { ...comment, user_has_liked: newLiked, likes_count: newCount };
+        }
+        if (comment.children && comment.children.length > 0) {
+          return { ...comment, children: updateCommentLike(comment.children, id, liked, count) };
+        }
+        return comment;
+      });
+    };
+
+    // ⚡ ACTUALIZACIÓN OPTIMISTA
+    setComments(prev => updateCommentLike(prev, commentId));
+
     try {
-      await api.post(`comments/${commentId}/like/`); 
-      fetchComments(); 
+      const response = await api.post(`comments/${commentId}/like/`); 
+      setComments(prev => updateCommentLike(prev, commentId, response.data.liked, response.data.likes_count));
     } catch (error) {
       console.error('Error liking comment:', error.response?.data || error.message);
+      fetchComments(); // Revertimos
     }
   };
 
   const handleDeleteComment = (commentId) => {
     const executeDelete = async () => {
+      // ⚡ ACTUALIZACIÓN OPTIMISTA AL BORRAR
+      const removeComment = (list) => {
+        return list.filter(c => c.id !== commentId).map(c => {
+          if (c.children) {
+             return { ...c, children: removeComment(c.children) };
+          }
+          return c;
+        });
+      };
+      setComments(prev => removeComment(prev));
+      setTask(prev => prev ? { ...prev, comments_count: Math.max(0, (prev.comments_count || 0) - 1) } : prev);
+
       try {
         await api.delete(`tasks/${taskId}/comments/${commentId}/`);
-        fetchComments(); 
         if (Platform.OS !== 'web') Alert.alert("Éxito", "Comentario eliminado.");
       } catch (error) {
         console.error("Error eliminando comentario:", error.response?.data || error.message);
+        fetchComments(); // Revertir silenciosamente en caso de fallo
         if (Platform.OS !== 'web') Alert.alert("Error", "No se pudo eliminar el comentario.");
         else window.alert("Error: No se pudo eliminar el comentario.");
       }
@@ -263,11 +330,6 @@ const fetchComments = useCallback(async () => {
 
   const onReplyPress = (comment) => {
     setReplyingTo(comment);
-  };
-
-  // ⚡ HELPER PARA CONTAR COMENTARIOS ANIDADOS
-  const countNestedComments = (comments = []) => {
-    return comments.reduce((total, comment) => total + 1 + countNestedComments(comment.children || []), 0);
   };
 
   // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA PRINCIPAL
@@ -296,7 +358,7 @@ const fetchComments = useCallback(async () => {
     if (!task) return 'https://ui-avatars.com/api/?name=A';
     
     // SimpleUserSerializer devuelve 'user_image' directamente en el objeto user
-    const uri = task.user?.user_image || task.image;
+    const uri = task.user?.user_image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image;
     return getImageUrl(uri) || 'https://ui-avatars.com/api/?name=' + getTaskAuthorName();
   };
 
@@ -347,8 +409,13 @@ const fetchComments = useCallback(async () => {
             </TouchableOpacity>
             <View style={styles.actionBtn}>
               <Ionicons name="chatbubble-outline" size={20} color="#999" />
-              <Text style={styles.actionBtnText}>{countNestedComments(comments)}</Text>
+              {/* ⚡ USAMOS EL CONTEO TOTAL DEL BACKEND QUE INCLUYE HASTA LOS NIETOS */}
+              <Text style={styles.actionBtnText}>{task.comments_count || 0}</Text>
             </View>
+            <TouchableOpacity style={styles.actionBtn} onPress={handleShareTask}>
+              <Ionicons name="share-social-outline" size={20} color="#51cf66" />
+              <Text style={styles.actionBtnText}>{task.share_count || 0}</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
