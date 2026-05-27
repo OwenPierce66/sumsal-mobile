@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Alert, ScrollView, Image, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Alert, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import 'moment/locale/es';
 import api from '../api';
+import { Image } from 'expo-image';
 
 moment.locale('es');
 
 const getImageUrl = (path) => {
   if (!path) return null;
-  let cleanPath = path.replace('localhost', '192.168.0.103').replace('127.0.0.1', '192.168.0.103');
+  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
   if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.103:8001${cleanPath}`;
+  return `http://192.168.0.115:8001${cleanPath}`;
 };
 
 // COMPONENTE RECURSIVO PARA RENDERIZAR REPLIES ANIDADAS
@@ -196,8 +197,7 @@ const PostDetailScreen = () => {
       await api.post('posts/', {
         title: '',
         content: newReply,
-        parent: replyingTo ? replyingTo.id : postId,
-      });
+        parent: replyingTo ? replyingTo.id : postId });
       setNewReply('');
       setExpandedReplyIds((prev) =>
         replyingTo ? [...new Set([...prev, replyingTo.id])] : prev
@@ -376,7 +376,6 @@ const styles = StyleSheet.create({
   replyingBannerText: { fontSize: 13, color: '#333' },
   inputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', gap: 8, alignItems: 'flex-end' },
   input: { flex: 1, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: '#333', maxHeight: 100 },
-  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
-});
+  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' } });
 
 export default PostDetailScreen;

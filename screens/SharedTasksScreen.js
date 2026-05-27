@@ -6,21 +6,20 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  Image,
   ActivityIndicator,
-  RefreshControl,
-} from 'react-native';
+  RefreshControl } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import moment from 'moment';
 import api from '../api';
+import { Image } from 'expo-image';
 
 moment.locale('es');
 
 const getImageUrl = (path) => {
   if (!path) return 'https://via.placeholder.com/40';
-  let cleanPath = path.replace('localhost', '192.168.0.103').replace('127.0.0.1', '192.168.0.103');
+  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
   if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.103:8001${cleanPath}`;
+  return `http://192.168.0.115:8001${cleanPath}`;
 };
 
 const SharedTasksScreen = ({ navigation }) => {
@@ -35,8 +34,7 @@ const SharedTasksScreen = ({ navigation }) => {
     try {
       setLoading(true);
       const response = await api.get('shared-tasks/', {
-        params: { page: pageNumber },
-      });
+        params: { page: pageNumber } });
 
       if (pageNumber === 1) {
         setSharedTasks(response.data.results || []);
@@ -90,8 +88,7 @@ const SharedTasksScreen = ({ navigation }) => {
         return {
           ...item,
           likes_count: response.data.likes_count_shared,
-          user_has_liked: response.data.liked,
-        };
+          user_has_liked: response.data.liked };
       }));
     } catch (error) {
       console.error('Error liking shared task:', error.response?.data || error.message);
@@ -270,8 +267,7 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
+    borderBottomColor: '#eee' },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#333' },
 
   listContent: { paddingHorizontal: 12, paddingVertical: 10 },
@@ -289,16 +285,14 @@ const styles = StyleSheet.create({
     color: '#555',
     fontStyle: 'italic',
     marginBottom: 12,
-    paddingHorizontal: 8,
-  },
+    paddingHorizontal: 8 },
 
   originalTaskCard: {
     backgroundColor: '#f9f9f9',
     borderRadius: 12,
     padding: 12,
     borderLeftWidth: 3,
-    borderLeftColor: '#4dabf7',
-  },
+    borderLeftColor: '#4dabf7' },
 
   taskHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
   taskAvatar: { width: 35, height: 35, borderRadius: 17.5, backgroundColor: '#eee' },
@@ -313,8 +307,7 @@ const styles = StyleSheet.create({
     gap: 15,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-  },
+    borderTopColor: '#e0e0e0' },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   actionText: { fontSize: 12, color: '#666', fontWeight: '600' },
   stat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -324,8 +317,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999',
     textAlign: 'center',
-    marginTop: 40,
-  },
-});
+    marginTop: 40 } });
 
 export default SharedTasksScreen;

@@ -1,12 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
-  RefreshControl, TextInput, Image, Platform, ActivityIndicator
+  RefreshControl, TextInput, Platform, ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment';
 import api from '../api';
+import { Image } from 'expo-image';
 
 const TasksScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
@@ -217,9 +218,9 @@ const TasksScreen = ({ navigation }) => {
   // HELPER INFALIBLE CON LA IP ACTUAL
   const getImageUrl = (path) => {
     if (!path) return null;
-    let cleanPath = path.replace('localhost', '192.168.0.103').replace('127.0.0.1', '192.168.0.103');
+    let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
     if (cleanPath.startsWith('http')) return cleanPath;
-    return `http://192.168.0.103:8001${cleanPath}`;
+    return `http://192.168.0.115:8001${cleanPath}`;
   };
 
   // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA
@@ -493,7 +494,7 @@ const styles = StyleSheet.create({
   temaBadgeText: { fontSize: 12, fontWeight: 'bold', color: '#666' },
   temaBadgeTextActive: { color: '#fff' },
   listContent: { paddingBottom: 100 },
-  taskCard: { backgroundColor: '#fff', marginHorizontal: 12, marginBottom: 16, borderRadius: 20, padding: 16, elevation: 4 },
+  taskCard: { backgroundColor: 'rgba(0, 0, 0, 0.1)', marginHorizontal: 12, marginBottom: 16, borderRadius: 20, padding: 16, elevation: 4 },
   taskHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   avatar: { width: 45, height: 45, borderRadius: 22.5, marginRight: 12, backgroundColor: '#eee' },
   taskTitle: { fontSize: 18, fontWeight: 'bold', color: '#000' },
@@ -519,7 +520,6 @@ const styles = StyleSheet.create({
   sharedDate: { fontSize: 12, color: '#999' },
   sharedDescription: { fontSize: 13, color: '#555', marginBottom: 10 },
   originalTaskCard: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 12, borderLeftWidth: 3, borderLeftColor: '#4dabf7', marginBottom: 10 },
-  taskImage: { width: '100%', height: 200, borderRadius: 10, marginTop: 12, backgroundColor: '#e0e0e0' },
-});
+  taskImage: { width: '100%', height: 200, borderRadius: 10, marginTop: 12, backgroundColor: '#e0e0e0' } });
 
 export default TasksScreen;

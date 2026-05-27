@@ -2,11 +2,12 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ⚡ Volvemos a la IP fija que funciona perfecto en tu red actual
-// export const LOCAL_IP = '192.168.0.103'; 
+// export const LOCAL_IP = '192.168.0.115'; 
 // const API_URL = `http://${LOCAL_IP}:8001/api/`;
+const API_URL = 'http://192.168.0.115:8001/api/'; 
 // const API_URL = 'http://192.168.100.76:8001/api/'; 
 
-export const API_URL = 'http://192.168.2.119:8001/api/'; 
+// export const API_URL = 'http://192.168.2.119:8001/api/'; 
 
 
 const api = axios.create({

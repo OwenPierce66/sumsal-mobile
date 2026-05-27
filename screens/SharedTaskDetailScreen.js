@@ -5,21 +5,20 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Image,
   TextInput,
-  ActivityIndicator,
-} from 'react-native';
+  ActivityIndicator } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import moment from 'moment';
 import api from '../api';
+import { Image } from 'expo-image';
 
 moment.locale('es');
 
 const getImageUrl = (path) => {
   if (!path) return 'https://via.placeholder.com/40';
-  let cleanPath = path.replace('localhost', '192.168.0.103').replace('127.0.0.1', '192.168.0.103');
+  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
   if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.103:8001${cleanPath}`;
+  return `http://192.168.0.115:8001${cleanPath}`;
 };
 
 // =====================================================================
@@ -33,8 +32,7 @@ const SharedCommentItem = ({
   onDelete,
   currentUserId,
   expandedCommentIds,
-  toggleExpand,
-}) => {
+  toggleExpand }) => {
   const hasChildren = comment.children && comment.children.length > 0;
   const isExpanded = expandedCommentIds.includes(comment.id);
   const marginLeft = depth > 0 ? 16 : 0;
@@ -193,8 +191,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
       setSubmittingComment(true);
       const payload = {
         text: newCommentText,
-        parent: replyingTo?.id || null,
-      };
+        parent: replyingTo?.id || null };
 
       // ⚡ ACTUALIZACIÓN OPTIMISTA: Subimos el contador inmediatamente
       setSharedTask(prev => prev ? { ...prev, comments_count: (prev.comments_count || 0) + 1 } : prev);
@@ -496,8 +493,7 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderColor: '#eee',
-  },
+    borderColor: '#eee' },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
   content: { flexGrow: 1 },
 
@@ -507,8 +503,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     borderLeftWidth: 4,
-    borderLeftColor: '#4dabf7',
-  },
+    borderLeftColor: '#4dabf7' },
   sharedByInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },
   sharedByAvatar: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#eee' },
   sharedByName: { fontSize: 14, fontWeight: 'bold', color: '#333' },
@@ -532,8 +527,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: '#eee',
     padding: 12,
-    gap: 12,
-  },
+    gap: 12 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'center' },
   actionBtnText: { color: '#666', fontWeight: 'bold' },
 
@@ -564,7 +558,6 @@ const styles = StyleSheet.create({
   input: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, minHeight: 45, maxHeight: 100 },
   sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
 
-  errorText: { fontSize: 16, color: '#999', textAlign: 'center', marginTop: 50 },
-});
+  errorText: { fontSize: 16, color: '#999', textAlign: 'center', marginTop: 50 } });
 
 export default SharedTaskDetailScreen;

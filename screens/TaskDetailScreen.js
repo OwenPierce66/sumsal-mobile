@@ -1,21 +1,22 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, Image, TextInput, FlatList, Platform, KeyboardAvoidingView
+  ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment'; 
 import 'moment/locale/es'; 
 import api from '../api';
+import { Image } from 'expo-image';
 
 moment.locale('es');
 
 const getImageUrl = (path) => {
   if (!path) return null;
-  let cleanPath = path.replace('localhost', '192.168.0.103').replace('127.0.0.1', '192.168.0.103');
+  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
   if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.103:8001${cleanPath}`;
+  return `http://192.168.0.115:8001${cleanPath}`;
 };
 
 // =====================================================================

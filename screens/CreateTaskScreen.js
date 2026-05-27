@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { 
   View, Text, TextInput, ScrollView, TouchableOpacity, 
-  StyleSheet, Alert, ActivityIndicator, Image, Platform 
+  StyleSheet, Alert, ActivityIndicator, Platform 
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../api';
+import { Image } from 'expo-image';
 
 const CreateTaskScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
@@ -21,8 +22,7 @@ const CreateTaskScreen = ({ navigation }) => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      quality: 0.7,
-    });
+      quality: 0.7 });
 
     if (!result.canceled) {
       const newState = [...state];
@@ -73,8 +73,7 @@ const CreateTaskScreen = ({ navigation }) => {
               formData.append(`${prefix}[${index}][image]`, {
                 uri: item.image,
                 name: `${prefix}_${index}.${fileType}`,
-                type: `image/${fileType === 'jpg' ? 'jpeg' : fileType}`,
-              });
+                type: `image/${fileType === 'jpg' ? 'jpeg' : fileType}` });
             }
           }
         }
@@ -89,8 +88,7 @@ const CreateTaskScreen = ({ navigation }) => {
 
       // Forzamos el multipart para que envíe archivos
       await api.post('tasks/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+        headers: { 'Content-Type': 'multipart/form-data' } });
       
       Alert.alert("¡Éxito!", "Aportación creada correctamente en Sumsal.");
       navigation.goBack();

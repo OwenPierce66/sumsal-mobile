@@ -1,21 +1,22 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
-  RefreshControl, TextInput, Image, Platform, ActivityIndicator, Alert
+  RefreshControl, TextInput, Platform, ActivityIndicator, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment';
 import 'moment/locale/es';
 import api from '../api';
+import { Image } from 'expo-image';
 
 moment.locale('es');
 
 const getImageUrl = (path) => {
   if (!path) return null;
-  let cleanPath = path.replace('localhost', '192.168.0.103').replace('127.0.0.1', '192.168.0.103');
+  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
   if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.103:8001${cleanPath}`;
+  return `http://192.168.0.115:8001${cleanPath}`;
 };
 
 const ForumScreen = ({ navigation }) => {
@@ -83,8 +84,7 @@ const ForumScreen = ({ navigation }) => {
     try {
       await api.post('posts/', {
         title: newPostTitle,
-        content: newPostContent,
-      });
+        content: newPostContent });
       setModalVisible(false);
       setNewPostTitle('');
       setNewPostContent('');
@@ -107,8 +107,7 @@ const ForumScreen = ({ navigation }) => {
           ? {
               ...post,
               likes_count: response.data.likes_count,
-              has_liked: response.data.liked,
-            }
+              has_liked: response.data.liked }
           : post
       );
       setPosts(updatedPosts);
@@ -273,7 +272,6 @@ const styles = StyleSheet.create({
   
   input: { borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 14, color: '#333' },
   submitBtn: { backgroundColor: '#4dabf7', borderRadius: 8, padding: 14, alignItems: 'center' },
-  submitBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-});
+  submitBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 } });
 
 export default ForumScreen;
