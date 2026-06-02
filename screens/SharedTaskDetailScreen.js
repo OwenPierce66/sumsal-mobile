@@ -6,19 +6,23 @@ import {
   TouchableOpacity,
   StyleSheet,
   TextInput,
-  ActivityIndicator } from 'react-native';
+  ActivityIndicator,
+  Platform } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import moment from 'moment';
 import api from '../api';
 import { Image } from 'expo-image';
+import ShareModal from '../components/ShareModal';
+import LikesListModal from '../components/LikesListModal';
 
 moment.locale('es');
 
 const getImageUrl = (path) => {
   if (!path) return 'https://via.placeholder.com/40';
-  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
+  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
   if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.115:8001${cleanPath}`;
+  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
 // =====================================================================
@@ -29,6 +33,7 @@ const SharedCommentItem = ({
   depth = 0,
   onReply,
   onLike,
+  onLikeLongPress,
   onDelete,
   currentUserId,
   expandedCommentIds,
@@ -76,6 +81,7 @@ const SharedCommentItem = ({
           <TouchableOpacity
             style={styles.commentLikeBtn}
             onPress={() => onLike(comment.id)}
+            onLongPress={() => onLikeLongPress && onLikeLongPress(comment.id)}
           >
             <Ionicons
               name={comment.user_has_liked ? 'heart' : 'heart-outline'}
@@ -125,6 +131,7 @@ const SharedCommentItem = ({
               depth={depth + 1}
               onReply={onReply}
               onLike={onLike}
+              onLikeLongPress={onLikeLongPress}
               onDelete={onDelete}
               currentUserId={currentUserId}
               expandedCommentIds={expandedCommentIds}
@@ -151,6 +158,24 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
   const [expandedCommentIds, setExpandedCommentIds] = useState([]);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [liking, setLiking] = useState(null);
+
+  // Modal de likes
+  const [likesModalVisible, setLikesModalVisible] = useState(false);
+  const [likesModalUrl, setLikesModalUrl] = useState('');
+
+  // Modal de compartir
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [taskToShare, setTaskToShare] = useState(null);
+
+  const handleShowSharedTaskLikes = () => {
+    setLikesModalUrl(`shared-tasks/${sharedTaskId}/users-who-liked/`);
+    setLikesModalVisible(true);
+  };
+
+  const handleShowCommentLikes = (commentId) => {
+    setLikesModalUrl(`shared-tasks/comments/${commentId}/users-who-liked/`);
+    setLikesModalVisible(true);
+  };
 
   useEffect(() => {
     fetchSharedTask();
@@ -305,18 +330,14 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
     }
   };
 
-  const handleShareTask = async () => {
-    if (!task) return;
+  const openShareModal = () => {
+    if (!sharedTask || !sharedTask.task) return;
+    setTaskToShare(sharedTask.task.id);
+    setShareModalVisible(true);
+  };
 
-    // ⚡ ACTUALIZACIÓN OPTIMISTA
+  const handleShareSuccess = () => {
     setSharedTask(prev => prev ? { ...prev, task: { ...prev.task, share_count: (prev.task.share_count || 0) + 1 } } : prev);
-
-    try {
-      await api.post('shared-tasks/', { task_id: task.id, description: '' });
-      fetchSharedTask(false);
-    } catch (error) {
-      console.error('Error sharing task:', error);
-    }
   };
 
   if (loading) {
@@ -404,7 +425,11 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
 
           {/* ACCIONES DE TAREA */}
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.actionBtn} onPress={handleLikeSharedTask}>
+            <TouchableOpacity 
+              style={styles.actionBtn} 
+              onPress={handleLikeSharedTask}
+              onLongPress={handleShowSharedTaskLikes}
+            >
               <Ionicons
                 name={sharedTask.user_has_liked ? 'heart' : 'heart-outline'}
                 size={18}
@@ -416,7 +441,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
               <Ionicons name="chatbubble-outline" size={18} color="#4dabf7" />
               <Text style={styles.actionBtnText}>{sharedTask.comments_count || 0}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionBtn} onPress={handleShareTask}>
+            <TouchableOpacity style={styles.actionBtn} onPress={openShareModal}>
               <Ionicons name="share-social-outline" size={18} color="#51cf66" />
               <Text style={styles.actionBtnText}>{task?.share_count || 0}</Text>
             </TouchableOpacity>
@@ -434,6 +459,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
                 comment={comment}
                 onReply={setReplyingTo}
                 onLike={handleLikeComment}
+                onLikeLongPress={handleShowCommentLikes}
                 onDelete={handleDeleteComment}
                 currentUserId={currentUserId}
                 expandedCommentIds={expandedCommentIds}
@@ -480,6 +506,21 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* MODAL DE LIKES */}
+      <LikesListModal 
+        visible={likesModalVisible} 
+        onClose={() => setLikesModalVisible(false)} 
+        apiUrl={likesModalUrl} 
+      />
+
+      {/* MODAL DE COMPARTIR */}
+      <ShareModal
+        visible={shareModalVisible}
+        onClose={() => setShareModalVisible(false)}
+        taskId={taskToShare}
+        onShareSuccess={handleShareSuccess}
+      />
     </View>
   );
 };

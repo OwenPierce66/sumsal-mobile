@@ -8,6 +8,14 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../api';
 import { Image } from 'expo-image';
 
+const getImageUrl = (path) => {
+  if (!path) return null;
+  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
+  if (cleanPath.startsWith('http')) return cleanPath;
+  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
+};
+
 const CreateTaskScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState('');

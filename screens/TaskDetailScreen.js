@@ -9,20 +9,23 @@ import moment from 'moment';
 import 'moment/locale/es'; 
 import api from '../api';
 import { Image } from 'expo-image';
+import LikesListModal from '../components/LikesListModal';
+import ShareModal from '../components/ShareModal';
 
 moment.locale('es');
 
 const getImageUrl = (path) => {
   if (!path) return null;
-  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
+  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
   if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.115:8001${cleanPath}`;
+  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
 // =====================================================================
 // COMPONENTE RECURSIVO (COMENTARIOS)
 // =====================================================================
-const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUserId, expandedCommentIds, toggleExpand }) => {
+const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onDelete, currentUserId, expandedCommentIds, toggleExpand }) => {
   const hasChildren = comment.children && comment.children.length > 0;
   const isExpanded = expandedCommentIds.includes(comment.id);
 
@@ -82,7 +85,11 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
           </View>
         </View>
 
-        <TouchableOpacity style={styles.commentLikeBtn} onPress={() => onLike(comment.id)}>
+        <TouchableOpacity 
+          style={styles.commentLikeBtn} 
+          onPress={() => onLike(comment.id)}
+          onLongPress={() => onLikeLongPress(comment.id)}
+        >
           <Text style={styles.commentLikeCount}>{comment.likes_count || 0}</Text>
           <Ionicons name={comment.user_has_liked ? "heart" : "heart-outline"} size={16} color={comment.user_has_liked ? "#ff6b6b" : "#999"} />
         </TouchableOpacity>
@@ -114,6 +121,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
               depth={depth + 1} 
               onReply={onReply} 
               onLike={onLike}
+              onLikeLongPress={onLikeLongPress}
               onDelete={onDelete}
               currentUserId={currentUserId}
               expandedCommentIds={expandedCommentIds}
@@ -140,6 +148,24 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [replyingTo, setReplyingTo] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [expandedCommentIds, setExpandedCommentIds] = useState([]);
+
+  // Modal de likes
+  const [likesModalVisible, setLikesModalVisible] = useState(false);
+  const [likesModalUrl, setLikesModalUrl] = useState('');
+  
+  // Modal de compartir
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [taskToShare, setTaskToShare] = useState(null);
+
+  const handleShowTaskLikes = () => {
+    setLikesModalUrl(`tasks/${taskId}/users-who-liked/`);
+    setLikesModalVisible(true);
+  };
+
+  const handleShowCommentLikes = (commentId) => {
+    setLikesModalUrl(`comments/${commentId}/users-who-liked/`);
+    setLikesModalVisible(true);
+  };
 
   const toggleCommentExpansion = (commentId) => {
     setExpandedCommentIds((prev) =>
@@ -247,17 +273,14 @@ const fetchComments = useCallback(async () => {
     }
   };
 
-  const handleShareTask = async () => {
+  const openShareModal = () => {
     if (!task) return;
-    
-    // ⚡ ACTUALIZACIÓN OPTIMISTA
-    setTask(prev => prev ? { ...prev, share_count: (prev.share_count || 0) + 1 } : prev);
+    setTaskToShare(task.id);
+    setShareModalVisible(true);
+  };
 
-    try {
-      await api.post('shared-tasks/', { task_id: task.id, description: '' });
-    } catch (error) {
-      console.error('Error sharing task:', error);
-    }
+  const handleShareSuccess = () => {
+    setTask(prev => prev ? { ...prev, share_count: (prev.share_count || 0) + 1 } : prev);
   };
 
   const handleLikeComment = async (commentId) => {
@@ -392,10 +415,26 @@ const fetchComments = useCallback(async () => {
           {/* ⚡ AÑADIMOS EL HEADER CON EL NOMBRE Y AVATAR DEL AUTOR */}
           <View style={styles.taskAuthorHeader}>
             <Image source={{ uri: getTaskAuthorAvatar() }} style={styles.taskAuthorAvatar} />
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.taskAuthorName}>{getTaskAuthorName()}</Text>
               <Text style={styles.taskDate}>{moment(task.created_at).format('LL')}</Text>
             </View>
+            
+            {/* ⚡ BOTÓN PARA ENVIAR MENSAJE DIRECTO AL CREADOR */}
+            {task.user?.id && currentUserId !== task.user?.id && (
+              <TouchableOpacity 
+                style={styles.dmButton}
+                onPress={() => navigation.navigate('ChatDetail', { 
+                  chatId: task.user.id,
+                  type: 'direct',
+                  title: getTaskAuthorName(),
+                  avatar: getTaskAuthorAvatar()
+                })}
+              >
+                <Ionicons name="chatbubbles-outline" size={18} color="#fff" />
+                <Text style={styles.dmButtonText}>Mensaje</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.taskInfo}>
@@ -404,7 +443,11 @@ const fetchComments = useCallback(async () => {
           </View>
 
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.actionBtn} onPress={handleLikeTask}>
+            <TouchableOpacity 
+              style={styles.actionBtn} 
+              onPress={handleLikeTask}
+              onLongPress={handleShowTaskLikes}
+            >
               <Ionicons name={task.user_has_liked ? "heart" : "heart-outline"} size={20} color={task.user_has_liked ? "#ff6b6b" : "#999"} />
               <Text style={styles.actionBtnText}>{task.likes_count || 0}</Text>
             </TouchableOpacity>
@@ -413,7 +456,7 @@ const fetchComments = useCallback(async () => {
               {/* ⚡ USAMOS EL CONTEO TOTAL DEL BACKEND QUE INCLUYE HASTA LOS NIETOS */}
               <Text style={styles.actionBtnText}>{task.comments_count || 0}</Text>
             </View>
-            <TouchableOpacity style={styles.actionBtn} onPress={handleShareTask}>
+            <TouchableOpacity style={styles.actionBtn} onPress={openShareModal}>
               <Ionicons name="share-social-outline" size={20} color="#51cf66" />
               <Text style={styles.actionBtnText}>{task.share_count || 0}</Text>
             </TouchableOpacity>
@@ -432,6 +475,7 @@ const fetchComments = useCallback(async () => {
                 comment={comment} 
                 onReply={onReplyPress} 
                 onLike={handleLikeComment}
+                onLikeLongPress={handleShowCommentLikes}
                 onDelete={handleDeleteComment} 
                 currentUserId={currentUserId}
                 expandedCommentIds={expandedCommentIds}
@@ -475,6 +519,21 @@ const fetchComments = useCallback(async () => {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* MODAL DE LIKES */}
+      <LikesListModal 
+        visible={likesModalVisible} 
+        onClose={() => setLikesModalVisible(false)} 
+        apiUrl={likesModalUrl} 
+      />
+
+      {/* MODAL DE COMPARTIR */}
+      <ShareModal
+        visible={shareModalVisible}
+        onClose={() => setShareModalVisible(false)}
+        taskId={taskToShare}
+        onShareSuccess={handleShareSuccess}
+      />
     </KeyboardAvoidingView>
   );
 };
@@ -492,6 +551,8 @@ const styles = StyleSheet.create({
   taskAuthorAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#eee' },
   taskAuthorName: { fontSize: 16, fontWeight: 'bold', color: '#333' },
   taskDate: { fontSize: 12, color: '#999' },
+  dmButton: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#4dabf7', borderRadius: 20, justifyContent: 'center', alignItems: 'center', gap: 4 },
+  dmButtonText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
   
   taskInfo: { padding: 16 },
   taskTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8 },

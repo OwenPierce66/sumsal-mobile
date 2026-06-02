@@ -1,22 +1,83 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { clearAuthData } from '../api';
+import moment from 'moment';
+import api, { clearAuthData } from '../api';
+import { Image } from 'expo-image';
+import { useFocusEffect } from '@react-navigation/native';
+
+const getImageUrl = (path) => {
+  if (!path) return 'https://via.placeholder.com/40';
+  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
+  if (cleanPath.startsWith('http')) return cleanPath;
+  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
+};
 
 const ProfileScreen = ({ navigation }) => {
   const [user, setUser] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  useEffect(() => {
-    const loadUser = async () => {
+  const fetchUserData = async () => {
+    try {
+      const response = await api.get('users/me/');
+      setUser(response.data);
+      await AsyncStorage.setItem('user', JSON.stringify(response.data));
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+      // Fallback a AsyncStorage si falla la red
       const storedUser = await AsyncStorage.getItem('user');
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
-      }
-    };
+      if (storedUser) setUser(JSON.parse(storedUser));
+    }
+  };
 
-    loadUser();
-  }, []);
+  const fetchMyTasks = async (pageNumber = 1) => {
+    try {
+      if (pageNumber === 1) setLoading(true);
+      else setLoadingMore(true);
+
+      const response = await api.get('users/me/tasks/', { params: { page: pageNumber } });
+      const newTasks = response.data.results || response.data || [];
+
+      if (pageNumber === 1) {
+        setTasks(newTasks);
+      } else {
+        setTasks(prev => [...prev, ...newTasks]);
+      }
+      
+      setHasMore(!!response.data.next);
+      setPage(pageNumber);
+    } catch (error) {
+      console.error("Error fetching user tasks:", error);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+      setRefreshing(false);
+    }
+  };
+
+  useFocusEffect(useCallback(() => {
+    fetchUserData();
+    fetchMyTasks(1);
+  }, []));
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchUserData();
+    fetchMyTasks(1);
+  };
+
+  const loadMoreTasks = () => {
+    if (hasMore && !loadingMore) {
+      fetchMyTasks(page + 1);
+    }
+  };
 
   const handleLogout = async () => {
     await clearAuthData();
@@ -26,79 +87,145 @@ const ProfileScreen = ({ navigation }) => {
     });
   };
 
+  const renderTask = ({ item }) => {
+    return (
+      <TouchableOpacity 
+        style={styles.taskCard} 
+        onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}
+        activeOpacity={0.9}
+      >
+        <View style={styles.taskHeader}>
+          <Image 
+            source={{ uri: getImageUrl(user?.profile?.user_image) }} 
+            style={styles.avatar} 
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.taskTitle}>{item.title}</Text>
+            <Text style={styles.taskDate}>{moment(item.created_at).fromNow()}</Text>
+          </View>
+        </View>
+
+        <Text style={styles.taskDescription} numberOfLines={3}>{item.description}</Text>
+
+        {(item.image || item.subtasks?.[0]?.image || item.subfactores?.[0]?.image || item.subfuentes?.[0]?.image) && (
+          <Image
+            source={{ uri: getImageUrl(item.image || item.subtasks?.[0]?.image || item.subfactores?.[0]?.image || item.subfuentes?.[0]?.image) }}
+            style={styles.taskImage}
+          />
+        )}
+
+        <View style={styles.taskFooter}>
+          <View style={styles.statsContainer}>
+            <View style={styles.stat}>
+              <Ionicons name="heart" size={16} color="#ff6b6b" />
+              <Text style={styles.statText}>{item.likes_count ?? 0}</Text>
+            </View>
+            <View style={styles.stat}>
+              <Ionicons name="chatbubble" size={16} color="#4dabf7" />
+              <Text style={styles.statText}>{item.comments_count || 0}</Text>
+            </View>
+            <View style={styles.stat}>
+              <Ionicons name="share-social" size={16} color="#51cf66" />
+              <Text style={styles.statText}>{item.share_count ?? 0}</Text>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderHeader = () => (
+    <View style={styles.profileHeader}>
+      <View style={styles.profileInfoContainer}>
+        <Image 
+          source={{ uri: getImageUrl(user?.profile?.user_image) }} 
+          style={styles.profileAvatar} 
+        />
+        <View style={styles.profileTextContainer}>
+          <Text style={styles.profileName}>
+            {user?.first_name ? `${user.first_name} ${user.last_name || ''}` : user?.username || 'Usuario'}
+          </Text>
+          <Text style={styles.profileEmail}>{user?.email}</Text>
+        </View>
+      </View>
+      
+      <View style={styles.actionButtons}>
+        <TouchableOpacity style={styles.actionBtn} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={18} color="#ff6b6b" />
+          <Text style={styles.actionBtnTextLogout}>Cerrar Sesión</Text>
+        </TouchableOpacity>
+      </View>
+      
+      <View style={styles.divider} />
+      <Text style={styles.sectionTitle}>Mis Publicaciones</Text>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Mi perfil</Text>
-      <View style={styles.card}>
-        <Text style={styles.label}>Nombre</Text>
-        <Text style={styles.value}>{user?.first_name || 'No disponible'}</Text>
-        <Text style={styles.label}>Apellido</Text>
-        <Text style={styles.value}>{user?.last_name || 'No disponible'}</Text>
-        <Text style={styles.label}>Email</Text>
-        <Text style={styles.value}>{user?.email || 'No disponible'}</Text>
+      <View style={styles.topBar}>
+        <Text style={styles.topBarTitle}>Perfil</Text>
       </View>
 
-      <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Home')}>
-        <Ionicons name="home-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Ir a inicio</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={[styles.button, styles.logoutButton]} onPress={handleLogout}>
-        <Ionicons name="log-out-outline" size={20} color="#fff" />
-        <Text style={styles.buttonText}>Cerrar sesión</Text>
-      </TouchableOpacity>
+      {loading && page === 1 ? (
+        <ActivityIndicator size="large" color="#4dabf7" style={{ marginTop: 50 }} />
+      ) : (
+        <FlatList
+          data={tasks}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderTask}
+          ListHeaderComponent={renderHeader}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          onEndReached={loadMoreTasks}
+          onEndReachedThreshold={0.5}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>Aún no has publicado nada.</Text>
+          }
+          ListFooterComponent={
+            loadingMore ? <ActivityIndicator size="small" color="#4dabf7" style={{ marginVertical: 20 }} /> : null
+          }
+        />
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    padding: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    color: '#333',
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 18,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  label: {
-    color: '#999',
-    fontSize: 12,
-    marginTop: 12,
-  },
-  value: {
-    fontSize: 16,
-    color: '#333',
-    fontWeight: '600',
-  },
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#4dabf7',
-    paddingVertical: 14,
-    borderRadius: 10,
-    marginBottom: 12,
-    gap: 8,
-  },
-  logoutButton: {
-    backgroundColor: '#ff6b6b',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: '#FEF6F5' },
+  topBar: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center' },
+  topBarTitle: { fontSize: 20, fontWeight: '800', color: '#333' },
+  
+  profileHeader: { padding: 20, backgroundColor: '#fff', marginBottom: 10 },
+  profileInfoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  profileAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#eee', marginRight: 15 },
+  profileTextContainer: { flex: 1 },
+  profileName: { fontSize: 22, fontWeight: 'bold', color: '#333' },
+  profileEmail: { fontSize: 14, color: '#666', marginTop: 4 },
+  
+  actionButtons: { flexDirection: 'row', justifyContent: 'flex-start' },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 20, backgroundColor: '#ffe3e3' },
+  actionBtnTextLogout: { color: '#ff6b6b', fontWeight: 'bold', marginLeft: 5, fontSize: 14 },
+  
+  divider: { height: 1, backgroundColor: '#eee', marginVertical: 20 },
+  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  
+  listContent: { paddingBottom: 30 },
+  
+  taskCard: { backgroundColor: '#fff', marginHorizontal: 12, marginBottom: 15, borderRadius: 16, padding: 16, elevation: 2 },
+  taskHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, backgroundColor: '#eee' },
+  taskTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  taskDate: { fontSize: 12, color: '#999', marginTop: 2 },
+  taskDescription: { fontSize: 14, color: '#555', lineHeight: 20, marginBottom: 10 },
+  taskImage: { width: '100%', height: 150, borderRadius: 10, marginTop: 8, backgroundColor: '#f0f0f0' },
+  
+  taskFooter: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
+  statsContainer: { flexDirection: 'row', gap: 20 },
+  stat: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  statText: { fontSize: 13, color: '#666', fontWeight: '600' },
+  
+  emptyText: { textAlign: 'center', color: '#999', marginTop: 30, fontSize: 15, fontStyle: 'italic' }
 });
 
 export default ProfileScreen;

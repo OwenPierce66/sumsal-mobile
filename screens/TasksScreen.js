@@ -8,6 +8,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment';
 import api from '../api';
 import { Image } from 'expo-image';
+import LikesListModal from '../components/LikesListModal';
+import ShareModal from '../components/ShareModal';
 
 const TasksScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
@@ -17,6 +19,24 @@ const TasksScreen = ({ navigation }) => {
   const [searchText, setSearchText] = useState('');
   const [tema, setTema] = useState('consejos');
   const [visibleSections, setVisibleSections] = useState({});
+
+  // Modal de likes
+  const [likesModalVisible, setLikesModalVisible] = useState(false);
+  const [likesModalUrl, setLikesModalUrl] = useState('');
+
+  // Modal de compartir
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [taskToShare, setTaskToShare] = useState(null);
+
+  const handleShowTaskLikes = (taskId) => {
+    setLikesModalUrl(`tasks/${taskId}/users-who-liked/`);
+    setLikesModalVisible(true);
+  };
+
+  const handleShowSharedTaskLikes = (sharedTaskId) => {
+    setLikesModalUrl(`shared-tasks/${sharedTaskId}/users-who-liked/`);
+    setLikesModalVisible(true);
+  };
 
   // ⚡ NUEVOS ESTADOS PARA EL INFINITE SCROLL
   const [page, setPage] = useState(1);
@@ -48,6 +68,10 @@ const TasksScreen = ({ navigation }) => {
       setVisibleSections(prev => pageNumber === 1 ? sections : { ...prev, ...sections });
 
     } catch (error) {
+      if (error.response && error.response.status === 404) {
+        setHasMore(false);
+        return;
+      }
       console.error('Error fetching tasks:', error.response?.data || error.message);
     } finally {
       setLoading(false);
@@ -70,8 +94,7 @@ const TasksScreen = ({ navigation }) => {
       setSharedHasMore(!!response.data.next);
       setSharedPage(pageNumber);
     } catch (error) {
-      const detail = error.response?.data?.detail;
-      if (detail === 'Invalid page.') {
+      if (error.response && error.response.status === 404) {
         setSharedHasMore(false);
         return;
       }
@@ -97,19 +120,22 @@ const TasksScreen = ({ navigation }) => {
     Promise.all([fetchTasks(1), fetchSharedTasks(1)]).finally(() => setRefreshing(false));
   };
 
-  const handleShareTask = async (taskId) => {
+  const openShareModal = (taskId) => {
     if (!taskId) return;
+    setTaskToShare(taskId);
+    setShareModalVisible(true);
+  };
 
+  const handleShareSuccess = () => {
+    if (!taskToShare) return;
+    const taskId = taskToShare;
+    
     // ⚡ ACTUALIZACIÓN OPTIMISTA
     setTasks((prev) => prev.map(t => t.id === taskId ? { ...t, share_count: (t.share_count || 0) + 1 } : t));
     setSharedTasks((prev) => prev.map(s => s.task?.id === taskId ? { ...s, task: { ...s.task, share_count: (s.task.share_count || 0) + 1 } } : s));
 
-    try {
-      await api.post('shared-tasks/', { task_id: taskId, description: '' });
-      fetchSharedTasks(1);
-    } catch (error) {
-      console.error('Error sharing task:', error.response?.data || error.message);
-    }
+    fetchSharedTasks(1);
+    setTaskToShare(null);
   };
 
   const handleLikeSharedTask = async (sharedTaskId) => {
@@ -218,9 +244,10 @@ const TasksScreen = ({ navigation }) => {
   // HELPER INFALIBLE CON LA IP ACTUAL
   const getImageUrl = (path) => {
     if (!path) return null;
-    let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
+    const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+    let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
     if (cleanPath.startsWith('http')) return cleanPath;
-    return `http://192.168.0.115:8001${cleanPath}`;
+    return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
   };
 
   // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA
@@ -329,7 +356,11 @@ const TasksScreen = ({ navigation }) => {
 
         <View style={styles.taskFooter}>
           <View style={styles.statsContainer}>
-            <TouchableOpacity style={styles.stat} onPress={() => handleLikeSharedTask(shared.id)}>
+            <TouchableOpacity 
+              style={styles.stat} 
+              onPress={() => handleLikeSharedTask(shared.id)}
+              onLongPress={() => handleShowSharedTaskLikes(shared.id)}
+            >
               <Ionicons
                 name={shared.user_has_liked ? 'heart' : 'heart-outline'}
                 size={18}
@@ -403,15 +434,19 @@ const TasksScreen = ({ navigation }) => {
 
         <View style={styles.taskFooter}>
           <View style={styles.statsContainer}>
-            <View style={styles.stat}>
+            <TouchableOpacity 
+              style={styles.stat} 
+              onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}
+              onLongPress={() => handleShowTaskLikes(item.id)}
+            >
               <Ionicons name="heart-outline" size={18} color="#ff6b6b" />
               <Text style={styles.statText}>{item.likes_count ?? 0}</Text>
-            </View>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.stat} onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
               <Ionicons name="chatbubble-outline" size={18} color="#4dabf7" />
               <Text style={styles.statText}>{item.comments_count || 0}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.stat} onPress={() => handleShareTask(item.id)}>
+            <TouchableOpacity style={styles.stat} onPress={() => openShareModal(item.id)}>
               <Ionicons name="share-social-outline" size={18} color="#51cf66" />
               <Text style={styles.statText}>{item.share_count ?? 0}</Text>
             </TouchableOpacity>
@@ -476,6 +511,21 @@ const TasksScreen = ({ navigation }) => {
         maxToRenderPerBatch={10}
         windowSize={5}
         initialNumToRender={8}
+      />
+
+      {/* MODAL DE LIKES */}
+      <LikesListModal 
+        visible={likesModalVisible} 
+        onClose={() => setLikesModalVisible(false)} 
+        apiUrl={likesModalUrl} 
+      />
+
+      {/* MODAL DE COMPARTIR */}
+      <ShareModal
+        visible={shareModalVisible}
+        onClose={() => setShareModalVisible(false)}
+        taskId={taskToShare}
+        onShareSuccess={handleShareSuccess}
       />
     </View>
   );

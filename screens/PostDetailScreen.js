@@ -11,9 +11,10 @@ moment.locale('es');
 
 const getImageUrl = (path) => {
   if (!path) return null;
-  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
+  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
   if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.115:8001${cleanPath}`;
+  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
 // COMPONENTE RECURSIVO PARA RENDERIZAR REPLIES ANIDADAS

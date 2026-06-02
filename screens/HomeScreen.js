@@ -3,6 +3,7 @@ import { View, Text, FlatList, StyleSheet, Button, Alert, TouchableOpacity, Acti
 import { useFocusEffect } from '@react-navigation/native';
 import api, { clearAuthData } from '../api'; // Importamos lo que realmente usamos
 import { AuthContext } from '../App';
+import { Ionicons } from '@expo/vector-icons';
 
 const HomeScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
@@ -65,9 +66,14 @@ const handleLogout = () => {
         <Text style={styles.title}>
           Sumsal{user?.first_name ? `, ${user.first_name}` : ''} 🖤
         </Text>
-        <TouchableOpacity onPress={handleLogout}>
-          <Text style={{ color: '#ff6b6b', fontWeight: 'bold' }}>Cerrar sesión</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
+          <TouchableOpacity onPress={() => navigation.navigate('ChatList')}>
+            <Ionicons name="chatbubbles-outline" size={26} color="#333" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={26} color="#ff6b6b" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.topRow}>

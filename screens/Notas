@@ -3,3 +3,7 @@ En aplicaciones gigantes como Twitter, Facebook o Instagram, esto se conoce como
 
 
 Las aplicaciones modernas (como Facebook, Instagram o X) usan una técnica llamada "Optimistic Updates" (Actualizaciones Optimistas). Esto significa que cuando el usuario interactúa, nosotros actualizamos la interfaz al instante usando JavaScript, y por detrás le mandamos la orden silenciosa a la API.
+
+
+
+ te vuelvo a repetir todo ya que te trabaste, estamos actualizando de respaldo a sumsal, osea la app de exito la estamos mejorando con la estructura de sumsal, principalmente respaldo.js y sus alrededores y ahorita estamos con los mensajes directos, recuerda ya te estor pasano toda una estructura pero si tu sabes como hacerlo mejor hazlo

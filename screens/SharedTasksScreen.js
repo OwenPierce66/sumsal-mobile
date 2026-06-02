@@ -6,20 +6,24 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
+  ActivityIndicator, 
+  Platform,
   RefreshControl } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import moment from 'moment';
 import api from '../api';
 import { Image } from 'expo-image';
+import LikesListModal from '../components/LikesListModal';
+import ShareModal from '../components/ShareModal';
 
 moment.locale('es');
 
 const getImageUrl = (path) => {
   if (!path) return 'https://via.placeholder.com/40';
-  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
+  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
   if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.115:8001${cleanPath}`;
+  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
 const SharedTasksScreen = ({ navigation }) => {
@@ -29,6 +33,19 @@ const SharedTasksScreen = ({ navigation }) => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // Modal de likes
+  const [likesModalVisible, setLikesModalVisible] = useState(false);
+  const [likesModalUrl, setLikesModalUrl] = useState('');
+
+  // Modal de compartir
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [taskToShare, setTaskToShare] = useState(null);
+
+  const handleShowSharedTaskLikes = (sharedTaskId) => {
+    setLikesModalUrl(`shared-tasks/${sharedTaskId}/users-who-liked/`);
+    setLikesModalVisible(true);
+  };
 
   const fetchSharedTasks = useCallback(async (pageNumber = 1) => {
     try {
@@ -99,18 +116,21 @@ const SharedTasksScreen = ({ navigation }) => {
     navigation.navigate('SharedTaskDetail', { sharedTaskId });
   };
 
-  const handleShareSharedTask = async (taskId) => {
+  const openShareModal = (taskId) => {
     if (!taskId) return;
+    setTaskToShare(taskId);
+    setShareModalVisible(true);
+  };
+
+  const handleShareSuccess = () => {
+    if (!taskToShare) return;
+    const taskId = taskToShare;
 
     // ⚡ ACTUALIZACIÓN OPTIMISTA
     setSharedTasks((prev) => prev.map(s => s.task?.id === taskId ? { ...s, task: { ...s.task, share_count: (s.task.share_count || 0) + 1 } } : s));
 
-    try {
-      await api.post('shared-tasks/', { task_id: taskId, description: '' });
-      fetchSharedTasks(1);
-    } catch (error) {
-      console.error('Error re-sharing task:', error.response?.data || error.message);
-    }
+    fetchSharedTasks(1);
+    setTaskToShare(null);
   };
 
   const getUserName = (userObj, fallbackName = 'Usuario') => {
@@ -182,6 +202,7 @@ const SharedTasksScreen = ({ navigation }) => {
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={() => handleLikeSharedTask(item.id)}
+              onLongPress={() => handleShowSharedTaskLikes(item.id)}
             >
               <Ionicons
                 name={item.user_has_liked ? 'heart' : 'heart-outline'}
@@ -201,7 +222,7 @@ const SharedTasksScreen = ({ navigation }) => {
 
             <TouchableOpacity
               style={styles.actionBtn}
-              onPress={() => handleShareSharedTask(task?.id)}
+              onPress={() => openShareModal(task?.id)}
             >
               <Ionicons name="share-social-outline" size={16} color="#51cf66" />
               <Text style={styles.actionText}>{task?.share_count ?? 0}</Text>
@@ -252,6 +273,21 @@ const SharedTasksScreen = ({ navigation }) => {
           ) : null
         }
         contentContainerStyle={styles.listContent}
+      />
+
+      {/* MODAL DE LIKES */}
+      <LikesListModal 
+        visible={likesModalVisible} 
+        onClose={() => setLikesModalVisible(false)} 
+        apiUrl={likesModalUrl} 
+      />
+
+      {/* MODAL DE COMPARTIR */}
+      <ShareModal
+        visible={shareModalVisible}
+        onClose={() => setShareModalVisible(false)}
+        taskId={taskToShare}
+        onShareSuccess={handleShareSuccess}
       />
     </View>
   );
