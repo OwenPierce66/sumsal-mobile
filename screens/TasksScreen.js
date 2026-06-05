@@ -10,6 +10,7 @@ import api from '../api';
 import { Image } from 'expo-image';
 import LikesListModal from '../components/LikesListModal';
 import ShareModal from '../components/ShareModal';
+import FilterModal from '../components/FilterModal';
 
 const TasksScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
@@ -19,6 +20,9 @@ const TasksScreen = ({ navigation }) => {
   const [searchText, setSearchText] = useState('');
   const [tema, setTema] = useState('consejos');
   const [visibleSections, setVisibleSections] = useState({});
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedDateFilter, setSelectedDateFilter] = useState('');
 
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
@@ -51,7 +55,14 @@ const TasksScreen = ({ navigation }) => {
       if (pageNumber === 1) setLoading(true);
       else setLoadingMore(true);
 
-      const response = await api.get('tasks/', { params: { pch: tema, page: pageNumber } });
+      const response = await api.get('tasks/', { 
+        params: { 
+          pch: tema, 
+          page: pageNumber,
+          category: selectedCategory,
+          date_filter: selectedDateFilter
+        } 
+      });
       const data = response.data.results ?? response.data ?? [];
 
       if (pageNumber === 1) {
@@ -78,7 +89,7 @@ const TasksScreen = ({ navigation }) => {
       setLoadingMore(false);
       setRefreshing(false);
     }
-  }, [tema]);
+  }, [tema, selectedCategory, selectedDateFilter]);
 
   const fetchSharedTasks = useCallback(async (pageNumber = 1) => {
     try {
@@ -243,12 +254,17 @@ const TasksScreen = ({ navigation }) => {
 
   // HELPER INFALIBLE CON LA IP ACTUAL
   const getImageUrl = (path) => {
-    if (!path) return null;
-    const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
-    let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
-    if (cleanPath.startsWith('http')) return cleanPath;
-    return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
-  };
+  if (!path) return null;
+  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
+    return path;
+  }
+  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  let cleanPath = path;
+  if (cleanPath.startsWith('http')) {
+    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
+  }
+  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
+};
 
   // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA
   const getAuthorName = (item) => {
@@ -473,6 +489,9 @@ const TasksScreen = ({ navigation }) => {
           value={searchText}
           onChangeText={setSearchText}
         />
+        <TouchableOpacity onPress={() => setFilterModalVisible(true)}>
+          <Ionicons name="options-outline" size={24} color="#4dabf7" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.temaSelector}>
@@ -511,6 +530,26 @@ const TasksScreen = ({ navigation }) => {
         maxToRenderPerBatch={10}
         windowSize={5}
         initialNumToRender={8}
+      />
+
+      {/* MODAL DE FILTROS */}
+      <FilterModal
+        visible={filterModalVisible}
+        onClose={() => setFilterModalVisible(false)}
+        currentCategory={selectedCategory}
+        currentDateFilter={selectedDateFilter}
+        onApply={(filters) => {
+          setSelectedCategory(filters.category);
+          setSelectedDateFilter(filters.date_filter);
+          setPage(1);
+          setHasMore(true);
+          // fetchTasks will be called by useEffect when state changes if we add them to dependencies,
+          // but fetchTasks is wrapped in useCallback and called by focus effect.
+          // Let's force a refetch here:
+          setTimeout(() => {
+             fetchTasks(1);
+          }, 100);
+        }}
       />
 
       {/* MODAL DE LIKES */}

@@ -45,6 +45,9 @@ const HomeStackNavigator = () => {
       <Stack.Screen name="HomeMain" component={HomeScreen} />
       <Stack.Screen name="ChatList" component={ChatListScreen} />
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+      <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
   );
 };
@@ -105,6 +108,57 @@ const AuthenticatedTabs = () => {
   );
 };
 
+const linking = {
+  prefixes: ['http://localhost:8081', 'sumsal://', 'http://127.0.0.1:8081'],
+  config: {
+    screens: {
+      Home: {
+        screens: {
+          HomeTab: {
+            screens: {
+              HomeMain: 'home',
+              ChatList: 'chats',
+              ChatDetail: 'chat/:chatId',
+              UserProfile: 'user/:userId',
+              TaskDetail: 'task/:taskId',
+              SharedTaskDetail: 'shared-task/:sharedTaskId'
+            }
+          },
+          Tasks: {
+            screens: {
+              TasksList: 'tasks',
+              CreateTask: 'tasks/create',
+              TaskDetail: 'tasks/:taskId',
+              SharedTaskDetail: 'tasks/shared/:sharedTaskId'
+            }
+          },
+          SharedTasks: {
+            screens: {
+              SharedTasksList: 'shared-tasks',
+              SharedTaskDetail: 'shared-tasks/:sharedTaskId'
+            }
+          },
+          Forum: {
+            screens: {
+              ForumMain: 'forum',
+              PostDetail: 'forum/post/:postId'
+            }
+          },
+          Profile: {
+            screens: {
+              ProfileMain: 'profile',
+              TaskDetail: 'profile/task/:taskId',
+              SharedTaskDetail: 'profile/shared/:sharedTaskId'
+            }
+          }
+        }
+      },
+      Login: 'login',
+      Register: 'register',
+    }
+  }
+};
+
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [userToken, setUserToken] = useState(null);
@@ -146,7 +200,7 @@ export default function App() {
   return (
    // ⚡ 3. ENVOLVEMOS LA APP CON EL CONTEXTO
     <AuthContext.Provider value={authContext}>
-      <NavigationContainer>
+      <NavigationContainer linking={linking}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {userToken == null ? (
             // ⚡ EL ARREGLO: Agrupamos Login y Register para los que no tienen sesión

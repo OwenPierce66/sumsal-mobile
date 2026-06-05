@@ -19,10 +19,15 @@ import ShareModal from '../components/ShareModal';
 moment.locale('es');
 
 const getImageUrl = (path) => {
-  if (!path) return 'https://via.placeholder.com/40';
+  if (!path) return null;
+  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
+    return path;
+  }
   const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
-  let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
-  if (cleanPath.startsWith('http')) return cleanPath;
+  let cleanPath = path;
+  if (cleanPath.startsWith('http')) {
+    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
+  }
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 

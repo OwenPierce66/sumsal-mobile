@@ -1,17 +1,129 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { 
+  View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, 
+  KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
+  Animated, PanResponder, Image as RNImage, Modal
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import moment from 'moment';
 import api from '../api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 
 const getImageUrl = (path) => {
   if (!path) return null;
+  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
+    return path;
+  }
   const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
-  let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
-  if (cleanPath.startsWith('http')) return cleanPath;
+  let cleanPath = path;
+  if (cleanPath.startsWith('http')) {
+    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
+  }
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
+};
+
+const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigateToProfile }) => {
+  const pan = useRef(new Animated.ValueXY()).current;
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        return gestureState.dx > 30 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (gestureState.dx > 0 && gestureState.dx < 100) {
+          pan.setValue({ x: gestureState.dx, y: 0 });
+        }
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        if (gestureState.dx > 50) {
+          onReply(item);
+        }
+        Animated.spring(pan, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: true,
+        }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(pan, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: true,
+        }).start();
+      }
+    })
+  ).current;
+
+  return (
+    <View style={[styles.messageWrapper, isMe ? styles.messageWrapperMe : styles.messageWrapperThem]}>
+      {!isMe && type === 'group' && (
+        <TouchableOpacity onPress={() => onNavigateToProfile(item.sender)}>
+          <Image source={{ uri: msgAvatar }} style={styles.messageAvatar} />
+        </TouchableOpacity>
+      )}
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={{ transform: [{ translateX: pan.x }] }}
+      >
+        <TouchableOpacity 
+          style={[styles.messageBubble, isMe ? styles.messageBubbleMe : styles.messageBubbleThem]}
+          onLongPress={() => {
+            if (isMe) {
+              if (Platform.OS === 'web') {
+                if (window.confirm("¿Deseas eliminar este mensaje?")) {
+                  onDelete(item.id);
+                }
+              } else {
+                Alert.alert("Opciones", "¿Qué deseas hacer?", [
+                  { text: "Eliminar", style: 'destructive', onPress: () => onDelete(item.id) },
+                  { text: "Cancelar", style: 'cancel' }
+                ]);
+              }
+            }
+          }}
+          activeOpacity={0.9}
+        >
+          {item.replied_to && (
+            <View style={[styles.repliedToContainer, isMe ? styles.repliedToMe : styles.repliedToThem]}>
+              <Text style={[styles.repliedToSender, isMe ? styles.repliedToTextMe : styles.repliedToTextThem]}>
+                <Ionicons name="arrow-undo" size={10} /> {item.replied_to.sender?.username || 'Usuario'}
+              </Text>
+              <Text style={[styles.repliedToText, isMe ? styles.repliedToTextMe : styles.repliedToTextThem]} numberOfLines={1}>
+                {item.replied_to.content || 'Adjunto'}
+              </Text>
+            </View>
+          )}
+
+          {!isMe && type === 'group' && (
+            <TouchableOpacity onPress={() => onNavigateToProfile(item.sender)}>
+              <Text style={styles.messageSenderName}>{item.sender?.username}</Text>
+            </TouchableOpacity>
+          )}
+          {item.content ? (
+            <Text style={[styles.messageText, isMe ? styles.messageTextMe : styles.messageTextThem]}>
+              {item.content}
+            </Text>
+          ) : null}
+          
+          {item.image && (
+             <RNImage source={{ uri: getImageUrl(item.image) }} style={styles.messageImage} resizeMode="cover" />
+          )}
+          {item.video && (
+            <View style={styles.videoPlaceholder}>
+               <Ionicons name="play-circle" size={40} color="#fff" />
+               <Text style={styles.videoText}>Video (Tap to play)</Text>
+            </View>
+          )}
+
+          <Text style={[styles.messageTime, isMe ? styles.messageTimeMe : styles.messageTimeThem]}>
+            {moment(item.timestamp).format('HH:mm')}
+          </Text>
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
+  );
 };
 
 const ChatDetailScreen = ({ route, navigation }) => {
@@ -20,6 +132,20 @@ const ChatDetailScreen = ({ route, navigation }) => {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  
+  // Secondary features state
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [replyTo, setReplyTo] = useState(null);
+
+  // Group Info state
+  const [isGroupModalVisible, setIsGroupModalVisible] = useState(false);
+  const [groupMembers, setGroupMembers] = useState([]);
+  const [groupCreatorId, setGroupCreatorId] = useState(null);
+  
+  // Add Member state
+  const [isAddMemberModalVisible, setIsAddMemberModalVisible] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [userSearchText, setUserSearchText] = useState('');
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -35,7 +161,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
       }
       
       const msgs = Array.isArray(res.data) ? res.data : [];
-      setMessages(msgs.reverse());
+      setMessages(msgs);
     } catch (error) {
       console.error('Error fetching messages:', error.response?.data || error.message);
     } finally {
@@ -49,30 +175,234 @@ const ChatDetailScreen = ({ route, navigation }) => {
     }, [fetchMessages])
   );
 
+  const fetchGroupInfo = async () => {
+    if (type !== 'group') return;
+    try {
+      const res = await api.get('massaging/groupss/');
+      const group = res.data.find(g => g.id === chatId);
+      if (group) {
+        setGroupMembers(group.members || []);
+        setGroupCreatorId(group.created_by);
+      }
+    } catch (err) {
+      console.error('Error fetching group info:', err);
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const res = await api.get('massaging/users/');
+      setUsers(res.data || []);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+    }
+  };
+
+  const handleOpenGroupInfo = () => {
+    if (type === 'group') {
+      fetchGroupInfo();
+      setIsGroupModalVisible(true);
+    }
+  };
+
+  const handleRemoveMember = async (userId) => {
+    try {
+      await api.post(`massaging/groupss/${chatId}/remove_member/`, { user_id: userId });
+      fetchGroupInfo(); // Refresh members
+    } catch (err) {
+      console.error('Error removing member:', err.response?.data || err.message);
+      Alert.alert('Error', 'No se pudo eliminar al miembro. Asegúrate de ser administrador.');
+    }
+  };
+
+  const confirmRemoveMember = (userId) => {
+    if (Platform.OS === 'web') {
+      if (window.confirm("¿Seguro que deseas eliminar a este miembro del grupo?")) {
+        handleRemoveMember(userId);
+      }
+    } else {
+      Alert.alert("Eliminar miembro", "¿Seguro que deseas eliminar a este miembro del grupo?", [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Eliminar", style: "destructive", onPress: () => handleRemoveMember(userId) }
+      ]);
+    }
+  };
+
+  const handleMakeAdmin = async (userId) => {
+    try {
+      await api.post(`massaging/groupss/${chatId}/make_admin/`, { user_id: userId });
+      fetchGroupInfo(); // Refresh members
+      Alert.alert('Éxito', 'Rol de administrador actualizado.');
+    } catch (err) {
+      console.error('Error making admin:', err.response?.data || err.message);
+      Alert.alert('Error', err.response?.data?.error || 'No se pudo actualizar el rol. Verifica que seas administrador.');
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    try {
+      await api.post(`massaging/groupss/${chatId}/delete/`);
+      setIsGroupModalVisible(false);
+      navigation.goBack();
+    } catch (err) {
+      console.error('Error deleting group:', err.response?.data || err.message);
+      Alert.alert('Error', 'No se pudo eliminar el grupo.');
+    }
+  };
+
+  const confirmDeleteGroup = () => {
+    if (Platform.OS === 'web') {
+      if (window.confirm("¿Seguro que quieres eliminar este grupo? Esta acción no se puede deshacer.")) {
+        handleDeleteGroup();
+      }
+    } else {
+      Alert.alert("Eliminar grupo", "¿Seguro que quieres eliminar este grupo? Esta acción no se puede deshacer.", [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Eliminar", style: "destructive", onPress: () => handleDeleteGroup() }
+      ]);
+    }
+  };
+
+  const handleAddMember = async (userId) => {
+    try {
+      await api.post(`massaging/groupss/${chatId}/add_member/`, { user_id: userId });
+      setIsAddMemberModalVisible(false);
+      fetchGroupInfo();
+      Alert.alert('Éxito', 'Miembro añadido correctamente');
+    } catch (err) {
+      console.error('Error adding member:', err.response?.data || err.message);
+      Alert.alert('Error', 'No se pudo agregar al miembro.');
+    }
+  };
+
+  const pickImage = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setSelectedImage(result.assets[0]);
+    }
+  };
+
+  const handleDeleteMessage = (msgId) => {
+    if (Platform.OS === 'web') {
+      if (window.confirm("¿Estás seguro de que deseas eliminar este mensaje?")) {
+        executeDelete(msgId);
+      }
+    } else {
+      Alert.alert(
+        "Eliminar mensaje",
+        "¿Estás seguro de que deseas eliminar este mensaje?",
+        [
+          { text: "Cancelar", style: "cancel" },
+          { 
+            text: "Eliminar", 
+            style: "destructive",
+            onPress: () => executeDelete(msgId)
+          }
+        ]
+      );
+    }
+  };
+
+  const executeDelete = async (msgId) => {
+    try {
+      if (type === 'group') {
+        await api.delete(`massaging/group_messages/${msgId}/delete/`);
+      } else {
+        await api.delete(`massaging/messages/${msgId}/delete/`);
+      }
+      setMessages(prev => prev.filter(m => m.id !== msgId));
+    } catch (e) {
+      console.error('Error deleting message', e);
+      if (Platform.OS === 'web') {
+        window.alert("Error: No se pudo eliminar el mensaje");
+      } else {
+        Alert.alert("Error", "No se pudo eliminar el mensaje");
+      }
+    }
+  };
+
   const handleSend = async () => {
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() && !selectedImage) return;
     
     try {
       const formData = new FormData();
-      formData.append("content", newMessage);
+      if (newMessage.trim()) formData.append("content", newMessage);
+
+      if (selectedImage) {
+        let fileType = 'jpg';
+        let isVideo = selectedImage.type === 'video';
+
+        if (selectedImage.fileName) {
+          const nameParts = selectedImage.fileName.split('.');
+          fileType = nameParts[nameParts.length - 1];
+        } else {
+          const uriParts = selectedImage.uri.split('.');
+          const possibleExt = uriParts[uriParts.length - 1];
+          if (possibleExt && possibleExt.length <= 5) {
+            fileType = possibleExt;
+          }
+        }
+
+        if (fileType === 'mp4') isVideo = true;
+        const finalType = isVideo ? `video/${fileType}` : `image/${fileType}`;
+        
+        if (Platform.OS === 'web') {
+          const response = await fetch(selectedImage.uri);
+          const blob = await response.blob();
+          const ext = blob.type.split('/')[1] || fileType;
+          formData.append(isVideo ? 'video' : 'image', blob, `media.${ext}`);
+        } else {
+          formData.append(isVideo ? 'video' : 'image', {
+            uri: selectedImage.uri,
+            name: `media.${fileType}`,
+            type: finalType,
+          });
+        }
+      }
+
+      if (replyTo) {
+        formData.append("reply_to", replyTo.id);
+      }
 
       if (type === 'direct') {
         formData.append("receiver", chatId);
         const res = await api.post(`massaging/messages/`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
+          headers: { 'Content-Type': 'multipart/form-data' }
         });
         setMessages(prev => [res.data, ...prev]);
       } else {
         const res = await api.post(`massaging/groupss/${chatId}/send_message/`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
+          headers: { 'Content-Type': 'multipart/form-data' }
         });
         setMessages(prev => [res.data, ...prev]);
       }
 
       setNewMessage('');
+      setSelectedImage(null);
+      setReplyTo(null);
     } catch (error) {
       console.error('Error sending message:', error.response?.data || error.message);
     }
+  };
+
+  const navigateToProfile = (userOrId) => {
+    if (!userOrId) return;
+    const userId = userOrId.id || userOrId;
+    
+    // Close modals if they are open
+    setIsGroupModalVisible(false);
+    setIsAddMemberModalVisible(false);
+
+    navigation.navigate('UserProfile', { 
+      userId, 
+      userName: userOrId.username || 'Usuario', 
+      userAvatar: getImageUrl(userOrId.user_image || userOrId.image) 
+    });
   };
 
   const renderMessage = ({ item }) => {
@@ -80,36 +410,29 @@ const ChatDetailScreen = ({ route, navigation }) => {
     const msgAvatar = getImageUrl(item.sender?.user_image) || `https://ui-avatars.com/api/?name=${item.sender?.username || 'U'}`;
     
     return (
-      <View style={[styles.messageWrapper, isMe ? styles.messageWrapperMe : styles.messageWrapperThem]}>
-        {!isMe && type === 'group' && (
-          <Image source={{ uri: msgAvatar }} style={styles.messageAvatar} />
-        )}
-        <View style={[styles.messageBubble, isMe ? styles.messageBubbleMe : styles.messageBubbleThem]}>
-          {!isMe && type === 'group' && (
-            <Text style={styles.messageSenderName}>{item.sender?.username}</Text>
-          )}
-          <Text style={[styles.messageText, isMe ? styles.messageTextMe : styles.messageTextThem]}>
-            {item.content}
-          </Text>
-          {item.image && (
-             <Image source={{ uri: getImageUrl(item.image) }} style={styles.messageImage} contentFit="cover" />
-          )}
-          <Text style={[styles.messageTime, isMe ? styles.messageTimeMe : styles.messageTimeThem]}>
-            {moment(item.timestamp).format('HH:mm')}
-          </Text>
-        </View>
-      </View>
+      <MessageItem 
+        item={item} 
+        isMe={isMe} 
+        type={type} 
+        msgAvatar={msgAvatar} 
+        onReply={setReplyTo} 
+        onDelete={handleDeleteMessage} 
+        onNavigateToProfile={navigateToProfile}
+      />
     );
   };
+
+  const filteredUsers = users.filter(u => 
+    (u.username || '').toLowerCase().includes(userSearchText.toLowerCase())
+  );
 
   return (
     <KeyboardAvoidingView 
       style={styles.container} 
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* ENCABEZADO DEL CHAT */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('ChatList')} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <Image source={{ uri: avatar }} style={styles.headerAvatar} />
@@ -117,12 +440,13 @@ const ChatDetailScreen = ({ route, navigation }) => {
           <Text style={styles.headerName}>{title}</Text>
           <Text style={styles.headerUsername}>{type === 'group' ? 'Grupo' : 'Mensaje Directo'}</Text>
         </View>
-        <TouchableOpacity>
-          <Ionicons name="information-circle-outline" size={26} color="#333" />
-        </TouchableOpacity>
+        {type === 'group' && (
+          <TouchableOpacity onPress={handleOpenGroupInfo}>
+            <Ionicons name="information-circle-outline" size={26} color="#333" />
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* LISTA DE MENSAJES */}
       {loading ? (
         <ActivityIndicator size="large" color="#4dabf7" style={{ flex: 1, justifyContent: 'center' }} />
       ) : (
@@ -135,8 +459,34 @@ const ChatDetailScreen = ({ route, navigation }) => {
         />
       )}
 
-      {/* INPUT PARA ESCRIBIR */}
+      {/* Reply To Indicator */}
+      {replyTo && (
+        <View style={styles.replyIndicatorContainer}>
+          <View style={styles.replyIndicatorTextContainer}>
+            <Text style={styles.replyIndicatorSender}>Respondiendo a {replyTo.sender?.username}</Text>
+            <Text style={styles.replyIndicatorContent} numberOfLines={1}>{replyTo.content || 'Adjunto'}</Text>
+          </View>
+          <TouchableOpacity onPress={() => setReplyTo(null)}>
+            <Ionicons name="close-circle" size={24} color="#999" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Selected Image Indicator */}
+      {selectedImage && (
+        <View style={styles.selectedImageContainer}>
+          <Image source={{ uri: selectedImage.uri }} style={styles.selectedImagePreview} />
+          <TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}>
+            <Ionicons name="close-circle" size={24} color="#ff4444" />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.inputContainer}>
+        <TouchableOpacity style={styles.attachBtn} onPress={pickImage}>
+          <Ionicons name="add" size={24} color="#4dabf7" />
+        </TouchableOpacity>
+        
         <TextInput
           style={styles.input}
           placeholder="Escribe un mensaje..."
@@ -145,13 +495,123 @@ const ChatDetailScreen = ({ route, navigation }) => {
           multiline
         />
         <TouchableOpacity 
-          style={[styles.sendBtn, !newMessage.trim() && { backgroundColor: '#ccc' }]} 
+          style={[styles.sendBtn, (!newMessage.trim() && !selectedImage) && { backgroundColor: '#ccc' }]} 
           onPress={handleSend}
-          disabled={!newMessage.trim()}
+          disabled={!newMessage.trim() && !selectedImage}
         >
           <Ionicons name="send" size={18} color="#fff" />
         </TouchableOpacity>
       </View>
+
+      {/* MODAL DE INFORMACIÓN DEL GRUPO */}
+      <Modal visible={isGroupModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Info del Grupo</Text>
+              <TouchableOpacity onPress={() => setIsGroupModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.groupInfoSubtitle}>Miembros ({groupMembers.length})</Text>
+            <FlatList
+              data={groupMembers}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => {
+                // currentUser may be admin if they are creator OR they have is_admin true
+                const isCurrentUserCreator = currentUser && groupCreatorId === currentUser.id;
+                const isCurrentUserAdmin = currentUser && groupMembers.some(m => m.id === currentUser.id && m.is_admin);
+                const canManage = isCurrentUserCreator || isCurrentUserAdmin;
+
+                return (
+                <View style={styles.userRow}>
+                  <TouchableOpacity onPress={() => navigateToProfile(item)}>
+                    <Image 
+                      source={{ uri: getImageUrl(item.user_image) || `https://ui-avatars.com/api/?name=${item.username}` }} 
+                      style={styles.userAvatar} 
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => navigateToProfile(item)} style={{ flex: 1 }}>
+                    <Text style={styles.userName}>{item.username} {item.is_admin ? '(Admin)' : ''}</Text>
+                  </TouchableOpacity>
+                  
+                  {canManage && item.id !== currentUser.id && (
+                    <View style={{flexDirection: 'row', gap: 5}}>
+                      {!item.is_admin && (
+                        <TouchableOpacity onPress={() => handleMakeAdmin(item.id)} style={styles.adminBtn}>
+                          <Text style={styles.adminBtnText}>Admin</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity onPress={() => confirmRemoveMember(item.id)} style={styles.removeBtn}>
+                        <Text style={styles.removeBtnText}>Eliminar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}}
+            />
+            {currentUser && (groupCreatorId === currentUser.id || groupMembers.some(m => m.id === currentUser.id && m.is_admin)) && (
+              <TouchableOpacity 
+                style={styles.addMemberBtn}
+                onPress={() => {
+                  fetchUsers();
+                  setIsAddMemberModalVisible(true);
+                }}
+              >
+                <Ionicons name="person-add" size={20} color="#fff" />
+                <Text style={styles.addMemberBtnText}>Agregar Miembro</Text>
+              </TouchableOpacity>
+            )}
+            {currentUser && (groupCreatorId === currentUser.id) && (
+              <TouchableOpacity 
+                style={[styles.addMemberBtn, {backgroundColor: '#ff4444', marginTop: 10}]}
+                onPress={confirmDeleteGroup}
+              >
+                <Ionicons name="trash" size={20} color="#fff" />
+                <Text style={styles.addMemberBtnText}>Eliminar Grupo</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL PARA BUSCAR Y AGREGAR MIEMBROS */}
+      <Modal visible={isAddMemberModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { height: '60%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Añadir Miembro</Text>
+              <TouchableOpacity onPress={() => setIsAddMemberModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={styles.modalSearchInput}
+              placeholder="Buscar usuario..."
+              value={userSearchText}
+              onChangeText={setUserSearchText}
+            />
+            <FlatList
+              data={filteredUsers}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity 
+                  style={styles.userRow}
+                  onPress={() => handleAddMember(item.id)}
+                >
+                  <Image 
+                    source={{ uri: getImageUrl(item.user_image) || `https://ui-avatars.com/api/?name=${item.username}` }} 
+                    style={styles.userAvatar} 
+                  />
+                  <Text style={styles.userName}>{item.username}</Text>
+                  <Ionicons name="add-circle" size={24} color="#4dabf7" style={{ marginLeft: 'auto' }} />
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
     </KeyboardAvoidingView>
   );
 };
@@ -184,9 +644,47 @@ const styles = StyleSheet.create({
   messageTimeMe: { color: 'rgba(255,255,255,0.7)' },
   messageTimeThem: { color: '#999' },
   
+  videoPlaceholder: { width: 180, height: 100, backgroundColor: '#333', borderRadius: 10, marginTop: 8, justifyContent: 'center', alignItems: 'center' },
+  videoText: { color: '#fff', fontSize: 12, marginTop: 5 },
+
+  repliedToContainer: { padding: 8, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3 },
+  repliedToMe: { backgroundColor: 'rgba(255,255,255,0.2)', borderLeftColor: '#fff' },
+  repliedToThem: { backgroundColor: '#f0f0f0', borderLeftColor: '#4dabf7' },
+  repliedToSender: { fontSize: 11, fontWeight: 'bold', marginBottom: 2 },
+  repliedToText: { fontSize: 13 },
+  repliedToTextMe: { color: '#fff' },
+  repliedToTextThem: { color: '#555' },
+
+  replyIndicatorContainer: { flexDirection: 'row', padding: 10, backgroundColor: '#eee', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#ddd' },
+  replyIndicatorTextContainer: { flex: 1, borderLeftWidth: 3, borderLeftColor: '#4dabf7', paddingLeft: 8 },
+  replyIndicatorSender: { fontSize: 12, fontWeight: 'bold', color: '#4dabf7' },
+  replyIndicatorContent: { fontSize: 13, color: '#555' },
+
+  selectedImageContainer: { padding: 10, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'flex-start', borderTopWidth: 1, borderTopColor: '#eee' },
+  selectedImagePreview: { width: 80, height: 80, borderRadius: 8 },
+  removeImageBtn: { position: 'absolute', top: 5, left: 75, backgroundColor: '#fff', borderRadius: 12 },
+
   inputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', alignItems: 'flex-end', gap: 10 },
+  attachBtn: { width: 40, height: 45, justifyContent: 'center', alignItems: 'center' },
   input: { flex: 1, backgroundColor: '#f0f0f0', borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, minHeight: 45, maxHeight: 100, fontSize: 15 },
-  sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' }
+  sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
+
+  // Modals
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '80%', padding: 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  groupInfoSubtitle: { fontSize: 16, fontWeight: '600', color: '#666', marginBottom: 10 },
+  userRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  userAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
+  userName: { fontSize: 16, color: '#333', fontWeight: '500', flex: 1 },
+  removeBtn: { backgroundColor: '#ffecec', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  removeBtnText: { color: '#ff4444', fontSize: 12, fontWeight: 'bold' },
+  adminBtn: { backgroundColor: '#e6f7ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  adminBtnText: { color: '#4dabf7', fontSize: 12, fontWeight: 'bold' },
+  addMemberBtn: { flexDirection: 'row', backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center', padding: 14, borderRadius: 12, marginTop: 20 },
+  addMemberBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginLeft: 8 },
+  modalSearchInput: { backgroundColor: '#f0f0f0', borderRadius: 10, padding: 10, marginBottom: 15, fontSize: 15 },
 });
 
 export default ChatDetailScreen;

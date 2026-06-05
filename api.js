@@ -15,9 +15,14 @@ const api = axios.create({
   },
 });
 
-// ⚡ 1. INTERCEPTOR DE PETICIÓN (Inyectar Token)
+// ⚡ 1. INTERCEPTOR DE PETICIÓN (Inyectar Token y manejar FormData)
 api.interceptors.request.use(
   async (config) => {
+    if (config.data instanceof FormData) {
+      if (config.headers) {
+        delete config.headers['Content-Type'];
+      }
+    }
     const token = await AsyncStorage.getItem('accessToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;

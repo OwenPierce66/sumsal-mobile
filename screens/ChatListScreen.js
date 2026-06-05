@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, Modal, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import moment from 'moment';
@@ -11,9 +11,14 @@ moment.locale('es');
 
 const getImageUrl = (path) => {
   if (!path) return null;
+  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
+    return path;
+  }
   const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
-  let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
-  if (cleanPath.startsWith('http')) return cleanPath;
+  let cleanPath = path;
+  if (cleanPath.startsWith('http')) {
+    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
+  }
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
@@ -26,6 +31,10 @@ const ChatListScreen = ({ navigation }) => {
   const [users, setUsers] = useState([]);
   const [isUsersModalVisible, setIsUsersModalVisible] = useState(false);
   const [userSearchText, setUserSearchText] = useState('');
+
+  // Modal para crear grupo
+  const [isGroupModalVisible, setIsGroupModalVisible] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -55,6 +64,31 @@ const ChatListScreen = ({ navigation }) => {
     }
   };
 
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) {
+      Alert.alert('Error', 'El nombre del grupo no puede estar vacío');
+      return;
+    }
+    try {
+      const res = await api.post('massaging/groupss/create/', { name: newGroupName });
+      setIsGroupModalVisible(false);
+      setNewGroupName('');
+      fetchConversations();
+      // Ir directo al nuevo grupo (opcional)
+      if (res.data && res.data.id) {
+         navigation.navigate('ChatDetail', { 
+            chatId: res.data.id, 
+            type: 'group',
+            title: res.data.name,
+            avatar: 'https://ui-avatars.com/api/?name=G&background=999&color=fff'
+          });
+      }
+    } catch (error) {
+      console.error('Error creating group:', error.response?.data || error.message);
+      Alert.alert('Error', 'No se pudo crear el grupo');
+    }
+  };
+
   const filteredChats = conversations.filter(conv => 
     (conv.title || '').toLowerCase().includes(searchText.toLowerCase())
   );
@@ -62,6 +96,10 @@ const ChatListScreen = ({ navigation }) => {
   const filteredUsers = users.filter(u => 
     (u.username || '').toLowerCase().includes(userSearchText.toLowerCase())
   );
+
+  const navigateToProfile = (userId, userName, userAvatar) => {
+    navigation.navigate('UserProfile', { userId, userName, userAvatar });
+  };
 
   const renderChatItem = ({ item }) => {
     const avatarUri = item.type === 'group' 
@@ -84,7 +122,9 @@ const ChatListScreen = ({ navigation }) => {
               <Ionicons name="people" size={24} color="#fff" />
             </View>
           ) : (
-            <Image source={{ uri: avatarUri }} style={styles.avatar} />
+            <TouchableOpacity onPress={() => navigateToProfile(item.id, item.title, avatarUri)}>
+              <Image source={{ uri: avatarUri }} style={styles.avatar} />
+            </TouchableOpacity>
           )}
         </View>
         
@@ -115,9 +155,14 @@ const ChatListScreen = ({ navigation }) => {
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Mensajes</Text>
-        <TouchableOpacity onPress={fetchUsers}>
-          <Ionicons name="add-circle-outline" size={26} color="#4dabf7" />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity onPress={() => setIsGroupModalVisible(true)} style={{ marginRight: 15 }}>
+            <Ionicons name="people-circle-outline" size={26} color="#4dabf7" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={fetchUsers}>
+            <Ionicons name="add-circle-outline" size={26} color="#4dabf7" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.searchContainer}>
@@ -189,6 +234,29 @@ const ChatListScreen = ({ navigation }) => {
           </View>
         </View>
       </Modal>
+
+      {/* MODAL PARA CREAR GRUPO */}
+      <Modal visible={isGroupModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.groupModalContainer}>
+            <Text style={styles.modalTitle}>Crear Nuevo Grupo</Text>
+            <TextInput
+              style={styles.groupInput}
+              placeholder="Nombre del grupo..."
+              value={newGroupName}
+              onChangeText={setNewGroupName}
+            />
+            <View style={styles.groupModalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsGroupModalVisible(false)}>
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.createBtn} onPress={handleCreateGroup}>
+                <Text style={styles.createBtnText}>Crear</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -197,6 +265,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
   headerTitle: { fontSize: 20, fontWeight: '800', color: '#333' },
+  headerActions: { flexDirection: 'row', alignItems: 'center' },
   
   searchContainer: { flexDirection: 'row', alignItems: 'center', margin: 12, paddingHorizontal: 12, backgroundColor: '#f5f5f5', borderRadius: 12, height: 45 },
   searchInput: { flex: 1, marginLeft: 8, fontSize: 15 },
@@ -222,7 +291,7 @@ const styles = StyleSheet.create({
   
   emptyText: { textAlign: 'center', color: '#999', marginTop: 40, fontSize: 15 },
   
-  // Estilos del Modal
+  // Estilos del Modal Nuevo Mensaje
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '80%', padding: 20 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
@@ -230,7 +299,16 @@ const styles = StyleSheet.create({
   modalSearchInput: { backgroundColor: '#f0f0f0', borderRadius: 10, padding: 10, marginBottom: 15, fontSize: 15 },
   userRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
   userAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
-  userName: { fontSize: 16, color: '#333', fontWeight: '500' }
+  userName: { fontSize: 16, color: '#333', fontWeight: '500' },
+
+  // Estilos Modal Grupo
+  groupModalContainer: { backgroundColor: '#fff', margin: 20, borderRadius: 15, padding: 20, marginBottom: '50%' },
+  groupInput: { borderWidth: 1, borderColor: '#eee', borderRadius: 10, padding: 12, fontSize: 16, marginTop: 15, marginBottom: 20 },
+  groupModalActions: { flexDirection: 'row', justifyContent: 'flex-end' },
+  cancelBtn: { padding: 10, marginRight: 10 },
+  cancelBtnText: { color: '#999', fontSize: 16, fontWeight: '600' },
+  createBtn: { backgroundColor: '#4dabf7', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  createBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
 });
 
 export default ChatListScreen;

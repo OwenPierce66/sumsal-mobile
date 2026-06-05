@@ -8,15 +8,24 @@ import { Image } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
 
 const getImageUrl = (path) => {
-  if (!path) return 'https://via.placeholder.com/40';
+  if (!path) return null;
+  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
+    return path;
+  }
   const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
-  let cleanPath = path.replace('localhost', IP).replace('127.0.0.1', IP).replace('192.168.0.115', IP);
-  if (cleanPath.startsWith('http')) return cleanPath;
+  let cleanPath = path;
+  if (cleanPath.startsWith('http')) {
+    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
+  }
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
-const ProfileScreen = ({ navigation }) => {
-  const [user, setUser] = useState(null);
+const ProfileScreen = ({ route, navigation }) => {
+  const userId = route?.params?.userId || 'me';
+  const initialUserName = route?.params?.userName || '';
+  const initialUserAvatar = route?.params?.userAvatar || null;
+
+  const [user, setUser] = useState({ username: initialUserName, profile: { user_image: initialUserAvatar } });
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -24,16 +33,28 @@ const ProfileScreen = ({ navigation }) => {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
+  const isCurrentUser = userId === 'me';
+
   const fetchUserData = async () => {
     try {
-      const response = await api.get('users/me/');
-      setUser(response.data);
-      await AsyncStorage.setItem('user', JSON.stringify(response.data));
+      const endpoint = isCurrentUser ? 'users/me/' : `massaging/users/`;
+      const response = await api.get(endpoint);
+      
+      if (isCurrentUser) {
+        setUser(response.data);
+        await AsyncStorage.setItem('user', JSON.stringify(response.data));
+      } else {
+        const foundUser = response.data.find(u => u.id === userId);
+        if (foundUser) {
+           setUser(foundUser);
+        }
+      }
     } catch (error) {
       console.error("Error fetching user data:", error);
-      // Fallback a AsyncStorage si falla la red
-      const storedUser = await AsyncStorage.getItem('user');
-      if (storedUser) setUser(JSON.parse(storedUser));
+      if (isCurrentUser) {
+        const storedUser = await AsyncStorage.getItem('user');
+        if (storedUser) setUser(JSON.parse(storedUser));
+      }
     }
   };
 
@@ -42,7 +63,8 @@ const ProfileScreen = ({ navigation }) => {
       if (pageNumber === 1) setLoading(true);
       else setLoadingMore(true);
 
-      const response = await api.get('users/me/tasks/', { params: { page: pageNumber } });
+      const endpoint = isCurrentUser ? 'users/me/tasks/' : `tasks/?user_id=${userId}&page=${pageNumber}`;
+      const response = await api.get(endpoint);
       const newTasks = response.data.results || response.data || [];
 
       if (pageNumber === 1) {
@@ -91,7 +113,13 @@ const ProfileScreen = ({ navigation }) => {
     return (
       <TouchableOpacity 
         style={styles.taskCard} 
-        onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}
+        onPress={() => {
+          if (navigation.push) {
+            navigation.push('TaskDetail', { taskId: item.id });
+          } else {
+            navigation.navigate('TaskDetail', { taskId: item.id });
+          }
+        }}
         activeOpacity={0.9}
       >
         <View style={styles.taskHeader}>
@@ -149,21 +177,31 @@ const ProfileScreen = ({ navigation }) => {
         </View>
       </View>
       
-      <View style={styles.actionButtons}>
-        <TouchableOpacity style={styles.actionBtn} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={18} color="#ff6b6b" />
-          <Text style={styles.actionBtnTextLogout}>Cerrar Sesión</Text>
-        </TouchableOpacity>
-      </View>
+      {isCurrentUser && (
+        <View style={styles.actionButtons}>
+          <TouchableOpacity style={styles.actionBtn} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={18} color="#ff6b6b" />
+            <Text style={styles.actionBtnTextLogout}>Cerrar Sesión</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       
       <View style={styles.divider} />
-      <Text style={styles.sectionTitle}>Mis Publicaciones</Text>
+      <Text style={styles.sectionTitle}>{isCurrentUser ? 'Mis Publicaciones' : `Publicaciones de ${user?.username || ''}`}</Text>
     </View>
   );
 
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
+        {(navigation.canGoBack() || !isCurrentUser) && (
+          <TouchableOpacity 
+            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('HomeMain')} 
+            style={styles.backBtn}
+          >
+            <Ionicons name="arrow-back" size={24} color="#333" />
+          </TouchableOpacity>
+        )}
         <Text style={styles.topBarTitle}>Perfil</Text>
       </View>
 
@@ -193,7 +231,8 @@ const ProfileScreen = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5' },
-  topBar: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center' },
+  topBar: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', paddingTop: Platform.OS === 'ios' ? 50 : 16 },
+  backBtn: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 16, zIndex: 10 },
   topBarTitle: { fontSize: 20, fontWeight: '800', color: '#333' },
   
   profileHeader: { padding: 20, backgroundColor: '#fff', marginBottom: 10 },
