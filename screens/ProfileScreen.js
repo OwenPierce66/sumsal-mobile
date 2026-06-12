@@ -135,6 +135,14 @@ const ProfileScreen = ({ route, navigation }) => {
 
         <Text style={styles.taskDescription} numberOfLines={3}>{item.description}</Text>
 
+        {item.categories ? (
+          <View style={styles.categoriesList}>
+            {item.categories.split(',').map((cat, idx) => (
+              <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
+            ))}
+          </View>
+        ) : null}
+
         {(item.image || item.subtasks?.[0]?.image || item.subfactores?.[0]?.image || item.subfuentes?.[0]?.image) && (
           <Image
             source={{ uri: getImageUrl(item.image || item.subtasks?.[0]?.image || item.subfactores?.[0]?.image || item.subfuentes?.[0]?.image) }}
@@ -256,7 +264,9 @@ const styles = StyleSheet.create({
   avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, backgroundColor: '#eee' },
   taskTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
   taskDate: { fontSize: 12, color: '#999', marginTop: 2 },
-  taskDescription: { fontSize: 14, color: '#555', lineHeight: 20, marginBottom: 10 },
+  taskDescription: { fontSize: 14, color: '#555', lineHeight: 20 },
+  categoriesList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, marginBottom: 10 },
+  categoryBadge: { backgroundColor: '#e3f2fd', color: '#4dabf7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, fontSize: 11, fontWeight: '600' },
   taskImage: { width: '100%', height: 150, borderRadius: 10, marginTop: 8, backgroundColor: '#f0f0f0' },
   
   taskFooter: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f0f0f0' },

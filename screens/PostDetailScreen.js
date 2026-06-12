@@ -34,7 +34,7 @@ const ReplyItem = ({ reply, depth = 0, onLike, onReply, replyingToId, getAuthorN
         <View style={styles.replyHeader}>
           <View style={styles.replyUserInfo}>
             <Image
-              source={{ uri: getImageUrl(reply.user?.user_image) || 'https://via.placeholder.com/32' }}
+              source={{ uri: getImageUrl(reply.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }}
               style={styles.replyAvatar}
             />
             <View>
@@ -235,7 +235,7 @@ const PostDetailScreen = () => {
       <ScrollView style={styles.scrollView}>
         {/* POST PRINCIPAL */}
         <View style={styles.screenHeader}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('ForumMain')} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
           <Text style={styles.screenHeaderTitle}>Detalle</Text>
@@ -247,7 +247,7 @@ const PostDetailScreen = () => {
               <Text style={styles.postTitle}>{post.title || 'Sin título'}</Text>
               <View style={styles.postMeta}>
                 <Image
-                  source={{ uri: getImageUrl(post.user?.user_image) || 'https://via.placeholder.com/40' }}
+                  source={{ uri: getImageUrl(post.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }}
                   style={styles.postAvatar}
                 />
                 <View>

@@ -56,7 +56,14 @@ const handleLogout = () => {
     >
       <Text style={styles.taskTitle}>{item.title}</Text>
       <Text style={styles.taskDescription}>{item.description}</Text>
-      {!!item.pch && <Text style={styles.taskType}>{item.pch}</Text>}
+      <View style={styles.tagsRow}>
+        {!!item.pch && <Text style={styles.taskType}>{item.pch}</Text>}
+        {item.categories ? (
+          item.categories.split(',').slice(0, 2).map((cat, idx) => (
+            <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
+          ))
+        ) : null}
+      </View>
     </TouchableOpacity>
   );
 
@@ -153,15 +160,29 @@ const styles = StyleSheet.create({
     color: '#555',
     marginBottom: 8,
   },
+  tagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
   taskType: {
-    alignSelf: 'flex-start',
+    backgroundColor: '#333',
+    color: '#fff',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  categoryBadge: {
     backgroundColor: '#e3f2fd',
     color: '#4dabf7',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: 'bold',
   },
   centered: {
     flex: 1,

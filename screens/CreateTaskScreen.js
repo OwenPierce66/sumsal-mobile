@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, Text, TextInput, ScrollView, TouchableOpacity, 
   StyleSheet, Alert, ActivityIndicator, Platform 
@@ -25,7 +25,28 @@ const CreateTaskScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [tema, setTema] = useState('consejos'); 
+  const [tema, setTema] = useState('consejos');
+  const [availableCategories, setAvailableCategories] = useState([]);
+  const [selectedCategories, setSelectedCategories] = useState([]);
+  const [manualCategories, setManualCategories] = useState('');
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const response = await api.get('new-categories/');
+        setAvailableCategories(response.data);
+      } catch (error) {
+        console.error('Error fetching categories:', error);
+      }
+    };
+    fetchCategories();
+  }, []);
+
+  const toggleCategory = (catName) => {
+    setSelectedCategories(prev => 
+      prev.includes(catName) ? prev.filter(c => c !== catName) : [...prev, catName]
+    );
+  }; 
   
   const [subtasks, setSubtasks] = useState([{ title: '', description: '', image: null }]);
   const [subfactores, setSubfactores] = useState([{ title: '', description: '', image: null }]);
@@ -64,6 +85,10 @@ const CreateTaskScreen = ({ navigation }) => {
     formData.append('title', title);
     formData.append('description', description);
     formData.append('pch', tema);
+    
+    const manualArray = manualCategories.split(',').map(c => c.trim()).filter(Boolean);
+    const finalCategories = [...new Set([...selectedCategories, ...manualArray])];
+    formData.append('categories', finalCategories.join(','));
     
     // Función asíncrona PRO: Respeta el await y convierte las imágenes
     const appendArrayToFormData = async (array, prefix) => {
@@ -278,6 +303,34 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
         </View>
       </View>
 
+      <View style={styles.categoriesBlock}>
+        <Text style={styles.sectionTitle}>Categorías (Opcional)</Text>
+        
+        {availableCategories.length > 0 && (
+          <View style={styles.tagsContainer}>
+            {availableCategories.map(cat => (
+              <TouchableOpacity
+                key={cat.id}
+                style={[styles.tagBadge, selectedCategories.includes(cat.name) && styles.tagBadgeActive]}
+                onPress={() => toggleCategory(cat.name)}
+              >
+                <Text style={[styles.tagText, selectedCategories.includes(cat.name) && styles.tagTextActive]}>
+                  {cat.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        <TextInput
+          style={styles.manualCatInput}
+          placeholder="Añadir categorías manuales (separadas por coma)..."
+          placeholderTextColor="#999"
+          value={manualCategories}
+          onChangeText={setManualCategories}
+        />
+      </View>
+
       {renderSection("Aportaciones", subtasks, setSubtasks)}
       {renderSection("Factores", subfactores, setSubfactores)}
       {renderSection("Fuentes", subfuentes, setSubfuentes)}
@@ -305,6 +358,13 @@ const styles = StyleSheet.create({
   mainBlock: { backgroundColor: '#fff', borderRadius: 20, padding: 20, marginBottom: 20, elevation: 4 },
   mainTitleInput: { fontSize: 20, fontWeight: 'bold', borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10, marginBottom: 10, color: '#333' },
   mainDescInput: { fontSize: 15, color: '#666', minHeight: 60, marginBottom: 15 },
+  categoriesBlock: { backgroundColor: '#fff', borderRadius: 20, padding: 20, marginBottom: 20, elevation: 4 },
+  tagsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 15 },
+  tagBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 15, backgroundColor: '#f0f0f0', borderWidth: 1, borderColor: '#e0e0e0' },
+  tagBadgeActive: { backgroundColor: '#4dabf7', borderColor: '#4dabf7' },
+  tagText: { fontSize: 13, color: '#666' },
+  tagTextActive: { color: '#fff', fontWeight: 'bold' },
+  manualCatInput: { fontSize: 14, backgroundColor: '#f9f9f9', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#eee', color: '#333' },
   temaContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
   temaBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#f0f0f0', flex: 0.31, alignItems: 'center' },
   temaBtnActive: { backgroundColor: '#333' },

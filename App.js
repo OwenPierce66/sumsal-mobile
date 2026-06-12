@@ -35,6 +35,8 @@ const TasksStackNavigator = () => {
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
+      <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+      <Stack.Screen name="UserProfile" component={ProfileScreen} />
     </Stack.Navigator>
   );
 };
@@ -83,6 +85,7 @@ const ProfileStackNavigator = () => {
 const AuthenticatedTabs = () => {
   return (
     <Tab.Navigator
+      backBehavior="none"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ focused, color, size }) => {

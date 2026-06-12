@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
-  RefreshControl, TextInput, Platform, ActivityIndicator
+  RefreshControl, TextInput, Platform, ActivityIndicator, Modal, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -13,6 +13,12 @@ import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
 
 const TasksScreen = ({ navigation }) => {
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    api.get('users/me/').then(res => setCurrentUserId(res.data.id)).catch(() => {});
+    api.get('verify-admin/').then(res => setIsAdmin(res.data?.is_admin || res.data?.is_staff)).catch(() => {});
+  }, []);
   const [tasks, setTasks] = useState([]);
   const [sharedTasks, setSharedTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +29,11 @@ const TasksScreen = ({ navigation }) => {
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
+  const [selectedSortBy, setSelectedSortBy] = useState('recent');
+  const [selectedFavoritesOnly, setSelectedFavoritesOnly] = useState(false);
+  const [selectedFavoriteUsersOnly, setSelectedFavoriteUsersOnly] = useState(false);
+  const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
+  const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
 
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
@@ -32,8 +43,194 @@ const TasksScreen = ({ navigation }) => {
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [taskToShare, setTaskToShare] = useState(null);
 
+  // Modal de acciones (3 puntos)
+  const [actionModalVisible, setActionModalVisible] = useState(false);
+  const [selectedActionTask, setSelectedActionTask] = useState(null);
+  
+  const openActionModal = (task) => {
+    setSelectedActionTask(task);
+    setActionModalVisible(true);
+  };
+
+  const handleDeleteTask = async () => {
+    if (!selectedActionTask) return;
+    const taskId = selectedActionTask.id;
+    
+    const executeDelete = async () => {
+      try {
+        if (selectedActionTask.isSharedTask) {
+          await api.delete("shared-tasks/" + taskId + "/");
+          setSharedTasks(prev => prev.filter(s => s.id !== taskId));
+        } else {
+          await api.delete("tasks/" + taskId + "/");
+          setTasks(prev => prev.filter(t => t.id !== taskId));
+          setSharedTasks(prev => prev.filter(s => s.task?.id !== taskId));
+        }
+        setActionModalVisible(false);
+      } catch (error) {
+        console.error('Error deleting task:', error);
+        if (Platform.OS !== 'web') Alert.alert('Error', 'No se pudo eliminar la tarea.');
+        else window.alert('Error: No se pudo eliminar la tarea.');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('¿Estás seguro de que deseas eliminar esta tarea permanentemente?')) {
+        executeDelete();
+      }
+    } else {
+      Alert.alert(
+        'Eliminar Tarea',
+        '¿Estás seguro de que deseas eliminar esta tarea permanentemente?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Eliminar', style: 'destructive', onPress: executeDelete }
+        ]
+      );
+    }
+  };
+
+  const handleDirectMessage = () => {
+    if (!selectedActionTask) return;
+    const userObj = selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user;
+    if (!userObj) return;
+    setActionModalVisible(false);
+    navigation.navigate('ChatDetail', { 
+      chatId: userObj.id,
+      type: 'direct',
+      title: selectedActionTask.isSharedTask ? getSharerName(userObj) : getAuthorName(selectedActionTask),
+      avatar: getImageUrl(userObj.user_image)
+    });
+  };
+
+  const handleGoToForum = () => {
+    if (!selectedActionTask) return;
+    const userObj = selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user;
+    if (!userObj) return;
+    setActionModalVisible(false);
+    navigation.navigate('UserProfile', { 
+      userId: userObj.id, 
+      userName: selectedActionTask.isSharedTask ? getSharerName(userObj) : getAuthorName(selectedActionTask), 
+      userAvatar: getImageUrl(userObj.user_image) 
+    });
+  };
+
+  const handleToggleVerified = async () => {
+    if (!selectedActionTask) return;
+    const userObj = selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user;
+    if (!userObj) return;
+
+    try {
+      const is_verified = !(userObj.profile?.is_verified);
+      await api.post(`admin/users/${userObj.id}/verify/`, { is_verified });
+      setActionModalVisible(false);
+      
+      const updateTasks = (tasksList) =>
+        tasksList.map(t => {
+          if (t.user?.id === userObj.id) {
+            return { ...t, user: { ...t.user, profile: { ...t.user.profile, is_verified } } };
+          }
+          if (t.shared_by?.id === userObj.id) {
+            return { ...t, shared_by: { ...t.shared_by, profile: { ...t.shared_by.profile, is_verified } } };
+          }
+          return t;
+        });
+
+      setTasks(prev => updateTasks(prev));
+      setSharedTasks(prev => updateTasks(prev));
+    } catch (error) {
+      console.error("Error toggling verified:", error);
+    }
+  };
+
+  const handleToggleRecommended = async () => {
+    if (!selectedActionTask) return;
+    const userObj = selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user;
+    if (!userObj) return;
+
+    try {
+      const is_recommended = !(userObj.profile?.is_recommended);
+      await api.post(`admin/users/${userObj.id}/recommend/`, { is_recommended });
+      setActionModalVisible(false);
+
+      const updateTasks = (tasksList) =>
+        tasksList.map(t => {
+          if (t.user?.id === userObj.id) {
+            return { ...t, user: { ...t.user, profile: { ...t.user.profile, is_recommended } } };
+          }
+          if (t.shared_by?.id === userObj.id) {
+            return { ...t, shared_by: { ...t.shared_by, profile: { ...t.shared_by.profile, is_recommended } } };
+          }
+          return t;
+        });
+
+      setTasks(prev => updateTasks(prev));
+      setSharedTasks(prev => updateTasks(prev));
+    } catch (error) {
+      console.error("Error toggling recommended:", error);
+    }
+  };
+
+  const handleToggleFavorite = async () => {
+    if (!selectedActionTask) return;
+    try {
+      const taskId = selectedActionTask.isSharedTask ? selectedActionTask.task.id : selectedActionTask.id;
+      const isFav = selectedActionTask.isSharedTask ? !selectedActionTask.task.is_favorited : !selectedActionTask.is_favorited;
+      
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, is_favorited: isFav } : t));
+      setSharedTasks(prev => prev.map(s => s.task?.id === taskId ? { ...s, task: { ...s.task, is_favorited: isFav } } : s));
+      
+      await api.post("favoritos/agregar/", { task_id: taskId });
+    } catch (error) {
+      console.error("Error toggling favorite:", error);
+    } finally {
+      setActionModalVisible(false);
+    }
+  };
+
+  const handleToggleProfileFavorite = async () => {
+    if (!selectedActionTask || (!selectedActionTask.user && !selectedActionTask.shared_by)) return;
+    try {
+      const targetUser = selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user;
+      const userObj = typeof targetUser === "object" ? targetUser : { id: targetUser };
+      const perfilId = userObj.id;
+      const isFav = !userObj.is_favorited;
+
+      const updateTasksWithNewUserFav = (tasksList) => 
+        tasksList.map(t => {
+          if (t.user && (t.user.id === perfilId || t.user === perfilId)) {
+             return { ...t, user: typeof t.user === "object" ? { ...t.user, is_favorited: isFav } : t.user };
+          }
+          if (t.shared_by && (t.shared_by.id === perfilId || t.shared_by === perfilId)) {
+             return { ...t, shared_by: typeof t.shared_by === "object" ? { ...t.shared_by, is_favorited: isFav } : t.shared_by };
+          }
+          return t;
+        });
+
+      setTasks(prev => updateTasksWithNewUserFav(prev));
+      setSharedTasks(prev => prev.map(s => {
+        if (s.task) {
+           return { ...s, task: updateTasksWithNewUserFav([s.task])[0] };
+        }
+        return s;
+      }));
+      
+      await api.post("pfavoritos/agregar/", { perfil_id: perfilId });
+    } catch (error) {
+      console.error("Error toggling profile favorite:", error);
+    } finally {
+      setActionModalVisible(false);
+    }
+  };
+
+
   const handleShowTaskLikes = (taskId) => {
     setLikesModalUrl(`tasks/${taskId}/users-who-liked/`);
+    setLikesModalVisible(true);
+  };
+
+  const handleShowTaskShares = (taskId) => {
+    setLikesModalUrl('tasks/' + taskId + '/users-who-shared/');
     setLikesModalVisible(true);
   };
 
@@ -50,7 +247,7 @@ const TasksScreen = ({ navigation }) => {
   const [loadingMore, setLoadingMore] = useState(false);
 
   // Modificamos fetchTasks para que acepte el número de página
-  const fetchTasks = useCallback(async (pageNumber = 1) => {
+  const fetchTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
     try {
       if (pageNumber === 1) setLoading(true);
       else setLoadingMore(true);
@@ -59,8 +256,13 @@ const TasksScreen = ({ navigation }) => {
         params: { 
           pch: tema, 
           page: pageNumber,
-          category: selectedCategory,
-          date_filter: selectedDateFilter
+          category: overrideFilters ? overrideFilters.category : selectedCategory,
+          date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
+          sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
+          favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
+          favorite_users_only: overrideFilters ? overrideFilters.favorite_users_only : selectedFavoriteUsersOnly,
+          verified_users_only: overrideFilters ? overrideFilters.verified_users_only : selectedVerifiedUsersOnly,
+          recommended_users_only: overrideFilters ? overrideFilters.recommended_users_only : selectedRecommendedUsersOnly,
         } 
       });
       const data = response.data.results ?? response.data ?? [];
@@ -89,11 +291,22 @@ const TasksScreen = ({ navigation }) => {
       setLoadingMore(false);
       setRefreshing(false);
     }
-  }, [tema, selectedCategory, selectedDateFilter]);
+  }, [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly]);
 
-  const fetchSharedTasks = useCallback(async (pageNumber = 1) => {
+  const fetchSharedTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
     try {
-      const response = await api.get('shared-tasks/', { params: { page: pageNumber } });
+      const response = await api.get('shared-tasks/', { 
+        params: { 
+          page: pageNumber,
+          category: overrideFilters ? overrideFilters.category : selectedCategory,
+          date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
+          sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
+          favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
+          favorite_users_only: overrideFilters ? overrideFilters.favorite_users_only : selectedFavoriteUsersOnly,
+          verified_users_only: overrideFilters ? overrideFilters.verified_users_only : selectedVerifiedUsersOnly,
+          recommended_users_only: overrideFilters ? overrideFilters.recommended_users_only : selectedRecommendedUsersOnly,
+        }
+      });
       const data = response.data.results ?? response.data ?? [];
 
       if (pageNumber === 1) {
@@ -111,13 +324,10 @@ const TasksScreen = ({ navigation }) => {
       }
       console.error('Error fetching shared tasks:', error.response?.data || error.message);
     }
-  }, []);
+  }, [selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly]);
 
   useFocusEffect(useCallback(() => {
-    setPage(1);
-    setSharedPage(1);
-    setHasMore(true);
-    setSharedHasMore(true);
+    // Only fetch on initial focus, subsequent fetches are handled by useEffect when filters change
     fetchTasks(1);
     fetchSharedTasks(1);
   }, [fetchTasks, fetchSharedTasks]));
@@ -235,10 +445,21 @@ const TasksScreen = ({ navigation }) => {
   const feedItems = React.useMemo(() => {
     const plainTasks = tasks.map((task) => ({ ...task, feedType: 'task' }));
     const sharedItems = sharedTasks.map((shared) => ({ ...shared, feedType: 'shared' }));
-    return [...plainTasks, ...sharedItems].sort(
+    const combined = [...plainTasks, ...sharedItems];
+
+    if (selectedSortBy === 'likes') {
+      return combined.sort((a, b) => {
+        const likesA = a.likes_count || 0;
+        const likesB = b.likes_count || 0;
+        if (likesB !== likesA) return likesB - likesA;
+        return new Date(b.created_at) - new Date(a.created_at);
+      });
+    }
+
+    return combined.sort(
       (a, b) => new Date(b.created_at) - new Date(a.created_at)
     );
-  }, [tasks, sharedTasks]);
+  }, [tasks, sharedTasks, selectedSortBy]);
 
   const filteredTasks = feedItems.filter((item) => {
     const title = item.feedType === 'shared' ? item.task?.title : item.title;
@@ -265,6 +486,27 @@ const TasksScreen = ({ navigation }) => {
   }
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
+
+  // ⚡ HELPER PARA COLORES Y ICONOS DE STATUS
+  const getUserStatusColor = (userObj) => {
+    if (!userObj) return '#555';
+    const profile = userObj.profile || {};
+    if (profile.is_verified) return '#4dabf7'; 
+    if (profile.subscriptionActive && parseFloat(profile.subscription_amount || 0) >= 8) return '#ff6b6b';
+    if (profile.subscriptionActive) return '#51cf66';
+    if (profile.is_recommended) return '#000';
+    return '#555';
+  };
+
+  const getUserStatusIcon = (userObj) => {
+    if (!userObj) return null;
+    const profile = userObj.profile || {};
+    if (profile.is_verified) return 'checkmark-circle';
+    if (profile.subscriptionActive && parseFloat(profile.subscription_amount || 0) >= 8) return 'star';
+    if (profile.subscriptionActive) return 'star-half';
+    if (profile.is_recommended) return 'medal';
+    return null;
+  };
 
   // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA
   const getAuthorName = (item) => {
@@ -322,7 +564,7 @@ const TasksScreen = ({ navigation }) => {
             <Image 
               source={{ uri: finalUri }} 
               style={styles.subImage} 
-              resizeMode="cover" 
+              contentFit="cover" 
             />
           )}
         </View>
@@ -336,8 +578,13 @@ const TasksScreen = ({ navigation }) => {
     return (
       <View style={styles.taskCard}>
         <View style={styles.sharedByHeader}>
-          <Text style={styles.sharedByName}>{getSharerName(shared.shared_by)} compartió</Text>
-          <Text style={styles.sharedDate}>{moment(shared.created_at).fromNow()}</Text>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+            <Text style={styles.sharedByName}>{getSharerName(shared.shared_by)} compartió</Text>
+            <Text style={styles.sharedDate}>{moment(shared.created_at).fromNow()}</Text>
+          </View>
+          <TouchableOpacity onPress={() => openActionModal({...shared, isSharedTask: true})}>
+            <Ionicons name="ellipsis-vertical" size={20} color="#ccc" />
+          </TouchableOpacity>
         </View>
 
         {shared.description ? (
@@ -347,43 +594,59 @@ const TasksScreen = ({ navigation }) => {
         <View style={styles.originalTaskCard}>
           <View style={styles.taskHeader}>
             <Image 
-              source={{ uri: getImageUrl(task.user?.user_image) || 'https://via.placeholder.com/40' }} 
+              source={{ uri: getImageUrl(task.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }} 
               style={styles.avatar} 
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.taskTitle}>{task.title}</Text>
-              <Text style={styles.taskUser}>{getAuthorName(task)}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={[styles.taskUser, { color: getUserStatusColor(task.user) }]}>{getAuthorName(task)}</Text>
+                  {getUserStatusIcon(task.user) && <Ionicons name={getUserStatusIcon(task.user)} size={14} color={getUserStatusColor(task.user)} />}
+                </View>
+                <Text style={{ fontSize: 12, color: '#999' }}>• {moment(task.created_at).fromNow()}</Text>
+              </View>
             </View>
-            <TouchableOpacity onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}>
+            <TouchableOpacity onPress={() => openActionModal({...task, isSharedTask: false})}>
               <Ionicons name="ellipsis-vertical" size={20} color="#ccc" />
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.taskDescription}>{task.description}</Text>
+          <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}>
+            <Text style={styles.taskDescription}>{task.description}</Text>
 
-          {/* ⚡ EXTRAEMOS LA PRIMERA IMAGEN DISPONIBLE (SUBTASKS, SUBFACTORES O SUBFUENTES) */}
-          {(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) && (
-            <Image
-              source={{ uri: getImageUrl(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
-              style={styles.taskImage}
-            />
-          )}
+            {task.categories ? (
+              <View style={styles.categoriesList}>
+                {task.categories.split(',').map((cat, idx) => (
+                  <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
+                ))}
+              </View>
+            ) : null}
+
+            {/* ⚡ EXTRAEMOS LA PRIMERA IMAGEN DISPONIBLE (SUBTASKS, SUBFACTORES O SUBFUENTES) */}
+            {(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) && (
+              <Image
+                source={{ uri: getImageUrl(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
+                style={styles.taskImage}
+              />
+            )}
+          </TouchableOpacity>
         </View>
 
         <View style={styles.taskFooter}>
           <View style={styles.statsContainer}>
-            <TouchableOpacity 
-              style={styles.stat} 
-              onPress={() => handleLikeSharedTask(shared.id)}
-              onLongPress={() => handleShowSharedTaskLikes(shared.id)}
-            >
-              <Ionicons
-                name={shared.user_has_liked ? 'heart' : 'heart-outline'}
-                size={18}
-                color={shared.user_has_liked ? '#ff6b6b' : '#999'}
-              />
-              <Text style={styles.statText}>{shared.likes_count ?? 0}</Text>
-            </TouchableOpacity>
+            <View style={styles.stat}>
+              <TouchableOpacity onPress={() => handleLikeSharedTask(shared.id)}>
+                <Ionicons
+                  name={shared.user_has_liked ? "heart" : "heart-outline"}
+                  size={18}
+                  color={shared.user_has_liked ? "#ff6b6b" : "#999"}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleShowSharedTaskLikes(shared.id)} style={{marginLeft: 4, padding: 4}}>
+                <Text style={styles.statText}>{shared.likes_count ?? 0}</Text>
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
               style={styles.stat}
@@ -393,13 +656,14 @@ const TasksScreen = ({ navigation }) => {
               <Text style={styles.statText}>{shared.comments_count || 0}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.stat}
-              onPress={() => handleShareSharedTask(shared.task?.id)}
-            >
-              <Ionicons name="share-social-outline" size={18} color="#51cf66" />
-              <Text style={styles.statText}>{shared.task?.share_count ?? 0}</Text>
-            </TouchableOpacity>
+            <View style={styles.stat}>
+              <TouchableOpacity onPress={() => handleShareSharedTask(shared.task?.id)}>
+                <Ionicons name="share-social-outline" size={18} color="#51cf66" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleShowTaskShares(shared.task?.id)} style={{marginLeft: 4, padding: 4}}>
+                <Text style={styles.statText}>{shared.task?.share_count ?? 0}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>
@@ -416,19 +680,35 @@ const TasksScreen = ({ navigation }) => {
       <View style={styles.taskCard}>
         <View style={styles.taskHeader}>
           <Image 
-            source={{ uri: getImageUrl(item.user?.user_image) || 'https://via.placeholder.com/40' }} 
+            source={{ uri: getImageUrl(item.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }} 
             style={styles.avatar} 
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.taskTitle}>{item.title}</Text>
-            <Text style={styles.taskUser}>{getAuthorName(item)}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={[styles.taskUser, { color: getUserStatusColor(item.user) }]}>{getAuthorName(item)}</Text>
+                {getUserStatusIcon(item.user) && <Ionicons name={getUserStatusIcon(item.user)} size={14} color={getUserStatusColor(item.user)} />}
+              </View>
+              <Text style={{ fontSize: 12, color: '#999' }}>• {moment(item.created_at).fromNow()}</Text>
+            </View>
           </View>
-          <TouchableOpacity onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
+          <TouchableOpacity onPress={() => openActionModal(item)}>
             <Ionicons name="ellipsis-vertical" size={20} color="#ccc" />
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.taskDescription}>{item.description}</Text>
+        <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
+          <Text style={styles.taskDescription}>{item.description}</Text>
+
+          {item.categories ? (
+            <View style={styles.categoriesList}>
+              {item.categories.split(',').map((cat, idx) => (
+                <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
+              ))}
+            </View>
+          ) : null}
+        </TouchableOpacity>
 
         <View style={styles.sectionTabs}>
           {['subtasks', 'subfactores', 'subfuentes'].map((s) => (
@@ -450,22 +730,26 @@ const TasksScreen = ({ navigation }) => {
 
         <View style={styles.taskFooter}>
           <View style={styles.statsContainer}>
-            <TouchableOpacity 
-              style={styles.stat} 
-              onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}
-              onLongPress={() => handleShowTaskLikes(item.id)}
-            >
-              <Ionicons name="heart-outline" size={18} color="#ff6b6b" />
-              <Text style={styles.statText}>{item.likes_count ?? 0}</Text>
-            </TouchableOpacity>
+            <View style={styles.stat}>
+              <TouchableOpacity onPress={() => navigation.navigate("TaskDetail", { taskId: item.id })}>
+                <Ionicons name="heart-outline" size={18} color="#ff6b6b" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleShowTaskLikes(item.id)} style={{marginLeft: 4, padding: 4}}>
+                <Text style={styles.statText}>{item.likes_count ?? 0}</Text>
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity style={styles.stat} onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
               <Ionicons name="chatbubble-outline" size={18} color="#4dabf7" />
               <Text style={styles.statText}>{item.comments_count || 0}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.stat} onPress={() => openShareModal(item.id)}>
-              <Ionicons name="share-social-outline" size={18} color="#51cf66" />
-              <Text style={styles.statText}>{item.share_count ?? 0}</Text>
-            </TouchableOpacity>
+            <View style={styles.stat}>
+              <TouchableOpacity onPress={() => openShareModal(item.id)}>
+                <Ionicons name="share-social-outline" size={18} color="#51cf66" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleShowTaskShares(item.id)} style={{marginLeft: 4, padding: 4}}>
+                <Text style={styles.statText}>{item.share_count ?? 0}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>
@@ -538,17 +822,25 @@ const TasksScreen = ({ navigation }) => {
         onClose={() => setFilterModalVisible(false)}
         currentCategory={selectedCategory}
         currentDateFilter={selectedDateFilter}
+        currentSortBy={selectedSortBy}
+        currentFavorites={selectedFavoritesOnly}
+        currentFavoriteUsers={selectedFavoriteUsersOnly}
+        currentVerifiedUsers={selectedVerifiedUsersOnly}
+        currentRecommendedUsers={selectedRecommendedUsersOnly}
         onApply={(filters) => {
           setSelectedCategory(filters.category);
           setSelectedDateFilter(filters.date_filter);
+          setSelectedSortBy(filters.sort_by);
+          setSelectedFavoritesOnly(filters.favorites_only);
+          setSelectedFavoriteUsersOnly(filters.favorite_users_only);
+          setSelectedVerifiedUsersOnly(filters.verified_users_only);
+          setSelectedRecommendedUsersOnly(filters.recommended_users_only);
           setPage(1);
+          setSharedPage(1);
           setHasMore(true);
-          // fetchTasks will be called by useEffect when state changes if we add them to dependencies,
-          // but fetchTasks is wrapped in useCallback and called by focus effect.
-          // Let's force a refetch here:
-          setTimeout(() => {
-             fetchTasks(1);
-          }, 100);
+          setSharedHasMore(true);
+          fetchTasks(1, filters);
+          fetchSharedTasks(1, filters);
         }}
       />
 
@@ -558,6 +850,61 @@ const TasksScreen = ({ navigation }) => {
         onClose={() => setLikesModalVisible(false)} 
         apiUrl={likesModalUrl} 
       />
+
+      {/* MODAL DE ACCIONES (3 PUNTOS) */}
+      <Modal visible={actionModalVisible} transparent animationType='fade' onRequestClose={() => setActionModalVisible(false)}>
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setActionModalVisible(false)}>
+          <View style={styles.actionModalContainer}>
+            <View style={styles.modalDragHandle} />
+            {selectedActionTask && (
+              <>
+                <TouchableOpacity style={styles.actionOption} onPress={handleToggleFavorite}>
+                  <Ionicons name={selectedActionTask.is_favorited ? 'star' : 'star-outline'} size={20} color={selectedActionTask.is_favorited ? '#f59f00' : '#555'} />
+                  <Text style={styles.actionText}>{selectedActionTask.is_favorited ? 'Eliminar de favoritos' : 'Agregar a favoritos'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); openShareModal(selectedActionTask.id); }}>
+                  <Ionicons name='share-social-outline' size={20} color='#555' />
+                  <Text style={styles.actionText}>Compartir</Text>
+                </TouchableOpacity>
+                {(selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user) && currentUserId !== ((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.id || (selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)) && (
+                  <>
+                    <TouchableOpacity style={styles.actionOption} onPress={handleDirectMessage}>
+                      <Ionicons name='chatbubbles-outline' size={20} color='#4dabf7' />
+                      <Text style={styles.actionText}>Mensaje Directo</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actionOption} onPress={handleGoToForum}>
+                      <Ionicons name='person-outline' size={20} color='#4dabf7' />
+                      <Text style={styles.actionText}>Ir a su perfil/foro</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actionOption} onPress={handleToggleProfileFavorite}>
+                      <Ionicons name={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.is_favorited) ? "heart" : "heart-outline"} size={20} color={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.is_favorited) ? "#ff0b5a" : "#555"} />
+                      <Text style={styles.actionText}>{((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.is_favorited) ? "Eliminar perfil de favoritos" : "Agregar perfil a favoritos"}</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+                {(currentUserId === ((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.id || (selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user))) && (
+                  <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
+                    <Ionicons name='trash-outline' size={20} color='#ff6b6b' />
+                    <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: 'bold' }]}>Eliminar</Text>
+                  </TouchableOpacity>
+                )}
+                {isAdmin && (
+                  <>
+                    <TouchableOpacity style={styles.actionOption} onPress={handleToggleVerified}>
+                      <Ionicons name={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "checkmark-circle" : "checkmark-circle-outline"} size={20} color={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "#4dabf7" : "#555"} />
+                      <Text style={styles.actionText}>{((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "Quitar Verificación" : "Verificar Perfil"}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actionOption} onPress={handleToggleRecommended}>
+                      <Ionicons name={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_recommended) ? "ribbon" : "ribbon-outline"} size={20} color={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_recommended) ? "#f59f00" : "#555"} />
+                      <Text style={styles.actionText}>{((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_recommended) ? "Quitar Recomendación" : "Recomendar Perfil"}</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* MODAL DE COMPARTIR */}
       <ShareModal
@@ -588,7 +935,9 @@ const styles = StyleSheet.create({
   avatar: { width: 45, height: 45, borderRadius: 22.5, marginRight: 12, backgroundColor: '#eee' },
   taskTitle: { fontSize: 18, fontWeight: 'bold', color: '#000' },
   taskUser: { fontSize: 12, color: '#4dabf7', fontWeight: '600' },
-  taskDescription: { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 15 },
+  taskDescription: { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 8 },
+  categoriesList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 15 },
+  categoryBadge: { backgroundColor: '#e3f2fd', color: '#4dabf7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, fontSize: 11, fontWeight: '600' },
   sectionTabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f0f0f0', marginBottom: 10 },
   tab: { flex: 1, paddingVertical: 8, alignItems: 'center' },
   tabActive: { borderBottomWidth: 2, borderBottomColor: '#4dabf7' },
@@ -609,6 +958,13 @@ const styles = StyleSheet.create({
   sharedDate: { fontSize: 12, color: '#999' },
   sharedDescription: { fontSize: 13, color: '#555', marginBottom: 10 },
   originalTaskCard: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 12, borderLeftWidth: 3, borderLeftColor: '#4dabf7', marginBottom: 10 },
-  taskImage: { width: '100%', height: 200, borderRadius: 10, marginTop: 12, backgroundColor: '#e0e0e0' } });
+  taskImage: { width: '100%', height: 200, borderRadius: 10, marginTop: 12, backgroundColor: '#e0e0e0' },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  actionModalContainer: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 40 : 24, shadowColor: "#000", shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
+  modalDragHandle: { width: 40, height: 4, backgroundColor: "#e0e0e0", borderRadius: 2, alignSelf: "center", marginBottom: 20 },
+  actionOption: { flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, marginBottom: 8, backgroundColor: "#f5f5f5" },
+  actionOptionDelete: { backgroundColor: "#ffe3e3" },
+  actionText: { fontSize: 16, marginLeft: 14, color: "#333", fontWeight: "500" }
+});
 
 export default TasksScreen;

@@ -376,7 +376,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
     <View style={styles.container}>
       {/* ENCABEZADO CON BOTÓN ATRÁS */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('HomeMain')}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('SharedTasksList')}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Tarea Compartida</Text>
@@ -418,6 +418,14 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
           <View style={styles.taskInfo}>
             <Text style={styles.taskTitle}>{task.title}</Text>
             <Text style={styles.taskDescription}>{task.description}</Text>
+
+            {task.categories ? (
+              <View style={styles.categoriesList}>
+                {task.categories.split(',').map((cat, idx) => (
+                  <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
+                ))}
+              </View>
+            ) : null}
 
             {/* ⚡ EXTRAEMOS LA PRIMERA IMAGEN DISPONIBLE */}
             {(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) && (
@@ -566,6 +574,8 @@ const styles = StyleSheet.create({
   taskInfo: { padding: 16 },
   taskTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8 },
   taskDescription: { fontSize: 15, color: '#555', lineHeight: 22 },
+  categoriesList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
+  categoryBadge: { backgroundColor: '#e3f2fd', color: '#4dabf7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, fontSize: 12, fontWeight: 'bold' },
   taskImage: { width: '100%', height: 220, borderRadius: 12, marginTop: 12, backgroundColor: '#eee' },
 
   actions: {

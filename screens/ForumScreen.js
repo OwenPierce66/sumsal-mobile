@@ -133,7 +133,7 @@ const ForumScreen = ({ navigation }) => {
     >
       <View style={styles.postHeader}>
         <Image
-          source={{ uri: getImageUrl(item.user?.user_image) || 'https://via.placeholder.com/40' }}
+          source={{ uri: getImageUrl(item.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }}
           style={styles.avatar}
         />
         <View style={{ flex: 1 }}>
