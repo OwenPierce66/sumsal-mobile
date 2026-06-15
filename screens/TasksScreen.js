@@ -252,11 +252,15 @@ const TasksScreen = ({ navigation }) => {
       if (pageNumber === 1) setLoading(true);
       else setLoadingMore(true);
 
+      // ⚡ EXTRAEMOS SOLO LA CATEGORÍA PRINCIPAL PARA EL BACKEND
+      const currentCatFilter = overrideFilters ? overrideFilters.category : selectedCategory;
+      const primaryCategory = currentCatFilter ? currentCatFilter.split(',')[0].trim() : '';
+
       const response = await api.get('tasks/', { 
         params: { 
           pch: tema, 
           page: pageNumber,
-          category: overrideFilters ? overrideFilters.category : selectedCategory,
+          category: primaryCategory,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
           favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
@@ -295,10 +299,14 @@ const TasksScreen = ({ navigation }) => {
 
   const fetchSharedTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
     try {
+      // ⚡ EXTRAEMOS SOLO LA CATEGORÍA PRINCIPAL PARA EL BACKEND
+      const currentCatFilter = overrideFilters ? overrideFilters.category : selectedCategory;
+      const primaryCategory = currentCatFilter ? currentCatFilter.split(',')[0].trim() : '';
+
       const response = await api.get('shared-tasks/', { 
         params: { 
           page: pageNumber,
-          category: overrideFilters ? overrideFilters.category : selectedCategory,
+          category: primaryCategory,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
           favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
@@ -467,10 +475,23 @@ const TasksScreen = ({ navigation }) => {
       ? (item.description || item.task?.description)
       : item.description;
 
-    return (
+    const matchesSearch = (
       title?.toLowerCase().includes(searchText.toLowerCase()) ||
       description?.toLowerCase().includes(searchText.toLowerCase())
     );
+
+    // ⚡ FILTRO INTELIGENTE LOCAL PARA SUBTEMAS
+    let matchesCategory = true;
+    if (selectedCategory) {
+      const requiredTags = selectedCategory.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+      const itemCatString = (item.feedType === 'shared' ? item.task?.categories : item.categories) || '';
+      const itemTags = itemCatString.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+      
+      // La tarea debe contener TODOS los tags (categoría principal + subtemas) sin importar el orden
+      matchesCategory = requiredTags.every(tag => itemTags.includes(tag));
+    }
+
+    return matchesSearch && matchesCategory;
   });
 
   // HELPER INFALIBLE CON LA IP ACTUAL

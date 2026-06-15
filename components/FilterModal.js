@@ -5,6 +5,17 @@ import { View, Text, Modal, StyleSheet, TouchableOpacity, ScrollView, Platform, 
 import { Ionicons } from '@expo/vector-icons';
 import api from '../api';
 
+// ⚡ DICCIONARIO INTELIGENTE DE SUBTEMAS
+const PREDEFINED_SUBTEMAS = {
+  'programacion': ['React', 'Python', 'Node.js', 'Django', 'React Native', 'JavaScript', 'Frontend', 'Backend'],
+  'tecnologia': ['Inteligencia Artificial', 'Ciberseguridad', 'Hardware', 'Software', 'Innovación'],
+  'educacion': ['Matemáticas', 'Idiomas', 'Ciencias', 'Historia', 'Pedagogía'],
+  'salud': ['Nutrición', 'Ejercicio', 'Bienestar Mental', 'Medicina', 'Psicología'],
+  'finanzas': ['Inversiones', 'Ahorro', 'Criptomonedas', 'Emprendimiento', 'Economía'],
+  'arte': ['Pintura', 'Música', 'Fotografía', 'Cine', 'Diseño'],
+  'deportes': ['Fútbol', 'Baloncesto', 'Tenis', 'Natación', 'Fitness'],
+};
+
 const ROW_HEIGHT = 45;
 const DraggableCategory = ({ cat, index, categories, setCategories, selectedCategory, setSelectedCategory, isSuper, handleDeleteCat, setScrollEnabled, saveCategoriesOrder }) => {
   const pan = useRef(new Animated.Value(0)).current;
@@ -91,8 +102,11 @@ const DraggableCategory = ({ cat, index, categories, setCategories, selectedCate
 
 const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers }) => {
   const [categories, setCategories] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState(currentCategory || '');
-  const [selectedDateFilter, setSelectedDateFilter] = useState(currentDateFilter || '');
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedSubcategories, setSelectedSubcategories] = useState([]);
+  const [manualSubthemeText, setManualSubthemeText] = useState('');
+  const [manualSubcategories, setManualSubcategories] = useState([]);
+  const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [sortBy, setSortBy] = useState(currentSortBy || 'recent');
   const [favoritesOnly, setFavoritesOnly] = useState(currentFavorites || false);
   const [favoriteUsersOnly, setFavoriteUsersOnly] = useState(currentFavoriteUsers || false);
@@ -103,11 +117,21 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
   const [isCreating, setIsCreating] = useState(false);
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const [categoriesOrder, setCategoriesOrder] = useState([]);
+  const [subthemesTree, setSubthemesTree] = useState(PREDEFINED_SUBTEMAS);
+  const [adminSubthemeInputs, setAdminSubthemeInputs] = useState({});
 
   useEffect(() => {
     fetchCategories();
     checkSuperStatus();
+    loadSubthemesTree();
   }, []);
+
+  const loadSubthemesTree = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('subthemesTree');
+      if (stored) setSubthemesTree(JSON.parse(stored));
+    } catch(e){}
+  };
 
   const handleDeleteCat = (catId) => { if (Platform.OS === "web") { if (window.confirm("¿Estás seguro de que deseas eliminar esta categoria? Esta acción no se puede deshacer.")) { executeDeleteCat(catId); } } else { Alert.alert("Eliminar Categoria", "¿Estás seguro de que deseas eliminar esta categoria? Esta acción no se puede deshacer.", [{ text: "Cancelar", style: "cancel" }, { text: "Eliminar", style: "destructive", onPress: () => executeDeleteCat(catId) }]); } }; const executeDeleteCat = async (catId) => { try { await api.delete("new-categories/" + catId + "/"); fetchCategories(); if (selectedCategory !== "" && categories.find(c => c.id === catId)?.name === selectedCategory) { setSelectedCategory(""); } } catch (error) { console.error("Error deleting category:", error); } };
 
@@ -133,14 +157,33 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
   };
 
   useEffect(() => {
-    setSelectedCategory(currentCategory || '');
+    // ⚡ INICIALIZAMOS LA CATEGORÍA Y LOS SUBTEMAS CORRECTAMENTE
+    if (currentCategory) {
+      const parts = currentCategory.split(',').map(c => c.trim()).filter(Boolean);
+      setSelectedCategory(parts[0] || '');
+      
+      const subcats = parts.slice(1);
+      if (subcats.length > 0) {
+        const allPredefinedSet = new Set(Object.values(subthemesTree).flat());
+        setSelectedSubcategories(subcats.filter(c => allPredefinedSet.has(c)));
+        setManualSubcategories(subcats.filter(c => !allPredefinedSet.has(c)));
+      } else {
+        setSelectedSubcategories([]);
+        setManualSubcategories([]);
+      }
+    } else {
+      setSelectedCategory('');
+      setSelectedSubcategories([]);
+      setManualSubcategories([]);
+    }
+
     setSelectedDateFilter(currentDateFilter || '');
     setSortBy(currentSortBy || 'recent');
     setFavoritesOnly(currentFavorites || false);
     setFavoriteUsersOnly(currentFavoriteUsers || false);
     setVerifiedUsersOnly(currentVerifiedUsers || false);
     setRecommendedUsersOnly(currentRecommendedUsers || false);
-  }, [currentCategory, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, visible]);
+  }, [currentCategory, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, visible, subthemesTree]);
 
   const fetchCategories = async () => {
     try {
@@ -187,9 +230,55 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
     { label: 'Más likes', value: 'likes' },
   ];
 
+  // ⚡ LÓGICA PARA GESTIONAR SUBTEMAS MANUALES O DE DICCIONARIO
+  const toggleSubcategory = (subcat) => {
+    setSelectedSubcategories(prev => 
+      prev.includes(subcat) ? prev.filter(c => c !== subcat) : [...prev, subcat]
+    );
+  };
+
+  const handleAddManualSubtheme = () => {
+    if (!manualSubthemeText.trim()) return;
+    const newSubcat = manualSubthemeText.trim();
+    if (!manualSubcategories.includes(newSubcat) && !selectedSubcategories.includes(newSubcat)) {
+      setManualSubcategories(prev => [...prev, newSubcat]);
+    }
+    setManualSubthemeText('');
+  };
+
+  const removeManualSubcategory = (subcat) => {
+    setManualSubcategories(prev => prev.filter(c => c !== subcat));
+  };
+
+  // ⚡ LÓGICA DE ADMIN PARA GUARDAR SUBTEMAS CONSECUTIVOS AL ÁRBOL Y A LA DB
+  const handleAdminAddSubtheme = async (parentTheme) => {
+    const text = adminSubthemeInputs[parentTheme];
+    if (!text || !text.trim()) return;
+    const newSubTheme = text.trim();
+    const parentKey = parentTheme.toLowerCase();
+    const currentSubs = subthemesTree[parentKey] || [];
+
+    if (!currentSubs.includes(newSubTheme)) {
+      const newTree = { ...subthemesTree, [parentKey]: [...currentSubs, newSubTheme] };
+      setSubthemesTree(newTree);
+      await AsyncStorage.setItem('subthemesTree', JSON.stringify(newTree));
+
+      try {
+        await api.post("new-categories/", { name: newSubTheme });
+        fetchCategories();
+      } catch(e){}
+    }
+    setAdminSubthemeInputs(prev => ({ ...prev, [parentTheme]: '' }));
+  };
+
   const handleApply = () => {
+    let finalCategory = selectedCategory;
+    const allSubcats = [...selectedSubcategories, ...manualSubcategories];
+    if (finalCategory && allSubcats.length > 0) finalCategory = [finalCategory, ...allSubcats].join(',');
+    else if (!finalCategory && allSubcats.length > 0) finalCategory = allSubcats.join(',');
+
     onApply({
-      category: selectedCategory,
+      category: finalCategory,
       date_filter: selectedDateFilter,
       sort_by: sortBy,
       favorites_only: favoritesOnly,
@@ -202,6 +291,8 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
 
   const handleClear = () => {
     setSelectedCategory('');
+    setSelectedSubcategories([]);
+    setManualSubcategories([]);
     setSelectedDateFilter('');
     setSortBy('recent');
     setFavoritesOnly(false);
@@ -358,7 +449,11 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
                   styles.optionBadge,
                   selectedCategory === '' && styles.optionBadgeActive,
                 ]}
-                onPress={() => setSelectedCategory('')}
+                onPress={() => {
+                  setSelectedCategory('');
+                  setSelectedSubcategories([]);
+                  setManualSubcategories([]);
+                }}
               >
                 <Text
                   style={[
@@ -377,7 +472,11 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
                   categories={categories}
                   setCategories={setCategories}
                   selectedCategory={selectedCategory}
-                  setSelectedCategory={setSelectedCategory}
+                  setSelectedCategory={(name) => {
+                    setSelectedCategory(name);
+                    setSelectedSubcategories([]);
+                    setManualSubcategories([]);
+                  }}
                   isSuper={isSuper}
                   handleDeleteCat={handleDeleteCat}
                   setScrollEnabled={setScrollEnabled}
@@ -385,6 +484,85 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
                 />
               ))}
             </View>
+
+            {/* ⚡ BLOQUE INTELIGENTE DE SUBTEMAS */}
+            {selectedCategory !== '' && (
+              <>
+                {[selectedCategory, ...selectedSubcategories].map((theme, idx) => {
+                  const themeKey = theme.toLowerCase();
+                  const subs = subthemesTree[themeKey] || [];
+                  
+                  if (subs.length === 0 && !isSuper) return null;
+
+                  return (
+                    <View key={`sub-${themeKey}-${idx}`} style={styles.subthemesSection}>
+                      <Text style={styles.sectionTitle}>Subtemas de {theme}</Text>
+                      
+                      {subs.length > 0 && (
+                        <View style={styles.optionsContainer}>
+                          {subs.map((subcat, i) => (
+                            <TouchableOpacity
+                              key={i}
+                              style={[
+                                styles.optionBadge,
+                                selectedSubcategories.includes(subcat) && styles.optionBadgeActive,
+                              ]}
+                              onPress={() => toggleSubcategory(subcat)}
+                            >
+                              <Text style={[styles.optionText, selectedSubcategories.includes(subcat) && styles.optionTextActive]}>
+                                {subcat}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+
+                      {isSuper && (
+                        <View style={styles.addManualSubthemeContainer}>
+                          <TextInput
+                            style={[styles.manualSubthemeInput, { borderColor: '#4dabf7', borderWidth: 1 }]}
+                            placeholder={`Añadir subtema a ${theme} (Admin)...`}
+                            value={adminSubthemeInputs[theme] || ''}
+                            onChangeText={(txt) => setAdminSubthemeInputs(prev => ({...prev, [theme]: txt}))}
+                            onSubmitEditing={() => handleAdminAddSubtheme(theme)}
+                          />
+                          <TouchableOpacity style={styles.addBtn} onPress={() => handleAdminAddSubtheme(theme)}>
+                            <Ionicons name="save" size={20} color="#fff" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+
+                <View style={styles.subthemesSection}>
+                  <Text style={styles.sectionTitle}>Filtro de Subtemas Manuales</Text>
+                  <View style={styles.addManualSubthemeContainer}>
+                    <TextInput
+                      style={styles.manualSubthemeInput}
+                      placeholder="Agregar subtema manual..."
+                      value={manualSubthemeText}
+                      onChangeText={setManualSubthemeText}
+                      onSubmitEditing={handleAddManualSubtheme}
+                    />
+                    <TouchableOpacity style={styles.addBtn} onPress={handleAddManualSubtheme}>
+                      <Ionicons name="add" size={20} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {manualSubcategories.length > 0 && (
+                    <View style={[styles.optionsContainer, { marginTop: 10 }]}>
+                      {manualSubcategories.map((subcat, idx) => (
+                        <TouchableOpacity key={idx} style={[styles.optionBadge, styles.optionBadgeActive]} onPress={() => removeManualSubcategory(subcat)}>
+                          <Text style={[styles.optionText, styles.optionTextActive]}>{subcat}  <Ionicons name="close" size={12} color="#fff" /></Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
+
             {isSuper && (
               <View style={styles.adminSection}>
                 <Text style={styles.adminTitle}>Panel Administrador</Text>
@@ -422,6 +600,36 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
 };
 
 const styles = StyleSheet.create({
+  subthemesSection: {
+    marginTop: 15,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  addManualSubthemeContainer: {
+    flexDirection: 'row',
+    marginTop: 10,
+    gap: 10,
+    alignItems: 'center',
+  },
+  manualSubthemeInput: {
+    flex: 1,
+    height: 40,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    color: '#333',
+  },
+  addBtn: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#4dabf7',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   adminSection: { marginTop: 20, padding: 15, backgroundColor: '#f8f9fa', borderRadius: 12, borderWidth: 1, borderColor: '#e0e0e0' },
   adminTitle: { fontSize: 16, fontWeight: 'bold', color: '#d9534f', marginBottom: 5 },
   createCategoryContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },

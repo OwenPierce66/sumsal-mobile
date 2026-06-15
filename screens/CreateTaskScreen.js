@@ -6,6 +6,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 
 const getImageUrl = (path) => {
@@ -21,6 +22,17 @@ const getImageUrl = (path) => {
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
+// ⚡ DICCIONARIO INTELIGENTE DE SUBTEMAS
+const PREDEFINED_SUBTEMAS = {
+  'programacion': ['React', 'Python', 'Node.js', 'Django', 'React Native', 'JavaScript', 'Frontend', 'Backend'],
+  'tecnologia': ['Inteligencia Artificial', 'Ciberseguridad', 'Hardware', 'Software', 'Innovación'],
+  'educacion': ['Matemáticas', 'Idiomas', 'Ciencias', 'Historia', 'Pedagogía'],
+  'salud': ['Nutrición', 'Ejercicio', 'Bienestar Mental', 'Medicina', 'Psicología'],
+  'finanzas': ['Inversiones', 'Ahorro', 'Criptomonedas', 'Emprendimiento', 'Economía'],
+  'arte': ['Pintura', 'Música', 'Fotografía', 'Cine', 'Diseño'],
+  'deportes': ['Fútbol', 'Baloncesto', 'Tenis', 'Natación', 'Fitness'],
+};
+
 const CreateTaskScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState('');
@@ -29,6 +41,19 @@ const CreateTaskScreen = ({ navigation }) => {
   const [availableCategories, setAvailableCategories] = useState([]);
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [manualCategories, setManualCategories] = useState('');
+  const [selectedSubcategories, setSelectedSubcategories] = useState([]);
+  const [manualSubcategories, setManualSubcategories] = useState('');
+  const [subthemesTree, setSubthemesTree] = useState(PREDEFINED_SUBTEMAS);
+
+  useEffect(() => {
+    const loadTree = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('subthemesTree');
+        if (stored) setSubthemesTree(JSON.parse(stored));
+      } catch(e){}
+    };
+    loadTree();
+  }, []);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -48,6 +73,12 @@ const CreateTaskScreen = ({ navigation }) => {
     );
   }; 
   
+  const toggleSubcategory = (subcat) => {
+    setSelectedSubcategories(prev => 
+      prev.includes(subcat) ? prev.filter(c => c !== subcat) : [...prev, subcat]
+    );
+  };
+
   const [subtasks, setSubtasks] = useState([{ title: '', description: '', image: null }]);
   const [subfactores, setSubfactores] = useState([{ title: '', description: '', image: null }]);
   const [subfuentes, setSubfuentes] = useState([{ title: '', description: '', image: null }]);
@@ -87,7 +118,10 @@ const CreateTaskScreen = ({ navigation }) => {
     formData.append('pch', tema);
     
     const manualArray = manualCategories.split(',').map(c => c.trim()).filter(Boolean);
-    const finalCategories = [...new Set([...selectedCategories, ...manualArray])];
+    const manualSubArray = manualSubcategories.split(',').map(c => c.trim()).filter(Boolean);
+    
+    // ⚡ COMBINAMOS CATEGORÍAS Y SUBTEMAS PARA QUE SE GUARDEN Y SE PUEDAN FILTRAR JUNTOS
+    const finalCategories = [...new Set([...selectedCategories, ...manualArray, ...selectedSubcategories, ...manualSubArray])];
     formData.append('categories', finalCategories.join(','));
     
     // Función asíncrona PRO: Respeta el await y convierte las imágenes
@@ -330,6 +364,50 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
           onChangeText={setManualCategories}
         />
       </View>
+
+      {/* ⚡ BLOQUE INTELIGENTE DE SUBTEMAS INFINITO */}
+      {selectedCategories.length > 0 && (
+        <>
+          {[...selectedCategories, ...selectedSubcategories]
+            .filter((value, index, self) => self.indexOf(value) === index) // Evitar duplicados
+            .map((theme, idx) => {
+            const themeKey = theme.toLowerCase();
+            const subs = subthemesTree[themeKey] || [];
+            if (subs.length === 0) return null;
+
+            return (
+              <View key={`sub-${themeKey}-${idx}`} style={styles.categoriesBlock}>
+                <Text style={styles.sectionTitle}>Subtemas de {theme}</Text>
+                
+                <View style={styles.tagsContainer}>
+                  {subs.map((subcat, i) => (
+                    <TouchableOpacity
+                      key={i}
+                      style={[styles.tagBadge, selectedSubcategories.includes(subcat) && styles.tagBadgeActive]}
+                      onPress={() => toggleSubcategory(subcat)}
+                    >
+                      <Text style={[styles.tagText, selectedSubcategories.includes(subcat) && styles.tagTextActive]}>
+                        {subcat}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            );
+          })}
+
+          <View style={styles.categoriesBlock}>
+            <Text style={styles.sectionTitle}>Subtemas Manuales Adicionales</Text>
+            <TextInput
+              style={styles.manualCatInput}
+              placeholder="Añadir subtemas manuales (separados por coma)..."
+              placeholderTextColor="#999"
+              value={manualSubcategories}
+              onChangeText={setManualSubcategories}
+            />
+          </View>
+        </>
+      )}
 
       {renderSection("Aportaciones", subtasks, setSubtasks)}
       {renderSection("Factores", subfactores, setSubfactores)}
