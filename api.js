@@ -6,6 +6,19 @@ import { Platform } from 'react-native';
 // Usa 127.0.0.1 si estás en la Web, y la IP de tu PC si estás en el celular
 const API_URL = Platform.OS === 'web' ? 'http://127.0.0.1:8001/api/' : 'http://192.168.0.115:8001/api/';
 
+export const getImageUrl = (path) => {
+  if (!path) return null;
+  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
+    return path;
+  }
+  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  let cleanPath = path;
+  if (cleanPath.startsWith('http')) {
+    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
+  }
+  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
+};
+
 
 const api = axios.create({
   baseURL: API_URL,
