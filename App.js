@@ -12,6 +12,7 @@ import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import TasksScreen from './screens/TasksScreen';
+import ReelsScreen from './screens/ReelsScreen';
 import CreateTaskScreen from './screens/CreateTaskScreen';
 import TaskDetailScreen from './screens/TaskDetailScreen';
 import ForumScreen from './screens/ForumScreen';
@@ -92,6 +93,7 @@ const AuthenticatedTabs = () => {
           let iconName;
           if (route.name === 'HomeTab') iconName = focused ? 'home' : 'home-outline';
           else if (route.name === 'Tasks') iconName = focused ? 'list' : 'list-outline';
+          else if (route.name === 'Reels') iconName = focused ? 'videocam' : 'videocam-outline';
           else if (route.name === 'Forum') iconName = focused ? 'chatbox' : 'chatbox-outline';
           else if (route.name === 'SharedTasks') iconName = focused ? 'share' : 'share-outline';
           else if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
@@ -104,6 +106,7 @@ const AuthenticatedTabs = () => {
     >
       <Tab.Screen name="HomeTab" component={HomeStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
       <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
+      <Tab.Screen name="Reels" component={ReelsScreen} options={{ tabBarLabel: 'Reels' }} />
       <Tab.Screen name="SharedTasks" component={SharedTasksStackNavigator} options={{ tabBarLabel: 'Compartidas' }} />
       <Tab.Screen name="Forum" component={ForumStackNavigator} options={{ tabBarLabel: 'Foro' }} />
       <Tab.Screen name="Profile" component={ProfileStackNavigator} options={{ tabBarLabel: 'Perfil' }} />

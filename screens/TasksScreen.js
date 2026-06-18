@@ -11,6 +11,7 @@ import { Image } from 'expo-image';
 import LikesListModal from '../components/LikesListModal';
 import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
+import { Video } from 'expo-av';
 
 const TasksScreen = ({ navigation }) => {
   const [currentUserId, setCurrentUserId] = useState(null);
@@ -500,7 +501,7 @@ const TasksScreen = ({ navigation }) => {
   if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
     return path;
   }
-  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  const IP = Platform.OS === 'web' ? 'localhost' : '192.168.2.119';
   let cleanPath = path;
   if (cleanPath.startsWith('http')) {
     cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
@@ -571,6 +572,7 @@ const TasksScreen = ({ navigation }) => {
 
     return content.map((sub, idx) => {
       const finalUri = getImageUrl(sub.image);
+      const videoUri = getImageUrl(sub.video);
 
       return (
         <View key={idx} style={styles.subItem}>
@@ -586,6 +588,15 @@ const TasksScreen = ({ navigation }) => {
               source={{ uri: finalUri }} 
               style={styles.subImage} 
               contentFit="cover" 
+            />
+          )}
+
+          {videoUri && (
+            <Video
+              source={{ uri: videoUri }}
+              style={styles.subImage}
+              useNativeControls
+              resizeMode="contain"
             />
           )}
         </View>
@@ -649,6 +660,7 @@ const TasksScreen = ({ navigation }) => {
               <Image
                 source={{ uri: getImageUrl(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
                 style={styles.taskImage}
+                contentFit="cover"
               />
             )}
           </TouchableOpacity>

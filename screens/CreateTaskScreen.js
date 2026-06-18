@@ -8,13 +8,14 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
+import { Video } from 'expo-av';
 
 const getImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
     return path;
   }
-  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  const IP = Platform.OS === 'web' ? 'localhost' : '192.168.2.119';
   let cleanPath = path;
   if (cleanPath.startsWith('http')) {
     cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
@@ -79,25 +80,34 @@ const CreateTaskScreen = ({ navigation }) => {
     );
   };
 
-  const [subtasks, setSubtasks] = useState([{ title: '', description: '', image: null }]);
-  const [subfactores, setSubfactores] = useState([{ title: '', description: '', image: null }]);
-  const [subfuentes, setSubfuentes] = useState([{ title: '', description: '', image: null }]);
+  const [subtasks, setSubtasks] = useState([{ title: '', description: '', image: null, mediaType: null }]);
+  const [subfactores, setSubfactores] = useState([{ title: '', description: '', image: null, mediaType: null }]);
+  const [subfuentes, setSubfuentes] = useState([{ title: '', description: '', image: null, mediaType: null }]);
 
   const pickImage = async (state, setState, index) => {
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsEditing: true,
       quality: 0.7 });
 
     if (!result.canceled) {
+      const asset = result.assets[0];
       const newState = [...state];
-      newState[index].image = result.assets[0].uri;
+      newState[index].image = asset.uri;
+      
+      // ⚡ Detección mejorada para saber si es video en la Web
+      let isVideo = asset.type === 'video' || 
+                    (asset.mimeType && asset.mimeType.startsWith('video')) ||
+                    (asset.uri && asset.uri.startsWith('data:video')) ||
+                    (asset.uri && /\.(mp4|mov|avi|mkv|webm)$/i.test(asset.uri));
+                    
+      newState[index].mediaType = isVideo ? 'video' : 'image';
       setState(newState);
     }
   };
 
   const addBlock = (state, setState) => {
-    setState([...state, { title: '', description: '', image: null }]);
+    setState([...state, { title: '', description: '', image: null, mediaType: null }]);
   };
 
   const removeBlock = (state, setState, indexToRemove) => {
@@ -128,24 +138,35 @@ const CreateTaskScreen = ({ navigation }) => {
     const appendArrayToFormData = async (array, prefix) => {
       for (let index = 0; index < array.length; index++) {
         const item = array[index];
-        if (item.title.trim()) {
-          formData.append(`${prefix}[${index}][title]`, item.title);
+        // ⚡ AHORA SE ENVÍA SI HAY TÍTULO, DESCRIPCIÓN O IMAGEN
+        if (item.title.trim() || item.description.trim() || item.image) {
+          formData.append(`${prefix}[${index}][title]`, item.title.trim() ? item.title : `Elemento ${index + 1}`);
           formData.append(`${prefix}[${index}][description]`, item.description);
           
           if (item.image) {
+            let isVideo = item.mediaType === 'video';
+
             if (Platform.OS === 'web') {
               // Convertimos la URI del navegador en un archivo Blob real
               const response = await fetch(item.image);
               const blob = await response.blob();
-              formData.append(`${prefix}[${index}][image]`, blob, `${prefix}_${index}.jpg`);
+              
+              // ⚡ FIX: Aseguramos detectar si es video verificando el Blob
+              if (blob.type.includes('video')) isVideo = true;
+              const fieldName = isVideo ? `${prefix}[${index}][video]` : `${prefix}[${index}][image]`;
+              
+              formData.append(fieldName, blob, `${prefix}_${index}.${isVideo ? 'mp4' : 'jpg'}`);
             } else {
               // Formato nativo para celular
+              const fieldName = isVideo ? `${prefix}[${index}][video]` : `${prefix}[${index}][image]`;
               const uriParts = item.image.split('.');
-              const fileType = uriParts[uriParts.length - 1] || 'jpg';
-              formData.append(`${prefix}[${index}][image]`, {
+              let fileType = uriParts[uriParts.length - 1] || 'jpg';
+              if (isVideo && (fileType === 'jpg' || fileType === 'jpeg')) fileType = 'mp4';
+
+              formData.append(fieldName, {
                 uri: item.image,
                 name: `${prefix}_${index}.${fileType}`,
-                type: `image/${fileType === 'jpg' ? 'jpeg' : fileType}` });
+                type: isVideo ? `video/${fileType}` : `image/${fileType === 'jpg' ? 'jpeg' : fileType}` });
             }
           }
         }
@@ -163,7 +184,11 @@ const CreateTaskScreen = ({ navigation }) => {
         headers: { 'Content-Type': 'multipart/form-data' } });
       
       Alert.alert("¡Éxito!", "Aportación creada correctamente en Sumsal.");
-      navigation.goBack();
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate('TasksList');
+      }
     } catch (error) {
       console.error("Error creando tarea:", error.response?.data || error.message);
       Alert.alert("Error", "Hubo un problema al subir la información.");
@@ -286,11 +311,20 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
 
           <TouchableOpacity onPress={() => pickImage(state, setState, index)} style={styles.imagePicker}>
             {item.image ? (
-              <Image source={{ uri: item.image }} style={styles.preview} resizeMode="cover" />
+              item.mediaType === 'video' ? (
+                <Video
+                  source={{ uri: item.image }}
+                  style={styles.preview}
+                  useNativeControls
+                  resizeMode="contain"
+                />
+              ) : (
+                <Image source={{ uri: item.image }} style={styles.preview} contentFit="cover" />
+              )
             ) : (
               <View style={styles.placeholder}>
                 <Ionicons name="image-outline" size={24} color="#999" />
-                <Text style={styles.placeholderText}>Añadir Imagen</Text>
+                <Text style={styles.placeholderText}>Añadir Imagen o Video</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -305,6 +339,20 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 50 }}>
+      <TouchableOpacity 
+        style={styles.goBackBtn} 
+        onPress={() => {
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.navigate('TasksList');
+          }
+        }}
+      >
+        <Ionicons name="arrow-back" size={24} color="#333" />
+        <Text style={styles.goBackText}>Regresar</Text>
+      </TouchableOpacity>
+
       <View style={styles.mainBlock}>
         <TextInput 
           style={styles.mainTitleInput} 
@@ -433,6 +481,8 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onDelete, currentUse
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5', padding: 16 },
+  goBackBtn: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, paddingHorizontal: 5 },
+  goBackText: { fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 8 },
   mainBlock: { backgroundColor: '#fff', borderRadius: 20, padding: 20, marginBottom: 20, elevation: 4 },
   mainTitleInput: { fontSize: 20, fontWeight: 'bold', borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10, marginBottom: 10, color: '#333' },
   mainDescInput: { fontSize: 15, color: '#666', minHeight: 60, marginBottom: 15 },
