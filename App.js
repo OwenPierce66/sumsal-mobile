@@ -1,40 +1,83 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo, createContext } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { clearAuthData } from './api'; // Importamos tu función de limpieza
+
+// Tus pantallas
 import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import TasksScreen from './screens/TasksScreen';
 import CreateTaskScreen from './screens/CreateTaskScreen';
 import TaskDetailScreen from './screens/TaskDetailScreen';
+import ForumScreen from './screens/ForumScreen';
+import PostDetailScreen from './screens/PostDetailScreen';
+import SharedTaskDetailScreen from './screens/SharedTaskDetailScreen';
+import SharedTasksScreen from './screens/SharedTasksScreen';
+import ProfileScreen from './screens/ProfileScreen';
+import ChatListScreen from './screens/ChatListScreen';
+import ChatDetailScreen from './screens/ChatDetailScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
+// ⚡ 1. CREAMOS EL CONTEXTO GLOBAL
+export const AuthContext = createContext();
+
 const TasksStackNavigator = () => {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TasksList" component={TasksScreen} />
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
+      <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+      <Stack.Screen name="UserProfile" component={ProfileScreen} />
     </Stack.Navigator>
   );
 };
 
 const HomeStackNavigator = () => {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="HomeMain" component={HomeScreen} />
+      <Stack.Screen name="ChatList" component={ChatListScreen} />
+      <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+      <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
+    </Stack.Navigator>
+  );
+};
+
+const ForumStackNavigator = () => {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="ForumMain" component={ForumScreen} />
+      <Stack.Screen name="PostDetail" component={PostDetailScreen} />
+    </Stack.Navigator>
+  );
+};
+
+const SharedTasksStackNavigator = () => {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="SharedTasksList" component={SharedTasksScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
+    </Stack.Navigator>
+  );
+};
+
+const ProfileStackNavigator = () => {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="ProfileMain" component={ProfileScreen} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
   );
 };
@@ -42,56 +85,138 @@ const HomeStackNavigator = () => {
 const AuthenticatedTabs = () => {
   return (
     <Tab.Navigator
+      backBehavior="none"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
-
-          if (route.name === 'Home') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Tasks') {
-            iconName = focused ? 'list' : 'list-outline';
-          } else if (route.name === 'Profile') {
-            iconName = focused ? 'person' : 'person-outline';
-          }
-
+          if (route.name === 'HomeTab') iconName = focused ? 'home' : 'home-outline';
+          else if (route.name === 'Tasks') iconName = focused ? 'list' : 'list-outline';
+          else if (route.name === 'Forum') iconName = focused ? 'chatbox' : 'chatbox-outline';
+          else if (route.name === 'SharedTasks') iconName = focused ? 'share' : 'share-outline';
+          else if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
+          
           return <Ionicons name={iconName} size={size} color={color} />;
         },
         tabBarActiveTintColor: '#4dabf7',
         tabBarInactiveTintColor: '#999',
-        tabBarStyle: {
-          borderTopWidth: 1,
-          borderTopColor: '#e0e0e0',
-        },
       })}
     >
-      <Tab.Screen
-        name="Home"
-        component={HomeStackNavigator}
-        options={{ tabBarLabel: 'Inicio' }}
-      />
-      <Tab.Screen
-        name="Tasks"
-        component={TasksStackNavigator}
-        options={{ tabBarLabel: 'Tareas' }}
-      />
-      <Tab.Screen
-        name="Profile"
-        component={HomeScreen}
-        options={{ tabBarLabel: 'Perfil' }}
-      />
+      <Tab.Screen name="HomeTab" component={HomeStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
+      <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
+      <Tab.Screen name="SharedTasks" component={SharedTasksStackNavigator} options={{ tabBarLabel: 'Compartidas' }} />
+      <Tab.Screen name="Forum" component={ForumStackNavigator} options={{ tabBarLabel: 'Foro' }} />
+      <Tab.Screen name="Profile" component={ProfileStackNavigator} options={{ tabBarLabel: 'Perfil' }} />
     </Tab.Navigator>
   );
 };
 
+const linking = {
+  prefixes: ['http://localhost:8081', 'sumsal://', 'http://127.0.0.1:8081'],
+  config: {
+    screens: {
+      Home: {
+        screens: {
+          HomeTab: {
+            screens: {
+              HomeMain: 'home',
+              ChatList: 'chats',
+              ChatDetail: 'chat/:chatId',
+              UserProfile: 'user/:userId',
+              TaskDetail: 'task/:taskId',
+              SharedTaskDetail: 'shared-task/:sharedTaskId'
+            }
+          },
+          Tasks: {
+            screens: {
+              TasksList: 'tasks',
+              CreateTask: 'tasks/create',
+              TaskDetail: 'tasks/:taskId',
+              SharedTaskDetail: 'tasks/shared/:sharedTaskId'
+            }
+          },
+          SharedTasks: {
+            screens: {
+              SharedTasksList: 'shared-tasks',
+              SharedTaskDetail: 'shared-tasks/:sharedTaskId'
+            }
+          },
+          Forum: {
+            screens: {
+              ForumMain: 'forum',
+              PostDetail: 'forum/post/:postId'
+            }
+          },
+          Profile: {
+            screens: {
+              ProfileMain: 'profile',
+              TaskDetail: 'profile/task/:taskId',
+              SharedTaskDetail: 'profile/shared/:sharedTaskId'
+            }
+          }
+        }
+      },
+      Login: 'login',
+      Register: 'register',
+    }
+  }
+};
+
 export default function App() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [userToken, setUserToken] = useState(null);
+
+  useEffect(() => {
+    const bootstrapAsync = async () => {
+      let token;
+      try {
+        // CORRECCIÓN: Buscamos 'accessToken' para que coincida con api.js
+        token = await AsyncStorage.getItem('accessToken');
+      } catch (e) {
+        console.log("Error leyendo el token", e);
+      }
+      setUserToken(token);
+      setIsLoading(false);
+    };
+    bootstrapAsync();
+  }, []);
+
+  // ⚡ 2. DEFINIMOS LAS FUNCIONES DEL CONTROL REMOTO
+  const authContext = useMemo(() => ({
+    signIn: (token) => {
+      setUserToken(token); // Cambia el estado a logueado
+    },
+    signOut: async () => {
+      await clearAuthData(); // Borra los tokens físicamente
+      setUserToken(null); // Cambia el estado a deslogueado instantáneamente
+    },
+  }), []);
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+        <ActivityIndicator size="large" color="#4dabf7" />
+      </View>
+    );
+  }
+
   return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="Login">
-        <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="Register" component={RegisterScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="Home" component={AuthenticatedTabs} options={{ headerShown: false }} />
-      </Stack.Navigator>
-    </NavigationContainer>
+   // ⚡ 3. ENVOLVEMOS LA APP CON EL CONTEXTO
+    <AuthContext.Provider value={authContext}>
+      <NavigationContainer linking={linking}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {userToken == null ? (
+            // ⚡ EL ARREGLO: Agrupamos Login y Register para los que no tienen sesión
+            <>
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="Register" component={RegisterScreen} />
+            </>
+          ) : (
+            // Si hay token, cargan las tabs.
+            <Stack.Screen name="Home" component={AuthenticatedTabs} />
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </AuthContext.Provider>
   );
 }
