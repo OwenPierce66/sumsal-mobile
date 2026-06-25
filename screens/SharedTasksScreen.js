@@ -11,25 +11,12 @@ import {
   RefreshControl } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import moment from 'moment';
-import api from '../api';
+import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
 import LikesListModal from '../components/LikesListModal';
 import ShareModal from '../components/ShareModal';
 
 moment.locale('es');
-
-const getImageUrl = (path) => {
-  if (!path) return null;
-  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
-    return path;
-  }
-  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
-  let cleanPath = path;
-  if (cleanPath.startsWith('http')) {
-    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
-  }
-  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
-};
 
 const SharedTasksScreen = ({ navigation }) => {
   const [sharedTasks, setSharedTasks] = useState([]);

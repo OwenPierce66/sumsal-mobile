@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useCallback } from 'react';
+﻿﻿﻿﻿import React, { useState, useCallback } from 'react';
 import { Modal,
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView
@@ -7,25 +7,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment'; 
 import 'moment/locale/es'; 
-import api from '../api';
+import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
 import LikesListModal from '../components/LikesListModal';
 import ShareModal from '../components/ShareModal';
 
 moment.locale('es');
-
-const getImageUrl = (path) => {
-  if (!path) return null;
-  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
-    return path;
-  }
-  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
-  let cleanPath = path;
-  if (cleanPath.startsWith('http')) {
-    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
-  }
-  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
-};
 
 // =====================================================================
 // COMPONENTE RECURSIVO (COMENTARIOS)

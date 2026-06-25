@@ -4,21 +4,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import api, { clearAuthData } from '../api';
-import { Image } from 'expo-image';
+import { Image } from 'expo-image'; 
+import { getImageUrl } from '../api';
 import { useFocusEffect } from '@react-navigation/native';
-
-const getImageUrl = (path) => {
-  if (!path) return null;
-  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
-    return path;
-  }
-  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
-  let cleanPath = path;
-  if (cleanPath.startsWith('http')) {
-    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
-  }
-  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
-};
 
 const ProfileScreen = ({ route, navigation }) => {
   const userId = route?.params?.userId || 'me';

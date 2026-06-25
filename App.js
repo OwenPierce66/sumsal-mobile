@@ -166,36 +166,36 @@ const linking = {
 };
 
 export default function App() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [userToken, setUserToken] = useState(null);
+  const [state, dispatch] = React.useReducer(
+    (prevState, action) => {
+      switch (action.type) {
+        case 'RESTORE_TOKEN': return { ...prevState, userToken: action.token, isLoading: false };
+        case 'SIGN_IN': return { ...prevState, userToken: action.token };
+        case 'SIGN_OUT': return { ...prevState, userToken: null };
+      }
+    },
+    { isLoading: true, userToken: null }
+  );
 
   useEffect(() => {
     const bootstrapAsync = async () => {
-      let token;
-      try {
-        // CORRECCIÓN: Buscamos 'accessToken' para que coincida con api.js
-        token = await AsyncStorage.getItem('accessToken');
-      } catch (e) {
-        console.log("Error leyendo el token", e);
-      }
-      setUserToken(token);
-      setIsLoading(false);
+      const token = await AsyncStorage.getItem('accessToken');
+      dispatch({ type: 'RESTORE_TOKEN', token });
     };
     bootstrapAsync();
   }, []);
-
   // ⚡ 2. DEFINIMOS LAS FUNCIONES DEL CONTROL REMOTO
   const authContext = useMemo(() => ({
     signIn: (token) => {
-      setUserToken(token); // Cambia el estado a logueado
+      dispatch({ type: 'SIGN_IN', token });
     },
     signOut: async () => {
       await clearAuthData(); // Borra los tokens físicamente
-      setUserToken(null); // Cambia el estado a deslogueado instantáneamente
+      dispatch({ type: 'SIGN_OUT' });
     },
   }), []);
 
-  if (isLoading) {
+  if (state.isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
         <ActivityIndicator size="large" color="#4dabf7" />
@@ -207,8 +207,8 @@ export default function App() {
    // ⚡ 3. ENVOLVEMOS LA APP CON EL CONTEXTO
     <AuthContext.Provider value={authContext}>
       <NavigationContainer linking={linking}>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          {userToken == null ? (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>{
+          state.userToken == null ? (
             // ⚡ EL ARREGLO: Agrupamos Login y Register para los que no tienen sesión
             <>
               <Stack.Screen name="Login" component={LoginScreen} />

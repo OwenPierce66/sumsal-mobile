@@ -18,15 +18,13 @@ const LoginScreen = ({ navigation }) => {
     }
 
     try {
-      // ⚡ Volvemos a armar el payload con tu lógica original
       const payload = {
         password,
       };
-
       if (email.includes('@')) {
         payload.email = email;
       } else {
-        payload.username = email;
+        payload.username = email; // Ensure username is sent if it's not an email
       }
 
       console.log('Login payload:', payload);

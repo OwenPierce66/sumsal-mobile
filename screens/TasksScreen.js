@@ -6,7 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment';
-import api from '../api';
+import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
 import LikesListModal from '../components/LikesListModal';
 import ShareModal from '../components/ShareModal';
@@ -494,20 +494,6 @@ const TasksScreen = ({ navigation }) => {
 
     return matchesSearch && matchesCategory;
   });
-
-  // HELPER INFALIBLE CON LA IP ACTUAL
-  const getImageUrl = (path) => {
-  if (!path) return null;
-  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
-    return path;
-  }
-  const IP = Platform.OS === 'web' ? 'localhost' : '192.168.2.119';
-  let cleanPath = path;
-  if (cleanPath.startsWith('http')) {
-    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
-  }
-  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
-};
 
   // ⚡ HELPER PARA COLORES Y ICONOS DE STATUS
   const getUserStatusColor = (userObj) => {

@@ -4,23 +4,10 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import 'moment/locale/es';
-import api from '../api';
+import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
 
 moment.locale('es');
-
-const getImageUrl = (path) => {
-  if (!path) return null;
-  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
-    return path;
-  }
-  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
-  let cleanPath = path;
-  if (cleanPath.startsWith('http')) {
-    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
-  }
-  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
-};
 
 // COMPONENTE RECURSIVO PARA RENDERIZAR REPLIES ANIDADAS
 const ReplyItem = ({ reply, depth = 0, onLike, onReply, replyingToId, getAuthorName, expandedReplyIds, toggleExpand }) => {

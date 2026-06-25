@@ -1,33 +1,16 @@
-﻿import React, { useState, useCallback, useRef, useEffect } from 'react';
+﻿﻿import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, ScrollView, Modal, Alert } from 'react-native';
 import { Video, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
-import api from '../api';
+import api, { getImageUrl } from '../api';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import ShareModal from '../components/ShareModal';
 import LikesListModal from '../components/LikesListModal';
 
 const { height: windowHeight, width: windowWidth } = Dimensions.get('window');
-
-const getVideoUrl = (path) => {
-  if (!path) return null;
-  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
-    return path;
-  }
-  const IP = Platform.OS === 'web' ? 'localhost' : '192.168.2.119';
-  let cleanPath = path;
-  if (cleanPath.startsWith('http')) {
-    const urlObj = new URL(path);
-    cleanPath = urlObj.pathname;
-  }
-  if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
-  return 'http://' + IP + ':8001' + cleanPath;
-};
-
-const getImageUrl = getVideoUrl;
 
 const cleanVal = (v) => (v ? String(v).trim() : null);
 
@@ -133,6 +116,7 @@ const buildPlaylists = (task) => {
 };
 
 const ReelsScreen = ({ navigation }) => {
+  const getVideoUrl = getImageUrl;
   const [reels, setReels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);

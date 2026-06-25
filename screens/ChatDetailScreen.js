@@ -17,7 +17,7 @@ const getImageUrl = (path) => {
   if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
     return path;
   }
-  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  const IP = Platform.OS === 'web' ? 'localhost' : '192.168.0.115';
   let cleanPath = path;
   if (cleanPath.startsWith('http')) {
     cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');

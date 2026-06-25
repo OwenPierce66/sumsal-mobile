@@ -3,15 +3,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 // ⚡ CONFIGURACIÓN INTELIGENTE DE IP:
-// Usa 127.0.0.1 si estás en la Web, y la IP de tu PC si estás en el celular
-const API_URL = Platform.OS === 'web' ? 'http://127.0.0.1:8001/api/' : 'http://192.168.0.115:8001/api/';
+// Usa 'localhost' si estás en la Web, y la IP de tu PC si estás en el celular
+const API_URL = Platform.OS === 'web' ? 'http://localhost:8001/api/' : 'http://192.168.0.115:8001/api/';
 
 export const getImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
     return path;
   }
-  const IP = Platform.OS === 'web' ? '127.0.0.1' : '192.168.0.115';
+  const IP = Platform.OS === 'web' ? 'localhost' : '192.168.0.115';
   let cleanPath = path;
   if (cleanPath.startsWith('http')) {
     cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
