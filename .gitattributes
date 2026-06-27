@@ -1,12 +1,32 @@
-# Establece el comportamiento por defecto para evitar problemas si alguien no tiene `core.autocrlf` configurado.
+# Normaliza todos los archivos de texto a finales de línea LF (Unix/macOS)
+# Esto previene problemas de inconsistencia entre diferentes sistemas operativos.
 * text=auto eol=lf
 
-# Archivos que SIEMPRE deben tener finales de línea LF (Linux/macOS)
+# Archivos que SIEMPRE deben tener finales de línea LF.
+# Esto es más explícito que text=auto y evita que Git tenga que adivinar.
 *.sh text eol=lf
 *.py text eol=lf
 *.js text eol=lf
 *.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
 *.json text eol=lf
 *.md text eol=lf
 *.yml text eol=lf
 *.conf text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.xml text eol=lf
+*.svg text eol=lf
+*.txt text eol=lf
+
+# Marca explícitamente los archivos binarios para evitar que Git los modifique.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+*.ttf binary
+*.otf binary

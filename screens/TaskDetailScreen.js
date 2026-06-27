@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useCallback } from 'react';
 import { Modal,
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView
@@ -9,7 +9,7 @@ import moment from 'moment';
 import 'moment/locale/es'; 
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
-import LikesListModal from '../components/LikesListModal';
+import UsersListModal from './UsersListModal';
 import ShareModal from '../components/ShareModal';
 
 moment.locale('es');
@@ -144,6 +144,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
   const [likesModalUrl, setLikesModalUrl] = useState('');
+  const [likesModalTitle, setLikesModalTitle] = useState('Likes');
   
   // Modal de compartir
   const [shareModalVisible, setShareModalVisible] = useState(false);
@@ -203,11 +204,13 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
   const handleShowTaskLikes = () => {
     setLikesModalUrl(`tasks/${taskId}/users-who-liked/`);
+    setLikesModalTitle('Likes');
     setLikesModalVisible(true);
   };
 
   const handleShowCommentLikes = (commentId) => {
     setLikesModalUrl(`comments/${commentId}/users-who-liked/`);
+    setLikesModalTitle('Likes');
     setLikesModalVisible(true);
   };
 
@@ -575,10 +578,11 @@ const fetchComments = useCallback(async () => {
       </View>
 
       {/* MODAL DE LIKES */}
-      <LikesListModal 
+      <UsersListModal 
         visible={likesModalVisible} 
         onClose={() => setLikesModalVisible(false)} 
         apiUrl={likesModalUrl} 
+        title={likesModalTitle}
       />
 
       {/* MODAL DE ACCIONES (3 PUNTOS) */}
@@ -639,7 +643,7 @@ const styles = StyleSheet.create({
   
   taskCard: { backgroundColor: '#fff', margin: 12, borderRadius: 12, overflow: 'hidden' },
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  actionModalContainer: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 40 : 24, shadowColor: "#000", shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
+  actionModalContainer: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 40 : 24, boxShadow: "0px -2px 10px rgba(0, 0, 0, 0.1)", elevation: 10 },
   modalDragHandle: { width: 40, height: 4, backgroundColor: "#e0e0e0", borderRadius: 2, alignSelf: "center", marginBottom: 20 },
   actionOption: { flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, marginBottom: 8, backgroundColor: "#f5f5f5" },
   actionOptionDelete: { backgroundColor: "#ffe3e3" },

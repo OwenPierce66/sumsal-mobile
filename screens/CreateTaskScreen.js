@@ -87,8 +87,11 @@ const CreateTaskScreen = ({ navigation }) => {
   const pickImage = async (state, setState, index) => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsEditing: true,
-      quality: 0.7 });
+      // ⚡ FIX: Aseguramos que la edición y calidad también apliquen a videos
+      allowsEditing: Platform.OS !== 'web', // La edición en web puede ser problemática con videos
+      quality: 0.7,
+      videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720, // Calidad de exportación para videos
+    });
 
     if (!result.canceled) {
       const asset = result.assets[0];

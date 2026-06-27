@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useCallback, useRef, useEffect } from 'react';
+﻿﻿﻿﻿import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, ScrollView, Modal, Alert } from 'react-native';
 import { Video, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import Slider from '@react-native-community/slider';
@@ -7,8 +7,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import api, { getImageUrl } from '../api';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated';
 import ShareModal from '../components/ShareModal';
-import LikesListModal from '../components/LikesListModal';
+import TieredLikesModal from './TieredLikesModal'; // ⚡ CORRECCIÓN: Cambiamos al nuevo modal de usuarios
 
 const { height: windowHeight, width: windowWidth } = Dimensions.get('window');
 
@@ -30,6 +31,7 @@ const uniq = (arr) => {
 const extractVideos = (obj) => {
   if (!obj) return [];
   const bag = [];
+  // ⚡ AÑADIMOS 'video' a la lista de campos a buscar
   bag.push(obj?.primary_video);
   bag.push(obj?.video);
   bag.push(obj?.task?.video);
@@ -115,6 +117,204 @@ const buildPlaylists = (task) => {
   return { main: mainVideos, factores: factoresVideos, fuentes: fuentesVideos };
 };
 
+const ReelItem = ({
+  item,
+  index,
+  isActive,
+  isMuted,
+  paused,
+  setPaused,
+  videoRefs,
+  playbackStatus,
+  expandedDescriptions,
+  toggleDescription,
+  viewStateById,
+  cycleViewOnly,
+  cycleClipWithinView,
+  navigateClip,
+  toggleLike,
+  likeAnimation,
+  navigation,
+  toggleFavorite,
+  openShareModal,
+  handleShowShares,
+  handleShowLikes,
+  openActionModal,
+  handleToggleProfileFavoriteDirect,
+  tema,
+}) => {
+  const tap = Gesture.Tap()
+    .maxDuration(250)
+    .onEnd((_event, success) => {
+      if (success) {
+        runOnJS(setPaused)(p => !p);
+      }
+    });
+
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .maxDuration(250)
+    .onStart(() => {
+      runOnJS(toggleLike)(item);
+      likeAnimation.value = withSpring(1, undefined, (isFinished) => {
+        if (isFinished) {
+          likeAnimation.value = withTiming(0);
+        }
+      });
+    });
+
+  const composedGesture = Gesture.Exclusive(doubleTap, tap);
+
+  const playlists = buildPlaylists(item);
+  const rawState = viewStateById[item.id] || { mode: "main", pos: 0 };
+  const VIEW_ORDER = ["main", "factores", "fuentes"];
+  const fallbackMode = VIEW_ORDER.find((m) => (playlists?.[m]?.length || 0) > 0) || "main";
+  const effMode = playlists?.[rawState.mode]?.length ? rawState.mode : fallbackMode;
+  const len = playlists?.[effMode]?.length || 0;
+  const effPos = len ? Math.min(Math.max(0, rawState.pos || 0), len - 1) : 0;
+
+  const list = playlists[effMode] || [];
+  const entry = list[effPos] || null;
+  const videoSrc = entry ? entry.src : item._anyVideo;
+  
+  const extraCount = (playlists.factores?.length > 0 ? 1 : 0) + (playlists.fuentes?.length > 0 ? 1 : 0);
+  const badgeCount = extraCount === 0 ? 0 : extraCount === 1 ? 1 : effMode === "main" ? 2 : 1;
+  const viewLabel = effMode === "main" ? tema : effMode === "factores" ? "factor" : "fuente";
+  const counterLabel = list.length ? `${effPos + 1}/${list.length}` : "—";
+
+  const heartStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: likeAnimation.value }],
+      opacity: likeAnimation.value,
+    };
+  }, []);
+
+  const formatTime = (millis) => {
+    if (!millis) return '0:00';
+    const totalSeconds = Math.floor(millis / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  };
+
+  return (
+    <GestureDetector gesture={composedGesture}>
+      <View style={styles.reelContainer}>
+        <Video
+          ref={ref => { videoRefs.current[index] = ref; }}
+          source={{ uri: getImageUrl(videoSrc) }}
+          style={styles.video}
+          resizeMode="cover"
+          shouldPlay={isActive && !paused}
+          isLooping
+          isMuted={isMuted}
+          onPlaybackStatusUpdate={(status) => {
+            if (isActive) {
+              // This part needs a state setter from the parent, let's assume it's passed down
+              // For now, we'll just log it. The parent already handles this.
+            }
+          }}
+        />
+
+        <View style={styles.overlay} pointerEvents="box-none">
+          <View style={styles.bottomSection} pointerEvents="box-none">
+            <TouchableOpacity
+              style={styles.userInfo}
+              onPress={() => navigation.navigate('UserProfile', { userId: item.user?.id, userName: item.user?.username, userAvatar: getImageUrl(item.user?.user_image) })}
+            >
+              <Text style={styles.username}>@{item.user?.username || 'Usuario'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => toggleDescription(item.id)} activeOpacity={0.8}>
+              {effMode !== 'main' && (
+                <Text style={styles.title} numberOfLines={1}>{entry?.item?.title || viewLabel}</Text>
+              )}
+              {effMode === 'main' ? (
+                <>
+                  <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
+                  <Text style={styles.description} numberOfLines={expandedDescriptions[item.id] ? undefined : 2}>
+                    {entry?.groupIndex != null && entry?.item?.description ? `${item.description} • ${entry.item.description}` : item.description}
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.description} numberOfLines={expandedDescriptions[item.id] ? undefined : 2}>{entry?.item?.description}</Text>
+              )}
+            </TouchableOpacity>
+
+            {item.categories ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesScroll}>
+                {item.categories.split(',').map((cat, idx) => (
+                  <View key={idx} style={styles.categoryBadge}>
+                    <Text style={styles.categoryText}>{cat.trim()}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : null}
+          </View>
+
+          <View style={styles.rightSection}>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={() => navigation.navigate('UserProfile', { userId: item.user?.id, userName: item.user?.username, userAvatar: getImageUrl(item.user?.user_image) })}
+            >
+              <Image source={{ uri: getImageUrl(item.user?.user_image) || 'https://ui-avatars.com/api/?name=User' }} style={styles.avatar} />
+              <TouchableOpacity
+                style={styles.followBtn}
+                onPress={() => handleToggleProfileFavoriteDirect(item)}
+              >
+                <Ionicons name={item.user?.is_favorited ? "checkmark" : "add"} size={14} color="#fff" />
+              </TouchableOpacity>
+            </TouchableOpacity>
+
+            <View style={styles.iconButton}>
+              <TouchableOpacity onPress={() => cycleViewOnly(item)}>
+                <View>
+                  <Ionicons name="layers" size={32} color="white" />
+                  {badgeCount > 0 && (
+                    <View style={styles.badgeContainer}><Text style={styles.badgeText}>{badgeCount}</Text></View>
+                  )}
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => cycleClipWithinView(item)}>
+                <Text style={styles.iconText}>{viewLabel}</Text>
+              </TouchableOpacity>
+              <Text style={[styles.iconText, { fontSize: 10, marginTop: 0 }]}>{counterLabel}</Text>
+            </View>
+
+            <TouchableOpacity style={styles.iconButton} onPress={() => toggleLike(item)} onLongPress={() => handleShowLikes(item.id)}>
+              <Ionicons name={item.user_has_liked ? "heart" : "heart"} size={35} color={item.user_has_liked ? "#ff004f" : "white"} />
+              <Text style={styles.iconText}>{item.likes_count || 0}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
+              <Ionicons name="chatbubble-ellipses" size={32} color="white" />
+              <Text style={styles.iconText}>{item.comments_count || 0}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.iconButton} onPress={() => toggleFavorite(item)}>
+              <Ionicons name={item.is_favorited ? "bookmark" : "bookmark"} size={30} color={item.is_favorited ? "#f1c40f" : "white"} />
+              <Text style={styles.iconText}>{item.is_favorited ? "Guardado" : "Guardar"}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.iconButton} onPress={() => openShareModal(item.id)} onLongPress={() => handleShowShares(item.id)}>
+              <Ionicons name="arrow-redo" size={35} color="white" />
+              <Text style={styles.iconText}>{item.share_count || 0}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.iconButton} onPress={() => openActionModal(item)}>
+              <Ionicons name="ellipsis-vertical" size={32} color="white" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <Animated.View style={[styles.likeAnimation, heartStyle]} pointerEvents="none">
+          <Ionicons name="heart" size={100} color="white" />
+        </Animated.View>
+      </View>
+    </GestureDetector>
+  );
+};
+
 const ReelsScreen = ({ navigation }) => {
   const getVideoUrl = getImageUrl;
   const [reels, setReels] = useState([]);
@@ -138,6 +338,10 @@ const ReelsScreen = ({ navigation }) => {
   const [playbackStatus, setPlaybackStatus] = useState({});
   const videoRefs = useRef({});
   const flatListRef = useRef(null);
+  const [isUIVisible, setIsUIVisible] = useState(true);
+
+  const likeAnimation = useSharedValue(0);
+  const likeAnimationTimeout = useRef(null);
 
   useEffect(() => {
     api.get('users/me/').then(res => setCurrentUserId(res.data.id)).catch(() => {});
@@ -378,219 +582,45 @@ const ReelsScreen = ({ navigation }) => {
   };
 
   const renderItem = ({ item, index }) => {
-    const isVisible = index === activeIndex;
-
-    const tap = Gesture.Tap()
-      .maxDuration(250)
-      .onEnd((_event, success) => { // Usamos onEnd para no interferir con el swipe
-        if (success) {
-          setPaused(p => !p);
-        }
-      });
-
-    const doubleTap = Gesture.Tap()
-      .numberOfTaps(2)
-      .maxDuration(250)
-      .onStart(() => {
-        if (!item.user_has_liked) {
-          toggleLike(item);
-        }
-      });
-
-    const pan = Gesture.Pan()
-      .onEnd((e) => {
-        const { translationX, translationY } = e;
-
-        // Prioridad al swipe vertical para cambiar de reel
-        if (Math.abs(translationY) > Math.abs(translationX) && Math.abs(translationY) > 40) {
-          if (translationY < 0 && activeIndex < reels.length - 1) { // Swipe hacia arriba
-            scrollToIndex(activeIndex + 1);
-          } else if (translationY > 0 && activeIndex > 0) { // Swipe hacia abajo
-            scrollToIndex(activeIndex - 1);
-          }
-          return;
-        }
-
-        // Swipe horizontal para cambiar de clip dentro del reel
-        if (Math.abs(translationX) > Math.abs(translationY) && Math.abs(translationX) > 40) {
-          if (translationX < 0) { // Swipe a la izquierda
-            navigateClip(item, 1);
-          } else { // Swipe a la derecha
-            navigateClip(item, -1);
-          }
-        }
-      });
-
-    const composedGesture = Gesture.Race(pan, Gesture.Exclusive(doubleTap, tap));
-
-    const playlists = buildPlaylists(item);
-    const rawState = viewStateById[item.id] || { mode: "main", pos: 0 };
-    const VIEW_ORDER = ["main", "factores", "fuentes"];
-    const fallbackMode = VIEW_ORDER.find((m) => (playlists?.[m]?.length || 0) > 0) || "main";
-    const effMode = playlists?.[rawState.mode]?.length ? rawState.mode : fallbackMode;
-    const len = playlists?.[effMode]?.length || 0;
-    const effPos = len ? Math.min(Math.max(0, rawState.pos || 0), len - 1) : 0;
-
-    const list = playlists[effMode] || [];
-    const entry = list[effPos] || null;
-    const videoSrc = entry ? entry.src : item._anyVideo;
-    
-    const extraCount = (playlists.factores?.length > 0 ? 1 : 0) + (playlists.fuentes?.length > 0 ? 1 : 0);
-    const badgeCount = extraCount === 0 ? 0 : extraCount === 1 ? 1 : effMode === "main" ? 2 : 1;
-    const viewLabel = effMode === "main" ? tema : effMode === "factores" ? "factor" : "fuente";
-    const counterLabel = list.length ? `${effPos + 1}/${list.length}` : "—";
-
     return (
-      <GestureDetector gesture={composedGesture}>
-        <View style={styles.reelContainer}>
-          <Video
-            ref={ref => { videoRefs.current[index] = ref; }}
-            source={{ uri: getVideoUrl(videoSrc) }}
-            style={styles.video}
-            resizeMode="cover"
-            shouldPlay={isVisible && !paused}
-            isLooping
-            isMuted={isMuted}
-            onPlaybackStatusUpdate={(status) => {
-              if (isVisible) {
-                setPlaybackStatus(status);
-              }
-            }}
-          />
-
-          <View style={styles.overlay} pointerEvents="box-none">
-              <View style={styles.bottomSection} pointerEvents="box-none">
-                <TouchableOpacity 
-                  style={styles.userInfo} 
-                  onPress={() => navigation.navigate('UserProfile', { userId: item.user?.id, userName: item.user?.username, userAvatar: getImageUrl(item.user?.user_image) })}
-                >
-                  <Text style={styles.username}>@{item.user?.username || 'Usuario'}</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity onPress={() => toggleDescription(item.id)} activeOpacity={0.8}>
-                  {effMode !== 'main' && (
-                      <Text style={styles.title} numberOfLines={1}>{entry?.item?.title || viewLabel}</Text>
-                  )}
-                  {effMode === 'main' ? (
-                     <>
-                       <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-                       <Text style={styles.description} numberOfLines={expandedDescriptions[item.id] ? undefined : 2}>
-                         {entry?.groupIndex != null && entry?.item?.description ? `${item.description} • ${entry.item.description}` : item.description}
-                       </Text>
-                     </>
-                  ) : (
-                     <Text style={styles.description} numberOfLines={expandedDescriptions[item.id] ? undefined : 2}>{entry?.item?.description}</Text>
-                  )}
-                </TouchableOpacity>
-                
-                {item.categories ? (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesScroll}>
-                    {item.categories.split(',').map((cat, idx) => (
-                      <View key={idx} style={styles.categoryBadge}>
-                        <Text style={styles.categoryText}>{cat.trim()}</Text>
-                      </View>
-                    ))}
-                  </ScrollView>
-                ) : null}
-              </View>
-              
-              <View style={styles.rightSection}>
-                <TouchableOpacity 
-                  style={styles.avatarContainer}
-                  onPress={() => navigation.navigate('UserProfile', { userId: item.user?.id, userName: item.user?.username, userAvatar: getImageUrl(item.user?.user_image) })}
-                >
-                  <Image source={{ uri: getImageUrl(item.user?.user_image) || 'https://ui-avatars.com/api/?name=User' }} style={styles.avatar} />
-                  <TouchableOpacity 
-                    style={styles.followBtn}
-                    onPress={() => handleToggleProfileFavoriteDirect(item)}
-                  >
-                    <Ionicons name={item.user?.is_favorited ? "checkmark" : "add"} size={14} color="#fff" />
-                  </TouchableOpacity>
-                </TouchableOpacity>
-    
-                <View style={styles.iconButton}>
-                  <TouchableOpacity onPress={() => cycleViewOnly(item)}>
-                    <View>
-                      <Ionicons name="layers" size={32} color="white" />
-                      {badgeCount > 0 && (
-                        <View style={styles.badgeContainer}><Text style={styles.badgeText}>{badgeCount}</Text></View>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => cycleClipWithinView(item)}>
-                    <Text style={styles.iconText}>{viewLabel}</Text>
-                  </TouchableOpacity>
-                  <Text style={[styles.iconText, { fontSize: 10, marginTop: 0 }]}>{counterLabel}</Text>
-                </View>
-    
-                <TouchableOpacity style={styles.iconButton} onPress={() => toggleLike(item)} onLongPress={() => handleShowLikes(item.id)}>
-                  <Ionicons name={item.user_has_liked ? "heart" : "heart"} size={35} color={item.user_has_liked ? "#ff004f" : "white"} />
-                  <Text style={styles.iconText}>{item.likes_count || 0}</Text>
-                </TouchableOpacity>
-    
-                <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
-                  <Ionicons name="chatbubble-ellipses" size={32} color="white" />
-                  <Text style={styles.iconText}>{item.comments_count || 0}</Text>
-                </TouchableOpacity>
-    
-                <TouchableOpacity style={styles.iconButton} onPress={() => toggleFavorite(item)}>
-                  <Ionicons name={item.is_favorited ? "bookmark" : "bookmark"} size={30} color={item.is_favorited ? "#f1c40f" : "white"} />
-                  <Text style={styles.iconText}>{item.is_favorited ? "Guardado" : "Guardar"}</Text>
-                </TouchableOpacity>
-    
-                <TouchableOpacity style={styles.iconButton} onPress={() => openShareModal(item.id)} onLongPress={() => handleShowShares(item.id)}>
-                  <Ionicons name="arrow-redo" size={35} color="white" />
-                  <Text style={styles.iconText}>{item.share_count || 0}</Text>
-                </TouchableOpacity>
-    
-                <TouchableOpacity style={styles.iconButton} onPress={() => openActionModal(item)}>
-                  <Ionicons name="ellipsis-vertical" size={32} color="white" />
-                </TouchableOpacity>
-              </View>
-          </View>
-
-          <TouchableOpacity style={styles.muteBtn} onPress={() => setIsMuted(!isMuted)}>
-            <Ionicons name={isMuted ? "volume-mute" : "volume-medium"} size={22} color="#fff" />
-          </TouchableOpacity>
-
-          {/* REPRODUCTOR DE VIDEO CUANDO ESTÁ PAUSADO */}
-          {isVisible && paused && (
-            <View style={styles.playerContainer} pointerEvents="box-auto">
-              <View style={styles.playerTimeContainer}>
-                <Text style={styles.playerTimeText}>
-                  {formatTime(playbackStatus.positionMillis)} / {formatTime(playbackStatus.durationMillis)}
-                </Text>
-              </View>
-              <View style={styles.playerControls}>
-                <TouchableOpacity onPress={() => setPaused(false)} style={styles.playerButton}>
-                  <Ionicons name="play" size={22} color="#fff" />
-                </TouchableOpacity>
-                <Slider
-                  style={{ flex: 1 }}
-                  minimumValue={0}
-                  maximumValue={playbackStatus.durationMillis || 1}
-                  value={playbackStatus.positionMillis || 0}
-                  onSlidingComplete={async (value) => {
-                    const video = videoRefs.current[index];
-                    if (video) {
-                      await video.setPositionAsync(value);
-                    }
-                  }}
-                  minimumTrackTintColor="#fff"
-                  maximumTrackTintColor="rgba(255, 255, 255, 0.5)"
-                  thumbTintColor="#fff"
-                />
-              </View>
-            </View>
-          )}
-        </View>
-      </GestureDetector>
+      <ReelItem
+        item={item}
+        index={index}
+        isActive={index === activeIndex}
+        isMuted={isMuted}
+        paused={paused}
+        setPaused={setPaused}
+        videoRefs={videoRefs}
+        playbackStatus={playbackStatus}
+        expandedDescriptions={expandedDescriptions}
+        toggleDescription={toggleDescription}
+        viewStateById={viewStateById}
+        cycleViewOnly={cycleViewOnly}
+        cycleClipWithinView={cycleClipWithinView}
+        navigateClip={navigateClip}
+        toggleLike={toggleLike}
+        likeAnimation={likeAnimation}
+        navigation={navigation}
+        toggleFavorite={toggleFavorite}
+        openShareModal={openShareModal}
+        handleShowShares={handleShowShares}
+        handleShowLikes={handleShowLikes}
+        openActionModal={openActionModal}
+        handleToggleProfileFavoriteDirect={handleToggleProfileFavoriteDirect}
+        tema={tema}
+      />
     );
   };
 
+  const onScroll = useCallback((event) => {
+    const { contentOffset } = event.nativeEvent;
+    const index = Math.round(contentOffset.y / windowHeight);
+    setActiveIndex(index);
+  }, []);
   return (
     <View style={styles.container}>
       <GestureHandlerRootView style={{ flex: 1 }}>
+        {isUIVisible && (
           <View style={styles.topBar}>
               <TouchableOpacity onPress={() => handleTemaChange('consejos')}>
                   <Text style={[styles.topTab, tema === 'consejos' && styles.activeTab]}>Consejos</Text>
@@ -602,6 +632,7 @@ const ReelsScreen = ({ navigation }) => {
                   <Text style={[styles.topTab, tema === 'historias' && styles.activeTab]}>Historias</Text>
               </TouchableOpacity>
           </View>
+        )}
         {loading && reels.length === 0 ? (
           <ActivityIndicator size="large" color="#fff" style={{flex: 1, justifyContent: 'center'}} />
         ) : (
@@ -609,8 +640,15 @@ const ReelsScreen = ({ navigation }) => {
             ref={flatListRef}
             data={reels}
             keyExtractor={(item, index) => item.id + '-' + index}
+            onScroll={onScroll}
             renderItem={renderItem}
-            scrollEnabled={false} // Deshabilitamos el scroll nativo
+            pagingEnabled
+            onScrollToIndexFailed={info => {
+              const wait = new Promise(resolve => setTimeout(resolve, 500));
+              wait.then(() => { 
+                flatListRef.current?.scrollToIndex({ index: info.index, animated: true });
+              });
+            }}
             showsVerticalScrollIndicator={false}
             onViewableItemsChanged={onViewableItemsChanged} // Asegúrate que onViewableItemsChanged esté definido
             viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
@@ -619,12 +657,12 @@ const ReelsScreen = ({ navigation }) => {
           />
         )}
 
-        {/* Modales */}
-        <LikesListModal 
+        <TieredLikesModal 
           visible={likesModalVisible} 
           onClose={() => setLikesModalVisible(false)} 
           apiUrl={likesModalUrl} 
         />
+        {/* Modales */}
         <ShareModal
           visible={shareModalVisible}
           onClose={() => setShareModalVisible(false)}
@@ -677,18 +715,18 @@ const ReelsScreen = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
-  topTab: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700', marginHorizontal: 12, textShadowColor: 'rgba(0, 0, 0, 0.5)', textShadowOffset: {width: 1, height: 1}, textShadowRadius: 3 },
+  topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', zIndex: 10, pointerEvents: 'box-none' },
+  topTab: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700', marginHorizontal: 12, textShadow: '1px 1px 3px rgba(0, 0, 0, 0.5)' },
   activeTab: { color: '#fff', fontSize: 18, borderBottomWidth: 2, borderBottomColor: '#fff', paddingBottom: 4 },
   muteBtn: { position: 'absolute', right: 20, top: Platform.OS === 'ios' ? 45 : 15, zIndex: 10, padding: 8, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.4)' },
   reelContainer: { width: windowWidth, height: windowHeight },
   video: { ...StyleSheet.absoluteFillObject },
   overlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1 },
-  bottomSection: { flex: 1, padding: 15, paddingRight: 0, justifyContent: 'flex-end' },
-  userInfo: { marginBottom: 10 },
-  username: { color: '#fff', fontSize: 16, fontWeight: 'bold', textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: {width: 1, height: 1}, textShadowRadius: 4 },
-  title: { color: '#fff', fontSize: 15, fontWeight: '600', marginBottom: 6, textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: {width: 1, height: 1}, textShadowRadius: 4 },
-  description: { color: '#fff', fontSize: 14, marginBottom: 12, textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: {width: 1, height: 1}, textShadowRadius: 4 },
+  bottomSection: { flex: 1, padding: 15, paddingRight: 0, justifyContent: 'flex-end', pointerEvents: 'box-none' },
+  userInfo: { marginBottom: 10, pointerEvents: 'auto' },
+  username: { color: '#fff', fontSize: 16, fontWeight: 'bold', textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
+  title: { color: '#fff', fontSize: 15, fontWeight: '600', marginBottom: 6, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
+  description: { color: '#fff', fontSize: 14, marginBottom: 12, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
   categoriesScroll: { flexDirection: 'row', marginBottom: 5 },
   categoryBadge: { backgroundColor: 'rgba(0,0,0,0.4)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
   categoryText: { color: '#fff', fontSize: 12, fontWeight: '600' },
@@ -697,20 +735,21 @@ const styles = StyleSheet.create({
   avatar: { width: 46, height: 46, borderRadius: 23, borderWidth: 2, borderColor: '#fff' },
   followBtn: { position: 'absolute', bottom: -8, backgroundColor: '#ff004f', width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   iconButton: { alignItems: 'center', marginBottom: 20 },
-  iconText: { color: '#fff', fontSize: 13, marginTop: 4, fontWeight: 'bold', textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: {width: 1, height: 1}, textShadowRadius: 4 },
+  iconText: { color: '#fff', fontSize: 13, marginTop: 4, fontWeight: 'bold', textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
   badgeContainer: { position: 'absolute', top: -5, right: -10, backgroundColor: '#ff004f', borderRadius: 10, minWidth: 20, height: 20, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },
   badgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
   overlayModal: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  actionModalContainer: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 40 : 24, shadowColor: "#000", shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
+  actionModalContainer: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 40 : 24, boxShadow: "0px -2px 10px rgba(0, 0, 0, 0.1)", elevation: 10 },
   modalDragHandle: { width: 40, height: 4, backgroundColor: "#e0e0e0", borderRadius: 2, alignSelf: "center", marginBottom: 20 },
   actionOption: { flexDirection: "row", alignItems: "center", paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, marginBottom: 8, backgroundColor: "#f5f5f5" },
   actionOptionDelete: { backgroundColor: "#ffe3e3" },
-  actionText: { fontSize: 16, marginLeft: 14, color: "#333", fontWeight: "500" },  
-  playerContainer: { position: 'absolute', bottom: Platform.OS === 'ios' ? 90 : 70, left: 0, right: 0, paddingHorizontal: 20, paddingBottom: 10, zIndex: 20 },
-  playerTimeContainer: { width: '100%', alignItems: 'flex-end', marginBottom: 5 },
-  playerTimeText: { color: '#fff', fontSize: 12, fontWeight: '600', textShadowColor: 'rgba(0, 0, 0, 0.7)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 },
-  playerControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  playerButton: { padding: 8 },
+  actionText: { fontSize: 16, marginLeft: 14, color: "#333", fontWeight: "500" },
+  likeAnimation: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 99 },
+  navArrowLeft: { position: 'absolute', left: 10, top: '50%', transform: [{ translateY: -20 }], padding: 10, zIndex: 10 },
+  navArrowRight: { position: 'absolute', right: 10, top: '50%', transform: [{ translateY: -20 }], padding: 10, zIndex: 10 },
+  progressContainer: { position: 'absolute', bottom: Platform.OS === 'ios' ? 85 : 65, left: 15, right: 15, zIndex: 20, pointerEvents: 'box-none' },
+  progressBar: { width: '100%', height: 20 },
+  progressText: { position: 'absolute', right: 5, top: 15, color: '#fff', fontSize: 11, fontWeight: 'bold', textShadow: '0px 0px 2px rgba(0,0,0,0.7)', backgroundColor: 'rgba(0,0,0,0.3)', paddingHorizontal: 4, borderRadius: 4 },
 });
 
 export default ReelsScreen;

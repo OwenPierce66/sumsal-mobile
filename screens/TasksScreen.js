@@ -8,7 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment';
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
-import LikesListModal from '../components/LikesListModal';
+import UsersListModal from './UsersListModal'; // ⚡ CORRECCIÓN: Cambiamos al nuevo modal de usuarios
 import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
 import { Video } from 'expo-av';
@@ -39,6 +39,7 @@ const TasksScreen = ({ navigation }) => {
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
   const [likesModalUrl, setLikesModalUrl] = useState('');
+  const [likesModalTitle, setLikesModalTitle] = useState('Likes');
 
   // Modal de compartir
   const [shareModalVisible, setShareModalVisible] = useState(false);
@@ -227,16 +228,19 @@ const TasksScreen = ({ navigation }) => {
 
   const handleShowTaskLikes = (taskId) => {
     setLikesModalUrl(`tasks/${taskId}/users-who-liked/`);
+    setLikesModalTitle('Likes');
     setLikesModalVisible(true);
   };
 
   const handleShowTaskShares = (taskId) => {
     setLikesModalUrl('tasks/' + taskId + '/users-who-shared/');
+    setLikesModalTitle('Compartido por');
     setLikesModalVisible(true);
   };
 
   const handleShowSharedTaskLikes = (sharedTaskId) => {
     setLikesModalUrl(`shared-tasks/${sharedTaskId}/users-who-liked/`);
+    setLikesModalTitle('Likes');
     setLikesModalVisible(true);
   };
 
@@ -818,6 +822,7 @@ const TasksScreen = ({ navigation }) => {
 
       <FlatList
         data={filteredTasks}
+        // ⚡ OPTIMIZACIÓN: Usamos un keyExtractor más robusto y agregamos props de rendimiento.
         keyExtractor={(item) => `${item.feedType}-${item.id}`}
         renderItem={renderFeedItem}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -825,14 +830,14 @@ const TasksScreen = ({ navigation }) => {
         
         // ⚡ LAS PROPS MÁGICAS DE RENDIMIENTO Y SCROLL INFINITO
         onEndReached={loadMoreTasks}
-        onEndReachedThreshold={0.5} // Ejecuta loadMoreTasks cuando falte media pantalla para llegar al final
+        onEndReachedThreshold={0.7} // Carga más cuando falta el 70% de la pantalla
+        removeClippedSubviews={Platform.OS === 'android'} // Mejora el uso de memoria en Android
+        maxToRenderPerBatch={10} // Renderiza en lotes más pequeños
+        windowSize={11} // Mantiene más items en memoria para un scroll suave
+        initialNumToRender={8} // Carga inicial rápida
         ListFooterComponent={
           loadingMore ? <ActivityIndicator size="small" color="#4dabf7" style={{ marginVertical: 20 }} /> : null
         }
-        removeClippedSubviews={true}
-        maxToRenderPerBatch={10}
-        windowSize={5}
-        initialNumToRender={8}
       />
 
       {/* MODAL DE FILTROS */}
@@ -864,10 +869,11 @@ const TasksScreen = ({ navigation }) => {
       />
 
       {/* MODAL DE LIKES */}
-      <LikesListModal 
+      <UsersListModal 
         visible={likesModalVisible} 
         onClose={() => setLikesModalVisible(false)} 
         apiUrl={likesModalUrl} 
+        title={likesModalTitle}
       />
 
       {/* MODAL DE ACCIONES (3 PUNTOS) */}
@@ -942,14 +948,29 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#333' },
   createBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
   searchContainer: { flexDirection: 'row', alignItems: 'center', margin: 12, paddingHorizontal: 12, backgroundColor: '#fff', borderRadius: 12, elevation: 2 },
-  searchInput: { flex: 1, height: 45, marginLeft: 8 },
+  searchInput: { 
+    flex: 1, 
+    height: 45, 
+    marginLeft: 8,
+    // ⚡ FIX: Aseguramos que el input sea usable en web
+    outlineStyle: 'none',
+    borderWidth: 0,
+  },
   temaSelector: { flexDirection: 'row', paddingHorizontal: 12, gap: 10, marginBottom: 10 },
   temaBadge: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#eee' },
   temaBadgeActive: { backgroundColor: '#333' },
   temaBadgeText: { fontSize: 12, fontWeight: 'bold', color: '#666' },
   temaBadgeTextActive: { color: '#fff' },
   listContent: { paddingBottom: 100 },
-  taskCard: { backgroundColor: 'rgba(0, 0, 0, 0.1)', marginHorizontal: 12, marginBottom: 16, borderRadius: 20, padding: 16, elevation: 4 },
+  taskCard: { 
+    backgroundColor: '#fff', 
+    marginHorizontal: 12, 
+    marginBottom: 16, 
+    borderRadius: 20, 
+    padding: 16, 
+    boxShadow: '0px 1px 1.41px rgba(0,0,0,0.2)', // Para la web
+    elevation: 2, // Para Android
+  },
   taskHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   avatar: { width: 45, height: 45, borderRadius: 22.5, marginRight: 12, backgroundColor: '#eee' },
   taskTitle: { fontSize: 18, fontWeight: 'bold', color: '#000' },
