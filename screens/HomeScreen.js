@@ -38,7 +38,7 @@ const HomeScreen = ({ navigation }) => {
   useFocusEffect(
     useCallback(() => {
       fetchData();
-    }, [fetchData])
+    }, [fetchData, signOut])
   );
 
 const handleLogout = () => {

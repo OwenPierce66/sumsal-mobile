@@ -7,8 +7,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment';
 import api, { getImageUrl } from '../api';
-import { Image } from 'expo-image';
-import UsersListModal from './UsersListModal'; // ⚡ CORRECCIÓN: Cambiamos al nuevo modal de usuarios
+import { Image } from 'expo-image'; // ⚡ CORRECCIÓN: Cambiamos al nuevo modal de usuarios
+import TieredLikesModal from './TieredLikesModal';
 import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
 import { Video } from 'expo-av';
@@ -244,6 +244,13 @@ const TasksScreen = ({ navigation }) => {
     setLikesModalVisible(true);
   };
 
+  // ✅ CORRECCIÓN: Se añade la función para mostrar los likes del perfil
+  const handleShowProfileLikes = (userId) => {
+    setLikesModalUrl(`profiles/${userId}/likes/`);
+    setLikesModalTitle('Likes del Perfil');
+    setLikesModalVisible(true);
+  };
+
   // ⚡ NUEVOS ESTADOS PARA EL INFINITE SCROLL
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -370,6 +377,34 @@ const TasksScreen = ({ navigation }) => {
 
     fetchSharedTasks(1);
     setTaskToShare(null);
+  };
+
+  // ✅ CORRECCIÓN: Se añade la función para dar "Me gusta" a una tarea original.
+  const handleLikeTask = async (task) => {
+    if (!task) return;
+
+    // 1. Actualización optimista para una UI fluida.
+    const isLiked = !task.user_has_liked;
+    const increment = isLiked ? 1 : -1;
+    const updatedTask = { ...task, user_has_liked: isLiked, likes_count: (task.likes_count || 0) + increment };
+
+    setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
+    setSharedTasks(prev => prev.map(s => s.task?.id === task.id ? { ...s, task: updatedTask } : s));
+
+    try {
+      // 2. Llamada a la API para confirmar el cambio.
+      const response = await api.post(`tasks/${task.id}/like/`);
+      const { liked, likes_count } = response.data;
+
+      // 3. Sincronización silenciosa con la respuesta del servidor.
+      const finalTask = { ...task, user_has_liked: liked, likes_count: likes_count };
+      setTasks(prev => prev.map(t => t.id === task.id ? finalTask : t));
+      setSharedTasks(prev => prev.map(s => s.task?.id === task.id ? { ...s, task: finalTask } : s));
+    } catch (error) {
+      // 4. Reversión en caso de error.
+      setTasks(prev => prev.map(t => t.id === task.id ? task : t));
+      setSharedTasks(prev => prev.map(s => s.task?.id === task.id ? { ...s, task: task } : s));
+    }
   };
 
   const handleLikeSharedTask = async (sharedTaskId) => {
@@ -616,20 +651,25 @@ const TasksScreen = ({ navigation }) => {
         <View style={styles.originalTaskCard}>
           <View style={styles.taskHeader}>
             <Image 
-              source={{ uri: getImageUrl(task.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }} 
+              source={{
+                uri:
+                  getImageUrl(task.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random',
+              }}
               style={styles.avatar} 
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.taskTitle}>{task.title}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              onPress={() => handleShowProfileLikes(task.user?.id)}
+            >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Text style={[styles.taskUser, { color: getUserStatusColor(task.user) }]}>{getAuthorName(task)}</Text>
                   {getUserStatusIcon(task.user) && <Ionicons name={getUserStatusIcon(task.user)} size={14} color={getUserStatusColor(task.user)} />}
-                </View>
-                <Text style={{ fontSize: 12, color: '#999' }}>• {moment(task.created_at).fromNow()}</Text>
-              </View>
+              </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(task.created_at).fromNow()}</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity onPress={() => openActionModal({...task, isSharedTask: false})}>
+            <TouchableOpacity onPress={() => openActionModal({ ...task, isSharedTask: false })}>
               <Ionicons name="ellipsis-vertical" size={20} color="#ccc" />
             </TouchableOpacity>
           </View>
@@ -702,19 +742,20 @@ const TasksScreen = ({ navigation }) => {
     return (
       <View style={styles.taskCard}>
         <View style={styles.taskHeader}>
-          <Image 
-            source={{ uri: getImageUrl(item.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }} 
-            style={styles.avatar} 
-          />
+          <TouchableOpacity onPress={() => handleShowProfileLikes(item.user?.id)}>
+            <Image 
+              source={{ uri: getImageUrl(item.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }} 
+              style={styles.avatar} 
+            />
+          </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <Text style={styles.taskTitle}>{item.title}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} onPress={() => handleShowProfileLikes(item.user?.id)}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={[styles.taskUser, { color: getUserStatusColor(item.user) }]}>{getAuthorName(item)}</Text>
                 {getUserStatusIcon(item.user) && <Ionicons name={getUserStatusIcon(item.user)} size={14} color={getUserStatusColor(item.user)} />}
-              </View>
-              <Text style={{ fontSize: 12, color: '#999' }}>• {moment(item.created_at).fromNow()}</Text>
-            </View>
+              </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(item.created_at).fromNow()}</Text></TouchableOpacity>
+            
           </View>
           <TouchableOpacity onPress={() => openActionModal(item)}>
             <Ionicons name="ellipsis-vertical" size={20} color="#ccc" />
@@ -754,9 +795,11 @@ const TasksScreen = ({ navigation }) => {
         <View style={styles.taskFooter}>
           <View style={styles.statsContainer}>
             <View style={styles.stat}>
-              <TouchableOpacity onPress={() => navigation.navigate("TaskDetail", { taskId: item.id })}>
-                <Ionicons name="heart-outline" size={18} color="#ff6b6b" />
+              {/* ✅ CORRECCIÓN: Botón de like funcional */}
+              <TouchableOpacity onPress={() => handleLikeTask(item)}>
+                <Ionicons name={item.user_has_liked ? "heart" : "heart-outline"} size={18} color={item.user_has_liked ? "#ff6b6b" : "#999"} />
               </TouchableOpacity>
+              {/* El contador abre la lista de usuarios que dieron like */}
               <TouchableOpacity onPress={() => handleShowTaskLikes(item.id)} style={{marginLeft: 4, padding: 4}}>
                 <Text style={styles.statText}>{item.likes_count ?? 0}</Text>
               </TouchableOpacity>
@@ -869,7 +912,7 @@ const TasksScreen = ({ navigation }) => {
       />
 
       {/* MODAL DE LIKES */}
-      <UsersListModal 
+      <TieredLikesModal 
         visible={likesModalVisible} 
         onClose={() => setLikesModalVisible(false)} 
         apiUrl={likesModalUrl} 

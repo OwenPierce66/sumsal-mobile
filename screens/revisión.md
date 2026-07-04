@@ -1,0 +1,1 @@
+El error fundamental en mi enfoque anterior fue asumir que los datos de los contadores vendrían incluidos en la petición inicial. La versión web, de forma más eficiente, realiza peticiones específicas para obtener los desgloses de "likes" y "shares" solo para los reels que se están visualizando.
