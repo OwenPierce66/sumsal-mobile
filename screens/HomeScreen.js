@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useContext } from 'react';
+import React, { useState, useCallback, useContext, useEffect } from 'react';
 import { View, Text, FlatList, StyleSheet, Button, Alert, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import api, { clearAuthData } from '../api'; // Importamos lo que realmente usamos
@@ -7,24 +7,17 @@ import { Ionicons } from '@expo/vector-icons';
 
 const HomeScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
-  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const { signOut } = useContext(AuthContext);
+  // ✅ OBTENEMOS EL USUARIO Y SIGNOUT DEL CONTEXTO GLOBAL
+  const { user, signOut } = useContext(AuthContext);
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       
-      // ELIMINAMOS: const headers = await authHeaders();
-      // El interceptor se encarga de todo ahora.
-
-      const [userResponse, tasksResponse] = await Promise.all([
-        api.get('users/me/'), // Sin headers manuales
-        api.get('tasks/'),    // Sin headers manuales
-      ]);
-
-      setUser(userResponse.data);
+      // ✅ YA NO PEDIMOS /users/me/, lo obtenemos del contexto.
+      const tasksResponse = await api.get('tasks/');
       setTasks(tasksResponse.data.results ?? tasksResponse.data ?? []);
     } catch (error) {
       console.error('Error loading home data:', error.response?.data || error.message);
@@ -35,11 +28,10 @@ const HomeScreen = ({ navigation }) => {
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchData();
-    }, [fetchData, signOut])
-  );
+  // ✅ CAMBIAMOS a useEffect para que solo se ejecute una vez al montar.
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
 const handleLogout = () => {
     // Esto borra los tokens y le avisa a App.js que te expulse al Login de inmediato

@@ -11,7 +11,7 @@ const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'r
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 
-const ReelItem = ({
+const ReelItemComponent = ({
   item,
   index,
   isActive,
@@ -31,6 +31,8 @@ const ReelItem = ({
   cycleClipWithinView,
   navigateClip,
   toggleLike, // Like de la TAREA
+  profile, // ✅ Objeto de perfil completo
+  isProfileLiked, // Booleano que indica si el perfil tiene like
   likeAnimation,
   navigation,
   toggleFavorite,
@@ -43,9 +45,6 @@ const ReelItem = ({
   handleToggleProfileFavoriteDirect,
   tema,
   playlists,
-  taskLikes,
-  taskShares,
-  profileLikes,
 }) => {
   const rawState = viewStateById[item.id] || { mode: "main", pos: 0 };
   const onLayout = (event) => { item.onLayout?.(event.nativeEvent.layout); };
@@ -75,13 +74,14 @@ const ReelItem = ({
   const isSharedOpen = sharedOpenById[item.id];
 
   // ✅ Lógica para mostrar el contador de likes del perfil en tiempo real
+  // ✅ CORRECCIÓN: Leemos el contador desde item.user.profile, que ahora es
+  // enriquecido en ReelsScreen con el valor más reciente de la API.
   const profileLikesCount = useMemo(() => {
-    // Prioriza el valor actualizado del perfil, si no, usa el que viene en la tarea
-    return item.user?.profile?.likes_count ?? item.user?.likes_count ?? 0;
-  }, [item.user?.profile?.likes_count, item.user?.likes_count]);
+    return item.user?.profile?.likes_count ?? 0;
+  }, [item.user?.profile?.likes_count]);
 
   const userTier = useMemo(() => {
-      const profile = item.user?.profile || {};
+      const currentProfile = profile || {};
       if (profile.is_verified) return { key: 'verified', color: '#4dabf7' };
       if (profile.is_recommended) return { key: 'recommended', color: '#f59f00' };
       return { key: 'regular', color: '#fff' };
@@ -184,16 +184,16 @@ const ReelItem = ({
                   style={styles.followBtn}
                   onPress={(e) => { e.stopPropagation(); toggleProfileLike(item); }}
                 >
-                  <Ionicons name="heart" size={12} color={item.user?.profile?.viewer_has_liked ? "#ff004f" : "#fff"} />
+                  <Ionicons name="heart" size={12} color={isProfileLiked ? "#ff004f" : "#fff"} />
                 </TouchableOpacity>
               </TouchableOpacity>
 
               {/* ⚡️ 4. CONTADOR DE LIKES DE PERFIL CON DESGLOSE AL PAUSAR */}
               <View style={styles.iconButton}>
                 <Text style={styles.iconText}>{profileLikesCount}</Text>
-                {paused && profileLikes?.status === 'ok' && profileLikes?.counts && (
+                {paused && item.profileLikes?.status === 'ok' && item.profileLikes?.counts && (
                   <TouchableOpacity onPress={() => handleShowProfileLikes(item.user.id, 'all')}>
-                    <View style={styles.tierCountersVertical}>{renderTierDigits(profileLikes.counts, handleShowProfileLikes)}</View>
+                    <View style={styles.tierCountersVertical}>{renderTierDigits(item.profileLikes.counts, handleShowProfileLikes)}</View>
                   </TouchableOpacity>
                 )}
               </View>
@@ -218,9 +218,9 @@ const ReelItem = ({
               <TouchableOpacity style={styles.iconButton} onPress={() => toggleLike(item)} onLongPress={() => handleShowLikes(item.id)}>
                 <Ionicons name={item.user_has_liked ? "heart" : "heart"} size={24} color={item.user_has_liked ? "#ff004f" : "white"} />
                 <Text style={styles.iconText}>{item.likes_count || 0}</Text>
-                {paused && taskLikes?.status === 'ok' && taskLikes?.counts && (
+                {paused && item.taskLikes?.status === 'ok' && item.taskLikes?.counts && (
                   <TouchableOpacity onPress={() => handleShowLikes(item.id, 'all')}>
-                    <View style={styles.tierCountersVertical}>{renderTierDigits(taskLikes.counts, handleShowLikes)}</View>
+                    <View style={styles.tierCountersVertical}>{renderTierDigits(item.taskLikes.counts, handleShowLikes)}</View>
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -233,9 +233,9 @@ const ReelItem = ({
               <TouchableOpacity style={styles.iconButton} onPress={() => openShareModal(item.id)} onLongPress={() => handleShowShares(item.id)}>
                 <Ionicons name="arrow-redo" size={24} color="white" />
                 <Text style={styles.iconText}>{item.share_count || 0}</Text>
-                {paused && taskShares?.status === 'ok' && taskShares?.counts && (
+                {paused && item.taskShares?.status === 'ok' && item.taskShares?.counts && (
                   <TouchableOpacity onPress={() => handleShowShares(item.id, 'all')}>
-                     <View style={styles.tierCountersVertical}>{renderTierDigits(taskShares.counts, handleShowShares)}</View>
+                     <View style={styles.tierCountersVertical}>{renderTierDigits(item.taskShares.counts, handleShowShares)}</View>
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -310,4 +310,26 @@ const styles = StyleSheet.create({
 });
 
 
-export default ReelItem;
+// ✅ SOLUCIÓN: Envolvemos el componente con React.memo para evitar renderizados innecesarios
+// que revierten el estado visual del corazón.
+const arePropsEqual = (prevProps, nextProps) => {
+  // Comparamos las props más importantes que pueden cambiar.
+  // Si alguna de estas es diferente, el componente SÍ se volverá a renderizar.
+  return (
+    prevProps.item.id === nextProps.item.id &&
+    prevProps.isActive === nextProps.isActive &&
+    prevProps.paused === nextProps.paused &&
+    // Comparación del like de la TAREA
+    prevProps.item.user_has_liked === nextProps.item.user_has_liked &&
+    prevProps.item.likes_count === nextProps.item.likes_count &&
+    // ✅ SOLUCIÓN: Comparación específica y profunda para el like del PERFIL
+    prevProps.isProfileLiked === nextProps.isProfileLiked &&
+    prevProps.item.user?.profile?.likes_count === nextProps.item.user?.profile?.likes_count &&
+    // Comparamos el estado de los contadores de tier para que se muestren al pausar
+    prevProps.item.taskLikes?.status === nextProps.item.taskLikes?.status &&
+    prevProps.item.profileLikes?.status === nextProps.item.profileLikes?.status &&
+    // Comparamos el estado de la descripción expandida
+    prevProps.expandedDescriptions[prevProps.item.id] === nextProps.expandedDescriptions[nextProps.item.id]
+  );
+};
+export default React.memo(ReelItemComponent, arePropsEqual);

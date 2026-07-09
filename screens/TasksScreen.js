@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useContext } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   RefreshControl, TextInput, Platform, ActivityIndicator, Modal, Alert
@@ -12,14 +12,13 @@ import TieredLikesModal from './TieredLikesModal';
 import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
 import { Video } from 'expo-av';
+import { AuthContext } from '../App';
 
 const TasksScreen = ({ navigation }) => {
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  useEffect(() => {
-    api.get('users/me/').then(res => setCurrentUserId(res.data.id)).catch(() => {});
-    api.get('verify-admin/').then(res => setIsAdmin(res.data?.is_admin || res.data?.is_staff)).catch(() => {});
-  }, []);
+  // ✅ OBTENEMOS EL USUARIO Y ADMIN STATUS DEL CONTEXTO GLOBAL
+  const { user, isAdmin } = useContext(AuthContext);
+  const currentUserId = user?.id;
+
   const [tasks, setTasks] = useState([]);
   const [sharedTasks, setSharedTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +35,7 @@ const TasksScreen = ({ navigation }) => {
   const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
 
+  const [availableCategories, setAvailableCategories] = useState([]);
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
   const [likesModalUrl, setLikesModalUrl] = useState('');
@@ -49,6 +49,17 @@ const TasksScreen = ({ navigation }) => {
   const [actionModalVisible, setActionModalVisible] = useState(false);
   const [selectedActionTask, setSelectedActionTask] = useState(null);
   
+  // ✅ SOLUCIÓN: Cargamos las categorías una sola vez aquí.
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const response = await api.get('new-categories/');
+        setAvailableCategories(response.data || []);
+      } catch (error) {}
+    };
+    fetchCategories();
+  }, []);
+
   const openActionModal = (task) => {
     setSelectedActionTask(task);
     setActionModalVisible(true);
@@ -346,11 +357,12 @@ const TasksScreen = ({ navigation }) => {
     }
   }, [selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly]);
 
+  // ✅ CORRECCIÓN: Usamos un useEffect que reacciona a los filtros, en lugar de a cada foco.
+  // Esto reduce drásticamente las llamadas a la API.
   useFocusEffect(useCallback(() => {
-    // Only fetch on initial focus, subsequent fetches are handled by useEffect when filters change
     fetchTasks(1);
     fetchSharedTasks(1);
-  }, [fetchTasks, fetchSharedTasks]));
+  }, [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -894,6 +906,8 @@ const TasksScreen = ({ navigation }) => {
         currentFavoriteUsers={selectedFavoriteUsersOnly}
         currentVerifiedUsers={selectedVerifiedUsersOnly}
         currentRecommendedUsers={selectedRecommendedUsersOnly}
+        // ✅ SOLUCIÓN: Pasamos las categorías como prop.
+        availableCategories={availableCategories}
         onApply={(filters) => {
           setSelectedCategory(filters.category);
           setSelectedDateFilter(filters.date_filter);

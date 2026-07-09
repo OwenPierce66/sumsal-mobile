@@ -58,9 +58,9 @@ const ForumScreen = ({ navigation }) => {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => {
+  useEffect(() => {
     fetchPosts();
-  }, [fetchPosts]));
+  }, [fetchPosts]);
 
   const onRefresh = () => {
     setRefreshing(true);

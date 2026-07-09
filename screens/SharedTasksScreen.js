@@ -60,11 +60,9 @@ const SharedTasksScreen = ({ navigation }) => {
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchSharedTasks(1);
-    }, [fetchSharedTasks])
-  );
+  useEffect(() => {
+    fetchSharedTasks(1);
+  }, [fetchSharedTasks]);
 
   const onRefresh = () => {
     setRefreshing(true);
