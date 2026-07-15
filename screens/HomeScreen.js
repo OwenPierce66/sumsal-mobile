@@ -30,7 +30,9 @@ const HomeScreen = ({ navigation }) => {
 
   // ✅ CAMBIAMOS a useEffect para que solo se ejecute una vez al montar.
   useEffect(() => {
-    fetchData();
+    if (user) { // Solo cargamos datos si el usuario ya está disponible en el contexto
+      fetchData();
+    }
   }, [fetchData]);
 
 const handleLogout = () => {

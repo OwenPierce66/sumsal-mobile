@@ -98,7 +98,7 @@ const TasksScreen = ({ navigation }) => {
         [
           { text: 'Cancelar', style: 'cancel' },
           { text: 'Eliminar', style: 'destructive', onPress: executeDelete }
-        ]
+        ],
       );
     }
   };
@@ -244,7 +244,7 @@ const TasksScreen = ({ navigation }) => {
   };
 
   const handleShowTaskShares = (taskId) => {
-    setLikesModalUrl('tasks/' + taskId + '/users-who-shared/');
+    setLikesModalUrl(`tasks/${taskId}/users-who-shared/`);
     setLikesModalTitle('Compartido por');
     setLikesModalVisible(true);
   };
@@ -964,7 +964,7 @@ const TasksScreen = ({ navigation }) => {
                     </TouchableOpacity>
                   </>
                 )}
-                {(currentUserId === ((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.id || (selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user))) && (
+                {(selectedActionTask && (currentUserId === (selectedActionTask.isSharedTask ? selectedActionTask.shared_by?.id : selectedActionTask.user?.id))) && (
                   <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
                     <Ionicons name='trash-outline' size={20} color='#ff6b6b' />
                     <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: 'bold' }]}>Eliminar</Text>

@@ -8,7 +8,6 @@ import { getImageUrl } from '../api';
 import ProgressControls from './ProgressControls';
 
 const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'regular'];
-
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 
 const ReelItemComponent = ({
@@ -18,6 +17,7 @@ const ReelItemComponent = ({
   isMuted,
   paused,
   videoRefs,
+  setPaused,
   isUIVisible,
   setPlaybackStatus,
   playbackStatus,
@@ -30,9 +30,9 @@ const ReelItemComponent = ({
   cycleViewOnly,
   cycleClipWithinView,
   navigateClip,
-  toggleLike, // Like de la TAREA
-  profile, // ✅ Objeto de perfil completo
-  isProfileLiked, // Booleano que indica si el perfil tiene like
+  toggleLike,
+  profile,
+  isProfileLiked,
   likeAnimation,
   navigation,
   toggleFavorite,
@@ -41,8 +41,7 @@ const ReelItemComponent = ({
   handleShowLikes,
   handleShowProfileLikes,
   openActionModal,
-  toggleProfileLike, // ✅ NUEVO: Like del PERFIL
-  handleToggleProfileFavoriteDirect,
+  toggleProfileLike,
   tema,
   playlists,
 }) => {
@@ -55,8 +54,8 @@ const ReelItemComponent = ({
   const effPos = len ? Math.min(Math.max(0, rawState.pos || 0), len - 1) : 0;
 
   const list = playlists[effMode] || [];
-  const entry = list[effPos] || null;
-  const videoSrc = entry ? entry.src : item._anyVideo;
+  // const entry = list[effPos] || null; // This logic is now handled inside the ScrollView
+  // const videoSrc = entry ? entry.src : item._anyVideo; // This is also handled inside the ScrollView map
 
   const extraCount = (playlists.factores?.length > 0 ? 1 : 0) + (playlists.fuentes?.length > 0 ? 1 : 0);
   const badgeCount = extraCount === 0 ? 0 : extraCount === 1 ? 1 : effMode === "main" ? 2 : 1;
@@ -73,54 +72,91 @@ const ReelItemComponent = ({
   const sharedByInfo = getSharedByInfo(item);
   const isSharedOpen = sharedOpenById[item.id];
 
-  // ✅ Lógica para mostrar el contador de likes del perfil en tiempo real
-  // ✅ CORRECCIÓN: Leemos el contador desde item.user.profile, que ahora es
-  // enriquecido en ReelsScreen con el valor más reciente de la API.
   const profileLikesCount = useMemo(() => {
     return item.user?.profile?.likes_count ?? 0;
   }, [item.user?.profile?.likes_count]);
 
   const userTier = useMemo(() => {
       const currentProfile = profile || {};
-      if (profile.is_verified) return { key: 'verified', color: '#4dabf7' };
-      if (profile.is_recommended) return { key: 'recommended', color: '#f59f00' };
+      if (currentProfile.is_verified) return { key: 'verified', color: '#4dabf7' };
+      if (currentProfile.is_recommended) return { key: 'recommended', color: '#f59f00' };
       return { key: 'regular', color: '#fff' };
-  }, [item.user]);
+  }, [profile]);
 
-  // ✅ Lógica de `ReelsPCH.js` para mostrar los dígitos de tier
   const renderTierDigits = (counts, handler) => {
     if (!counts) return null;
     return TIER_ORDER.map(key => {
       const n = counts[key] || 0;
       if (!n) return null;
-      const meta = { color: key === 'verified' ? '#4dabf7' : key === 'recommended' ? '#f59f00' : 'grey' }; // Simplificado
+      const meta = { color: key === 'verified' ? '#4dabf7' : key === 'recommended' ? '#f59f00' : 'grey' };
       return (
-        <TouchableOpacity key={key} onPress={() => handler(item.id, key)}><Text style={[styles.tierText, { color: meta.color }]}><Ionicons name="ellipse" size={8} color={meta.color} /> {n}</Text></TouchableOpacity>
+        <TouchableOpacity key={key} onPress={() => handler(item.user?.id || item.id, key)}>
+          <Text style={[styles.tierText, { color: meta.color }]}>
+            <Ionicons name="ellipse" size={8} color={meta.color} /> {n}
+          </Text>
+        </TouchableOpacity>
       );
     });
   };
 
   return (
     <View style={styles.reelContainer}>
-      <Video
-        ref={ref => { videoRefs.current[index] = ref; }}
-        source={{ uri: getImageUrl(videoSrc) }}
-        style={styles.video}
-        resizeMode="cover"
-        shouldPlay={isActive && !paused}
-        isLooping
-        isMuted={isMuted}
-        onPlaybackStatusUpdate={(status) => {
-          if (isActive) { setPlaybackStatus(status); }
+      {/* 🔄 SWIPE HORIZONTAL NATIVO CLÁSICO */}
+      <ScrollView
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => {
+          const contentOffset = e.nativeEvent.contentOffset.x;
+          const newPos = Math.round(contentOffset / windowWidth);
+          const diff = newPos - rawState.pos;
+          if (diff !== 0) {
+            navigateClip(item, diff);
+          }
         }}
-      />
+        style={StyleSheet.absoluteFill}
+      >
+        {list.length > 0 ? (
+          list.map((entry, clipIdx) => (
+            <View key={`${item.id}-clip-${clipIdx}`} style={{ width: windowWidth, height: windowHeight }}>
+              <Video
+                ref={ref => {
+                  if (rawState.pos === clipIdx) {
+                    videoRefs.current[index] = ref;
+                  }
+                }}
+                source={{ uri: getImageUrl(entry.src) }}
+                style={styles.video}
+                resizeMode="cover"
+                shouldPlay={isActive && !paused && rawState.pos === clipIdx}
+                isLooping
+                isMuted={isMuted}
+                onPlaybackStatusUpdate={(status) => {
+                  if (isActive && rawState.pos === clipIdx) { setPlaybackStatus(status); }
+                }}
+              />
+            </View>
+          ))
+        ) : (
+          <View style={{ width: windowWidth, height: windowHeight }}>
+            <Video
+              ref={ref => { videoRefs.current[index] = ref; }}
+              source={{ uri: getImageUrl(item._anyVideo) }}
+              style={styles.video}
+              resizeMode="cover"
+              shouldPlay={isActive && !paused}
+              isLooping
+              isMuted={isMuted}
+              onPlaybackStatusUpdate={(status) => { if (isActive) { setPlaybackStatus(status); } }}
+            />
+          </View>
+        )}
+      </ScrollView>
 
       {isUIVisible ? (
         <>
-          {/* ✅ CORRECCIÓN: Se aplica el estilo pointerEvents directamente */}
           <View style={styles.overlay} pointerEvents="box-none">
             <View style={styles.bottomSection} pointerEvents="box-none">
-              {/* ⚡️ 2. INDICADOR DE "COMPARTIDO POR" */}
               {sharedByInfo && (
                 <TouchableOpacity style={styles.sharedByContainer} onPress={() => toggleSharedBy(item.id)}>
                   <View style={styles.sharedByRow}>
@@ -144,6 +180,7 @@ const ReelItemComponent = ({
                 <Text style={styles.username}>@{item.user?.username || 'Usuario'}</Text>
               </TouchableOpacity>
 
+              {(() => { const entry = list[effPos] || null; return (
               <TouchableOpacity onPress={() => toggleDescription(item.id)} activeOpacity={0.8}>
                 {effMode !== 'main' && (
                   <Text style={styles.title} numberOfLines={1}>{entry?.item?.title || viewLabel}</Text>
@@ -159,6 +196,7 @@ const ReelItemComponent = ({
                   <Text style={styles.description} numberOfLines={expandedDescriptions[item.id] ? undefined : 2}>{entry?.item?.description}</Text>
                 )}
               </TouchableOpacity>
+              );})()}
 
               {item.categories ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesScroll}>
@@ -172,14 +210,12 @@ const ReelItemComponent = ({
             </View>
 
             <View style={styles.rightSection} onLayout={onLayout}>
-              {/* ✅ BOTÓN DE PERFIL: Tap para ir al perfil, Long-press para ver likes */}
               <TouchableOpacity 
                 style={styles.iconButton} 
                 onPress={() => navigation.navigate('UserProfile', { userId: item.user?.id, userName: item.user?.username, userAvatar: getImageUrl(item.user?.user_image) })}
-                onLongPress={() => handleShowProfileLikes(item.user.id)}
+                onLongPress={() => handleShowProfileLikes(item.user?.id)}
               >
                 <Image source={{ uri: getImageUrl(item.user?.user_image) || 'https://ui-avatars.com/api/?name=User' }} style={[styles.avatar, { borderColor: userTier.color }]} contentFit="cover" />
-                {/* ✅ BOTÓN DE LIKE DE PERFIL (CORAZÓN) */}
                 <TouchableOpacity
                   style={styles.followBtn}
                   onPress={(e) => { e.stopPropagation(); toggleProfileLike(item); }}
@@ -188,17 +224,14 @@ const ReelItemComponent = ({
                 </TouchableOpacity>
               </TouchableOpacity>
 
-              {/* ⚡️ 4. CONTADOR DE LIKES DE PERFIL CON DESGLOSE AL PAUSAR */}
               <View style={styles.iconButton}>
                 <Text style={styles.iconText}>{profileLikesCount}</Text>
                 {paused && item.profileLikes?.status === 'ok' && item.profileLikes?.counts && (
-                  <TouchableOpacity onPress={() => handleShowProfileLikes(item.user.id, 'all')}>
+                  <TouchableOpacity onPress={() => handleShowProfileLikes(item.user?.id, 'all')}>
                     <View style={styles.tierCountersVertical}>{renderTierDigits(item.profileLikes.counts, handleShowProfileLikes)}</View>
                   </TouchableOpacity>
                 )}
               </View>
-
-
 
               <View style={styles.iconButton}>
                 <TouchableOpacity onPress={() => cycleViewOnly(item)}>
@@ -246,20 +279,6 @@ const ReelItemComponent = ({
             </View>
           </View>
 
-          {list.length > 1 && (
-            <>
-              {effPos > 0 && (
-                <TouchableOpacity style={styles.navArrowLeft} onPress={() => navigateClip(item, -1)}>
-                  <Ionicons name="chevron-back" size={30} color="rgba(255,255,255,0.7)" />
-                </TouchableOpacity>
-              )}
-              {effPos < list.length - 1 && (
-                <TouchableOpacity style={styles.navArrowRight} onPress={() => navigateClip(item, 1)}>
-                  <Ionicons name="chevron-forward" size={30} color="rgba(255,255,255,0.7)" />
-                </TouchableOpacity>
-              )}
-            </>
-          )}
         </>
       ) : null}
 
@@ -277,16 +296,14 @@ const ReelItemComponent = ({
 const styles = StyleSheet.create({
   reelContainer: { width: windowWidth, height: windowHeight },
   video: { ...StyleSheet.absoluteFillObject },
-  overlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'box-none' },
+  overlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'none' },
   bottomSection: { flex: 1, padding: 15, paddingRight: 80, justifyContent: 'flex-end' },
-  userInfo: { marginBottom: 10, pointerEvents: 'auto' }, // Este ya es correcto
-  // ⚡️ 2. ESTILOS PARA "COMPARTIDO POR"
+  userInfo: { marginBottom: 10, pointerEvents: 'auto' },
   sharedByContainer: { backgroundColor: 'rgba(0,0,0,0.4)', padding: 8, borderRadius: 10, marginBottom: 10, pointerEvents: 'auto', alignSelf: 'flex-start' },
   sharedByRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sharedByAvatar: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#555' },
   sharedByName: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
   sharedByDescription: { color: '#eee', fontSize: 13, fontStyle: 'italic' },
-  // ---
   username: { color: '#fff', fontSize: 16, fontWeight: 'bold', textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
   title: { color: '#fff', fontSize: 15, fontWeight: '600', marginBottom: 6, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
   description: { color: '#fff', fontSize: 14, marginBottom: 12, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
@@ -296,40 +313,29 @@ const styles = StyleSheet.create({
   rightSection: { width: 60, paddingBottom: 0, alignItems: 'center', justifyContent: 'flex-end' },
   avatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#fff' },
   followBtn: { position: 'absolute', bottom: -5, backgroundColor: 'rgba(0,0,0,0.6)', width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
-  iconButton: { alignItems: 'center', marginBottom: 12, pointerEvents: 'auto' }, // ✅ CORRECCIÓN: Aseguramos que los botones capturen el toque
+  iconButton: { alignItems: 'center', marginBottom: 12, pointerEvents: 'auto' },
   iconText: { color: '#fff', fontSize: 10, marginTop: 3, fontWeight: '600', textShadow: '1px 1px 3px rgba(0,0,0,0.5)' },
   iconTextSmall: { color: '#fff', fontSize: 9, marginTop: 3, fontWeight: '600', textShadow: '1px 1px 3px rgba(0,0,0,0.5)' },
   badgeContainer: { position: 'absolute', top: -3, right: -6, backgroundColor: '#ff004f', borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },
   badgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
-  // ✅ ESTILOS PORTADOS DE ReelsPCH.scss (.reel-profile-likedigits / .reel-action-digits)
   tierCountersVertical: { flexDirection: 'column', gap: 3, alignItems: 'center', marginTop: 4, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 5, paddingHorizontal: 4, paddingVertical: 2 },
   tierText: { fontSize: 10, fontWeight: '900', lineHeight: 10 },
   likeAnimation: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 99 },
-  navArrowLeft: { position: 'absolute', left: 10, top: '50%', transform: [{ translateY: -20 }], padding: 10, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 25 },
-  navArrowRight: { position: 'absolute', right: 10, top: '50%', transform: [{ translateY: -20 }], padding: 10, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 25 },
 });
 
-
-// ✅ SOLUCIÓN: Envolvemos el componente con React.memo para evitar renderizados innecesarios
-// que revierten el estado visual del corazón.
 const arePropsEqual = (prevProps, nextProps) => {
-  // Comparamos las props más importantes que pueden cambiar.
-  // Si alguna de estas es diferente, el componente SÍ se volverá a renderizar.
   return (
     prevProps.item.id === nextProps.item.id &&
     prevProps.isActive === nextProps.isActive &&
     prevProps.paused === nextProps.paused &&
-    // Comparación del like de la TAREA
     prevProps.item.user_has_liked === nextProps.item.user_has_liked &&
     prevProps.item.likes_count === nextProps.item.likes_count &&
-    // ✅ SOLUCIÓN: Comparación específica y profunda para el like del PERFIL
     prevProps.isProfileLiked === nextProps.isProfileLiked &&
     prevProps.item.user?.profile?.likes_count === nextProps.item.user?.profile?.likes_count &&
-    // Comparamos el estado de los contadores de tier para que se muestren al pausar
     prevProps.item.taskLikes?.status === nextProps.item.taskLikes?.status &&
     prevProps.item.profileLikes?.status === nextProps.item.profileLikes?.status &&
-    // Comparamos el estado de la descripción expandida
-    prevProps.expandedDescriptions[prevProps.item.id] === nextProps.expandedDescriptions[nextProps.item.id]
+    prevProps.expandedDescriptions[prevProps.item.id] === nextProps.expandedDescriptions[nextProps.item.id] &&
+    prevProps.viewStateById[prevProps.item.id] === nextProps.viewStateById[nextProps.item.id]
   );
 };
 export default React.memo(ReelItemComponent, arePropsEqual);

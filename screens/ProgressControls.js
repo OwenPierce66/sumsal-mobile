@@ -18,7 +18,7 @@ const ProgressControls = ({ status, onSeek }) => (
 );
 
 const styles = StyleSheet.create({
-    progressContainer: { position: 'absolute', bottom: Platform.OS === 'ios' ? 85 : 65, left: 15, right: 15, zIndex: 20, pointerEvents: 'box-auto' },
+    progressContainer: { position: 'absolute', bottom: Platform.OS === 'ios' ? 95 : 75, left: 15, right: 15, zIndex: 20, pointerEvents: 'box-auto' },
     progressBar: { width: '100%', height: 20 },
     // ✅ CORRECCIÓN: Se usa la sintaxis correcta para textShadow en React Native
     progressText: { position: 'absolute', right: 5, top: 15, color: '#fff', fontSize: 11, fontWeight: 'bold', 

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useCallback } from 'react';
 import { Modal,
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView
@@ -9,8 +9,8 @@ import moment from 'moment';
 import 'moment/locale/es'; 
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
-import UsersListModal from './UsersListModal';
 import ShareModal from '../components/ShareModal';
+import TieredLikesModal from './TieredLikesModal'; // ✅ 1. Importamos el modal correcto
 
 moment.locale('es');
 
@@ -157,7 +157,11 @@ const TaskDetailScreen = ({ route, navigation }) => {
       try {
         await api.delete("tasks/" + taskId + "/");
         setActionModalVisible(false);
-        if (Platform.OS !== "web") Alert.alert("ï¿½xito", "Tarea eliminada.");
+        if (Platform.OS === "web") {
+          window.alert("Éxito: Tarea eliminada.");
+        } else {
+          Alert.alert("Éxito", "Tarea eliminada.");
+        }
         navigation.goBack();
       } catch (error) {
         console.error("Error deleting task:", error);
@@ -209,7 +213,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
   };
 
   const handleShowCommentLikes = (commentId) => {
-    setLikesModalUrl(`comments/${commentId}/users-who-liked/`);
+    setLikesModalUrl(`tasks/comments/${commentId}/users-who-liked/`);
     setLikesModalTitle('Likes');
     setLikesModalVisible(true);
   };
@@ -578,7 +582,8 @@ const fetchComments = useCallback(async () => {
       </View>
 
       {/* MODAL DE LIKES */}
-      <UsersListModal 
+      {/* ✅ 2. Usamos el componente unificado TieredLikesModal */}
+      <TieredLikesModal 
         visible={likesModalVisible} 
         onClose={() => setLikesModalVisible(false)} 
         apiUrl={likesModalUrl} 

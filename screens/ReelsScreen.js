@@ -1,31 +1,28 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
+﻿﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, Modal, Alert } from 'react-native';
-import { Ionicons } from '@expo/vector-icons'; // Esta línea ya está bien, pero la revisamos.
-import { useFocusEffect } from '@react-navigation/native';
-import { useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../App'; // ✅ IMPORTAMOS EL CONTEXTO
 import api, { getImageUrl } from '../api';
-import { Gesture, GestureDetector, Directions } from 'react-native-gesture-handler'; // Gestos
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated'; // Animaciones
+import { Gesture, GestureDetector, Directions } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, runOnJS } from 'react-native-reanimated';
 import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
 import TieredLikesModal from './TieredLikesModal';
-import ReelItem from './ReelItem'; // Esta línea ya está bien, pero la revisamos.
+import ReelItem from './ReelItem'; 
  
 const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'regular'];
 
 const makeTierCounts = (usersArr = []) => {
   const counts = TIER_ORDER.reduce((acc, t) => ({ ...acc, [t]: 0 }), { all: usersArr.length });
   (usersArr || []).forEach((u) => {
-    const profile = u?.profile || u || {}; // Busca en el perfil o en el objeto raíz
+    const profile = u?.profile || u || {};
     let key = 'regular';
     if (profile.is_verified) {
       key = 'verified';
     } else if (profile.is_recommended) {
       key = 'recommended';
     }
-    // Aquí puedes añadir más lógica para otros tiers si los tienes en el backend
-    // como sub_red, sub_green, etc.
     if (counts[key] !== undefined) {
       counts[key]++;
     }
@@ -52,7 +49,6 @@ const uniq = (arr) => {
 const extractVideos = (obj) => {
   if (!obj) return [];
   const bag = [];
-  // ⚡ AÑADIMOS 'video' a la lista de campos a buscar
   bag.push(obj?.primary_video);
   bag.push(obj?.video);
   bag.push(obj?.task?.video);
@@ -138,9 +134,6 @@ const buildPlaylists = (task) => {
   return { main: mainVideos, factores: factoresVideos, fuentes: fuentesVideos };
 };
 
-// =====================================================================
-// ⚡️ 2. HELPERS PARA "COMPARTIDO POR" (Portado de la web)
-// =====================================================================
 const getSharedByAvatarSrc = (t) => {
   const pick = (obj) => {
     if (!obj) return null;
@@ -216,14 +209,11 @@ const getSharedByInfo = (t) => {
 };
 
 const getUserIdFromTask = (task) => {
-  // ✅ SOLUCIÓN DEFINITIVA: Usamos el ID del perfil, no del usuario.
-  // El backend espera el ID del perfil para las operaciones de like.
   return task?.user?.profile?.id || task?.user?.profile_id || task?.user?.id || task?.user_id || null;
 };
 
-// ✅ SOLUCIÓN: Creamos un componente para renderizar cada item.
-// Los Hooks como useMemo SÓLO pueden llamarse dentro de componentes.
-const ReelRenderer = ({
+// Componente Wrapper para renderizar cada Reel sin desmontarse
+const ReelRenderer = React.memo(({
   item,
   index,
   activeIndex,
@@ -251,16 +241,14 @@ const ReelRenderer = ({
   handleShowShares,
   handleShowLikes,
   handleShowProfileLikes,
-  openActionModal, // ✅ FIX: Añadimos la prop que faltaba
-  likedProfiles, // Pasamos el set de perfiles likeados
-  // ✅ SOLUCIÓN: Volvemos a recibir los objetos de estado
+  openActionModal,
+  likedProfiles,
   taskLikesById,
   taskSharesById,
   profileLikesById,
   handleToggleProfileFavoriteDirect,
   tema,
 }) => {
-  // ✅ GESTOS
   const tapToPause = Gesture.Tap()
     .maxDuration(250)
     .onEnd((event, success) => {
@@ -273,40 +261,42 @@ const ReelRenderer = ({
       }
     });
 
-  const flingLeft = Gesture.Fling().direction(Directions.LEFT).onEnd(() => {
-    runOnJS(cycleViewOnly)(item);
+  const flingRight = Gesture.Fling().direction(Directions.RIGHT).onEnd(() => {
+    runOnJS(navigateClip)(item, -1);
   });
 
-  const composedGesture = Gesture.Race(tapToPause, flingLeft);
+  const flingLeft = Gesture.Fling().direction(Directions.LEFT).onEnd(() => {
+    runOnJS(navigateClip)(item, 1);
+  });
 
-  // ✅ SOLUCIÓN: La llamada a useMemo ahora está dentro de un componente válido.
+  const composedGesture = Gesture.Exclusive(
+    Gesture.Race(flingLeft, flingRight),
+    tapToPause
+  );
+
   const memoizedPlaylists = useMemo(() => buildPlaylists(item), [item]);
-  // const isProfileLiked = !!item.user?.profile?.viewer_has_liked; // ⬅️ Ya no se usa aquí
 
-  // ✅ SOLUCIÓN DEFINITIVA: Inyectamos los datos de los contadores de likes
-  // (tanto de la tarea como del perfil) directamente en el `item`.
-  // Esto asegura que ReelItem siempre reciba la información más actualizada.
   const enrichedItem = useMemo(() => {
     const profileLikesData = profileLikesById[getUserIdFromTask(item)];
     const updatedProfile = { ...item.user?.profile };
 
-    // ✅ CLAVE: Si tenemos datos de likes del perfil desde la API, actualizamos el contador.
     if (profileLikesData?.status === 'ok' && profileLikesData.counts) {
       updatedProfile.likes_count = profileLikesData.counts.all;
     }
 
     return {
       ...item,
-      user: { ...item.user, profile: updatedProfile }, // Pasamos el perfil actualizado.
+      user: { ...item.user, profile: updatedProfile },
       taskLikes: taskLikesById[item.id],
       taskShares: taskSharesById[item.id],
       profileLikes: profileLikesData,
     };
   }, [item, taskLikesById, taskSharesById, profileLikesById]);
+
   return (
     <GestureDetector gesture={composedGesture}>
       <ReelItem
-        item={enrichedItem} // ⬅️ Pasamos el item enriquecido con los contadores actualizados.
+        item={enrichedItem}
         index={index}
         isActive={index === activeIndex}
         isMuted={isMuted}
@@ -327,7 +317,6 @@ const ReelRenderer = ({
         cycleClipWithinView={cycleClipWithinView}
         navigateClip={navigateClip}
         toggleLike={toggleLike}
-        // ✅ SOLUCIÓN: Pasamos el objeto profile completo y el estado de like
         profile={item.user?.profile}
         isProfileLiked={likedProfiles.has(getUserIdFromTask(item))}
         toggleProfileLike={toggleProfileLike}
@@ -337,27 +326,25 @@ const ReelRenderer = ({
         openShareModal={openShareModal}
         handleShowShares={handleShowShares}
         handleShowLikes={handleShowLikes}
-        handleShowProfileLikes={handleShowProfileLikes} // Se mantiene
+        handleShowProfileLikes={handleShowProfileLikes}
         openActionModal={openActionModal}
         tema={tema}
       />
     </GestureDetector>
   );
-};
+});
 
 const ReelsScreen = () => {
-  // ✅ OBTENEMOS EL USUARIO DEL CONTEXTO
   const { user } = useContext(AuthContext);
   const currentUserId = user?.id;
   const navigation = useNavigation();
-  const getVideoUrl = getImageUrl;
   const [reels, setReels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [tema, setTema] = useState('consejos');
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted] = useState(false);
   const [likesModalVisible, setLikesModalVisible] = useState(false);
   const [likesModalUrl, setLikesModalUrl] = useState('');
   const [likesModalTitle, setLikesModalTitle] = useState('Usuarios');
@@ -371,7 +358,7 @@ const ReelsScreen = () => {
   const [paused, setPaused] = useState(false);
   const [playbackStatus, setPlaybackStatus] = useState({});
   const videoRefs = useRef({});
-  // Estados para los filtros
+
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedSortBy, setSelectedSortBy] = useState('recent');
@@ -385,50 +372,29 @@ const ReelsScreen = () => {
   const flatListRef = useRef(null);
   const [isUIVisible, setIsUIVisible] = useState(true);
 
-  // ✅ LÓGICA DE CACHÉ DE CONTADORES (PORTADA DE ReelsPCH.js)
   const [taskLikesById, setTaskLikesById] = useState({});
   const taskLikesCacheRef = useRef({});
   const [taskSharesById, setTaskSharesById] = useState({});
   const taskSharesCacheRef = useRef({});
-  // ✅ CORRECCIÓN: Renombrado de followers a likes para el perfil.
   const [profileLikesById, setProfileLikesById] = useState({});
   const profileLikesCacheRef = useRef({});
 
-  // ✅ ESTADO PARA DEBUG: Para ver qué reels están en el estado
-  const [reelsForDebug, setReelsForDebug] = useState([]);
-  useEffect(() => { setReelsForDebug(reels); }, [reels]);
-
-  // ✅ SOLUCIÓN: Estado centralizado para los likes de perfiles.
   const [likedProfiles, setLikedProfiles] = useState(new Set());
 
-  // ✅ SOLUCIÓN DEFINITIVA: Sincronizamos el Set con el estado de los reels.
-  // Esto asegura que el estado del corazón (isProfileLiked) siempre sea correcto,
-  // incluso después de refrescar la página, ya que se basa en la misma fuente
-  // que el contador de likes.
   useEffect(() => {
     const newLikedProfiles = new Set();
-    // console.log('[DEBUG-INIT] Iniciando sincronización de `likedProfiles`. Reels actuales:', reels.length);
-
     reels.forEach(reel => {
       const userId = getUserIdFromTask(reel);
       if (!userId) return;
-
-      // Prioridad 1: La información más fresca de la API de likes de perfil.
       const profileLikesData = profileLikesById[userId];
       const isLikedInApiData = profileLikesData?.status === 'ok' && profileLikesData.viewer_has_liked;
-
-      // Prioridad 2: La información que vino con el reel al cargar la lista.
       const isLikedInReelData = reel.user?.profile?.viewer_has_liked;
-      
-      // console.log(`[DEBUG-SYNC] Perfil ${userId}: isLikedInReelData=${isLikedInReelData}, isLikedInApiData=${isLikedInApiData}`);
-
       if (isLikedInReelData || isLikedInApiData) {
         newLikedProfiles.add(userId);
       }
     });
     setLikedProfiles(newLikedProfiles);
   }, [reels, profileLikesById]);
-
 
   const fetchReels = async (pageNumber = 1, filters = {}) => {
     try {
@@ -462,28 +428,20 @@ const ReelsScreen = () => {
         setReels(validReels);
       } else {
         setReels(prev => [...prev, ...validReels]);
-        // Aquí también se podría actualizar el Set si fuera necesario para paginación
       }
       setHasMore(!!response.data.next);
       setPage(pageNumber);
     } catch (error) {
-      // ✅ DEBUG: Log de errores en fetchReels
-      if (error.response) {
-        console.error('[DEBUG-ERROR] Fallo en fetchReels API:', error.response.status, error.response.data);
-      }
       console.error('Error fetching reels:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ FETCH DE LIKES POR TIER (PORTADO DE ReelsPCH.js)
   const fetchTaskLikesSummary = useCallback(async (taskId) => {
     if (!taskId || taskLikesCacheRef.current[taskId]?.status) return;
-
     taskLikesCacheRef.current[taskId] = { status: "loading" };
     setTaskLikesById(prev => ({ ...prev, [taskId]: { status: "loading", counts: prev[taskId]?.counts || null } }));
-
     try {
       const { data } = await api.get(`tasks/${taskId}/users-who-liked/`);
       const normalized = Array.isArray(data) ? data : data.results || [];
@@ -493,22 +451,14 @@ const ReelsScreen = () => {
     } catch (error) {
       taskLikesCacheRef.current[taskId] = { status: "error" };
       setTaskLikesById(prev => ({ ...prev, [taskId]: { status: "error", counts: null } }));
-      if (error.response) {
-        console.error(`[DEBUG-ERROR] Fallo en fetchTaskLikesSummary para la tarea ${taskId}:`, error.response.status, error.response.data);
-      }
     }
   }, []);
 
-  // ✅ FETCH DE SHARES POR TIER (PORTADO DE ReelsPCH.js)
   const fetchTaskSharesSummary = useCallback(async (taskId, force = false) => {
     if (!taskId || (taskSharesCacheRef.current[taskId]?.status === 'ok' && !force)) return;
-
     taskSharesCacheRef.current[taskId] = { status: "loading" };
     setTaskSharesById(prev => ({ ...prev, [taskId]: { status: "loading", counts: prev[taskId]?.counts || null } }));
-
     try {
-      // NOTA: El endpoint en ReelsPCH era 'shared-users'. Lo he ajustado a 'users-who-shared' que es el que usamos en el modal.
-      // Si el endpoint correcto es otro, hay que cambiarlo aquí.
       const { data } = await api.get(`tasks/${taskId}/users-who-shared/`);
       const normalized = Array.isArray(data) ? data : data.results || [];
       const counts = makeTierCounts(normalized);
@@ -517,43 +467,29 @@ const ReelsScreen = () => {
     } catch (error) {
       taskSharesCacheRef.current[taskId] = { status: "error" };
       setTaskSharesById(prev => ({ ...prev, [taskId]: { status: "error", counts: null } }));
-      if (error.response) {
-        console.error(`[DEBUG-ERROR] Fallo en fetchTaskSharesSummary para la tarea ${taskId}:`, error.response.status, error.response.data);
-      }
     }
   }, []);
 
-  // ✅ FETCH DE LIKES DE PERFIL POR TIER (Lógica portada de ReelsPCH.js)
   const fetchProfileLikesSummary = useCallback(async (profileId, force = false) => {
     if (!profileId || (profileLikesCacheRef.current[profileId]?.status === 'ok' && !force)) return;
-
     profileLikesCacheRef.current[profileId] = { status: "loading" };
     setProfileLikesById(prev => ({ ...prev, [profileId]: { ...prev[profileId], status: "loading" } }));
-
     try {
       const { data } = await api.get(`profiles/${profileId}/likes/`);
       const normalized = Array.isArray(data) ? data : data.results || [];
       const counts = makeTierCounts(normalized);
-      // ✅ CLAVE: La API de likes de perfil debe devolver `viewer_has_liked` para que esto funcione.
       const viewerHasLiked = data.viewer_has_liked === true;
-
       profileLikesCacheRef.current[profileId] = { status: "ok" };
       setProfileLikesById(prev => ({ ...prev, [profileId]: { status: "ok", counts, viewer_has_liked: viewerHasLiked } }));
     } catch (error) {
       profileLikesCacheRef.current[profileId] = { status: "error" };
       setProfileLikesById(prev => ({ ...prev, [profileId]: { status: "error", counts: null } }));
-      if (error.response) {
-        console.error(`[DEBUG-ERROR] Fallo en fetchProfileLikesSummary para el perfil ${profileId}:`, error.response.status, error.response.data);
-      }
     }
   }, []);
 
-  // ✅ EFECTO PARA PRE-CARGAR DATOS DE TIER (PORTADO DE ReelsPCH.js)
   useEffect(() => {
     const prefetchDataForReel = (reel) => {
       if (!reel) return;
-      
-      // Usamos el 'force: false' (comportamiento por defecto) para aprovechar la caché
       if (reel.id) {
         fetchTaskLikesSummary(reel.id);
         fetchTaskSharesSummary(reel.id);
@@ -563,22 +499,14 @@ const ReelsScreen = () => {
         fetchProfileLikesSummary(userId);
       }
     };
-
     prefetchDataForReel(reels[activeIndex]);
     prefetchDataForReel(reels[activeIndex + 1]);
-
-  // Dependemos de activeIndex y la lista de reels.
-  // Los fetchers son estables gracias a useCallback.
-  // ✅ FIX: La dependencia de 'reels' causaba el bucle. Ahora solo depende del índice activo y del largo del array.
-  // Cuando 'reels' cambia por un like, este efecto ya no se dispara innecesariamente.
   }, [activeIndex, reels.length, fetchTaskLikesSummary, fetchTaskSharesSummary, fetchProfileLikesSummary]);
-
 
   useFocusEffect(
     useCallback(() => {
-      // ✅ CORRECCIÓN: Se vuelve a cargar el contenido cuando cambian los filtros o el tema.
       fetchReels(1);
-      return () => {}; // Cleanup
+      return () => {};
     }, [tema, selectedCategory, selectedSortBy, selectedDateFilter, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly])
   );
 
@@ -590,7 +518,6 @@ const ReelsScreen = () => {
   };
 
   const likeAnimation = useSharedValue(0);
-  const likeAnimationTimeout = useRef(null);
 
   const toggleLike = useCallback(async (item) => {
     const originalItem = reels.find(r => r.id === item.id);
@@ -600,7 +527,6 @@ const ReelsScreen = () => {
     const newLikedState = !wasLiked;
     const increment = newLikedState ? 1 : -1;
 
-    // 1. Actualización optimista: cambia la UI al instante.
     setReels(prev => prev.map(r => 
       r.id === item.id 
         ? { ...r, user_has_liked: newLikedState, likes_count: (r.likes_count || 0) + increment } 
@@ -609,39 +535,26 @@ const ReelsScreen = () => {
 
     try {
       const response = await api.post(`tasks/${item.id}/like/`);
-      // 3. Sincronización silenciosa con la respuesta del servidor.
       setReels(prev => prev.map(r => 
         r.id === item.id 
           ? { ...r, user_has_liked: response.data.liked, likes_count: response.data.likes_count } 
           : r
       ));
-      // ✅ SOLUCIÓN: Invalidamos la caché y forzamos la recarga DESPUÉS de la respuesta exitosa.
       delete taskLikesCacheRef.current[item.id];
-      // Forzamos la recarga de los contadores de tier.
       fetchTaskLikesSummary(item.id, true);
     } catch (error) {
-      // 3. Reversión en caso de error.
       setReels(prev => prev.map(r => r.id === item.id ? originalItem : r));
     }
   }, [reels, fetchTaskLikesSummary]);
 
-  // ✅ FIX: Se reestructura la función para seguir el patrón de `toggleLike`,
-  // asegurando consistencia y evitando errores de sincronización.
   const toggleProfileLike = useCallback(async (item) => {
     const userId = getUserIdFromTask(item);
-    if (!userId) {
-      console.error("[DEBUG-ERROR] toggleProfileLike abortado: No se pudo obtener el userId del item.");
-      return;
-    }
+    if (!userId) return;
 
-    // 1. Guardamos el estado original antes de cualquier cambio.
     const wasLiked = likedProfiles.has(userId);
     const newLikedState = !wasLiked;
     const increment = newLikedState ? 1 : -1;
 
-    console.log(`[DEBUG-TOGGLE] Iniciando toggle para perfil ${userId}. Estado anterior: ${wasLiked ? 'LIKED' : 'NOT LIKED'}.`);
-
-    // 2. Actualización optimista del Set de likes (controla el color del corazón).
     const newLikedProfilesSet = new Set(likedProfiles);
     if (newLikedState) {
       newLikedProfilesSet.add(userId);
@@ -649,69 +562,40 @@ const ReelsScreen = () => {
       newLikedProfilesSet.delete(userId);
     }
     setLikedProfiles(newLikedProfilesSet);
-    console.log('[DEBUG-TOGGLE] `likedProfiles` (Set) actualizado optimistamente.');
 
-    // 3. Actualización optimista del array de Reels (contador y estado de like).
-    setReels(prevReels => {
-      console.log('[DEBUG-TOGGLE] Actualizando `reels` (Array) optimistamente...');
-      return prevReels.map(r => {
-        // Aplicamos el cambio a todos los reels del mismo usuario.
-        if (getUserIdFromTask(r) === userId) {
-          // ✅ FIX: Se lee el contador del reel actual (r) que viene de `prevReels`.
-          // Esto garantiza que si el valor es 1, la operación sea 1 + (-1) = 0.
-          const currentLikes = r.user?.profile?.likes_count ?? 0;
-          const newLikesCount = currentLikes + increment;
-          console.log(`[DEBUG-TOGGLE] Reel ID ${r.id} (Perfil ${userId}): Likes anteriores: ${currentLikes}, Likes nuevos: ${newLikesCount}`);
-
-          // ✅ SOLUCIÓN CLAVE: Reemplazamos el objeto `user` completo para forzar el re-renderizado,
-          // tal como lo hace la versión web.
-          return { 
-            ...r, 
-            user: { 
-              ...r.user, 
-              profile: { 
-                ...(r.user?.profile || {}), 
-                viewer_has_liked: newLikedState, 
-                likes_count: newLikesCount 
-              } 
+    setReels(prevReels => prevReels.map(r => {
+      if (getUserIdFromTask(r) === userId) {
+        const currentLikes = r.user?.profile?.likes_count ?? 0;
+        return { 
+          ...r, 
+          user: { 
+            ...r.user, 
+            profile: { 
+              ...(r.user?.profile || {}), 
+              viewer_has_liked: newLikedState, 
+              likes_count: currentLikes + increment 
             } 
-          };
-        }
-        return r;
-      });
-    });
+          } 
+        };
+      }
+      return r;
+    }));
 
     try {
-      console.log(`[DEBUG-TOGGLE] Enviando petición a la API para perfil ${userId}...`);
-      // 4. Llamada a la API en segundo plano.
       await api.post(`profiles/${userId}/like/`);
-      console.log(`[DEBUG-TOGGLE] API call para perfil ${userId} exitosa.`);
-      
-      // 5. Forzamos la recarga de los contadores de tier para sincronizar con el servidor.
       delete profileLikesCacheRef.current[userId];
       fetchProfileLikesSummary(userId, true);
-
     } catch (error) {
-      console.error("[DEBUG-ERROR] Fallo en API, revirtiendo UI para perfil " + userId, error.response?.data || error.message);
-      
-      // 6. Reversión en caso de error.
       setLikedProfiles(prev => {
         const newSet = new Set(prev);
-        if (wasLiked) {
-          newSet.add(userId);
-        } else {
-          newSet.delete(userId);
-        }
-        console.log('[DEBUG-ERROR] `likedProfiles` (Set) revertido.');
+        if (wasLiked) newSet.add(userId);
+        else newSet.delete(userId);
         return newSet;
       });
 
-      // Revertimos el contador al valor original que tenía el `item` antes de la interacción.
       setReels(prevReels => prevReels.map(r => {
         if (getUserIdFromTask(r) === userId) {
-          console.log(`[DEBUG-ERROR] Revertiendo Reel ID ${r.id} a su estado original.`);
           const originalProfile = item.user?.profile || {};
-          // También aquí reemplazamos el objeto `user` para asegurar la reversión visual.
           return { 
             ...r, 
             user: { 
@@ -729,19 +613,15 @@ const ReelsScreen = () => {
     }
   }, [reels, likedProfiles, fetchProfileLikesSummary]);
 
-
-  // Controlar la reproducción del video manualmente cuando el estado 'paused' o 'activeIndex' cambian
   useEffect(() => {
     const video = videoRefs.current[activeIndex];
     if (!video) return;
-
     if (paused) {
       video.pauseAsync();
     } else {
       video.playAsync();
     }
   }, [paused, activeIndex]);
-
 
   const toggleDescription = (id) => {
     setExpandedDescriptions(prev => ({...prev, [id]: !prev[id]}));
@@ -761,7 +641,6 @@ const ReelsScreen = () => {
       const effMode = playlists?.[current.mode]?.length ? current.mode : fallbackMode;
       const len = playlists?.[effMode]?.length || 0;
       const effPos = len ? Math.min(Math.max(0, current.pos || 0), len - 1) : 0;
-
       const startIdx = VIEW_ORDER.indexOf(effMode);
 
       for (let step = 1; step <= VIEW_ORDER.length; step++) {
@@ -771,45 +650,36 @@ const ReelsScreen = () => {
           return { ...prev, [task.id]: { mode: nextMode, pos: 0 } };
         }
       }
-
       return { ...prev, [task.id]: { mode: effMode, pos: effPos } };
     });
   }, []);
 
   const cycleClipWithinView = useCallback((task) => {
     const playlists = buildPlaylists(task);
-
     setViewStateById((prev) => {
       const current = prev?.[task.id] || { mode: "main", pos: 0 };
       const currentMode = current.mode || "main";
       const currentList = playlists[currentMode] || [];
       const currentLength = currentList.length;
-
-      if (currentLength <= 1) return prev; // No hacer nada si no hay a dónde ir
-
+      if (currentLength <= 1) return prev;
       const currentPos = current.pos || 0;
-      const nextPos = (currentPos + 1) % currentLength; // Va al siguiente y vuelve al inicio
-
+      const nextPos = (currentPos + 1) % currentLength;
       return { ...prev, [task.id]: { mode: currentMode, pos: nextPos } };
     });
   }, []);
 
   const navigateClip = useCallback((task, direction) => {
     const playlists = buildPlaylists(task);
-
     setViewStateById((prev) => {
       const current = prev?.[task.id] || { mode: "main", pos: 0 };
       const currentMode = current.mode || "main";
       const currentList = playlists[currentMode] || [];
       const currentLength = currentList.length;
       const currentPos = current.pos || 0;
-
       const nextPos = currentPos + direction;
-
       if (nextPos >= 0 && nextPos < currentLength) {
         return { ...prev, [task.id]: { mode: currentMode, pos: nextPos } };
       }
-      
       return prev;
     });
   }, []);
@@ -853,7 +723,6 @@ const ReelsScreen = () => {
       const increment = isFav ? 1 : -1;
       setReels(prev => prev.map(t => (t.user && t.user.id === perfilId) ? { ...t, user: { ...t.user, is_favorited: isFav, followers_count: (t.user.followers_count || 0) + increment } } : t));
       await api.post("pfavoritos/agregar/", { perfil_id: perfilId });
-      // No es necesario un re-fetch o actualizar desde la respuesta si la API solo confirma la acción. La UI ya está actualizada.
     } catch (error) {}
   };
 
@@ -874,14 +743,11 @@ const ReelsScreen = () => {
     }
   };
 
-  // ✅ CORRECCIÓN: Se añade la función toggleFavorite que faltaba.
   const toggleFavorite = async (item) => {
     if (!item) return;
     const isFav = !item.is_favorited;
-    // Actualización optimista de la UI
     setReels(prev => prev.map(r => r.id === item.id ? { ...r, is_favorited: isFav } : r));
     try {
-      // Llamada a la API para confirmar
       await api.post("favoritos/agregar/", { task_id: item.id });
     } catch (error) {
       console.error('Error toggling favorite:', error);
@@ -896,13 +762,13 @@ const ReelsScreen = () => {
   const handleShareSuccess = () => {
     if (!taskToShare) return;
     setReels(prev => prev.map(t => t.id === taskToShare ? { ...t, share_count: (t.share_count || 0) + 1 } : t));
-    // Opcional: Invalidar y recargar el contador de tiers para shares
     if (taskSharesCacheRef.current[taskToShare]) {
       delete taskSharesCacheRef.current[taskToShare];
     }
     fetchTaskSharesSummary(taskToShare);
     setTaskToShare(null); 
   };
+
   const handleShowLikes = (taskId, tier = 'all') => {
     setLikesModalUrl(`tasks/${taskId}/users-who-liked/`);
     setLikesModalTitle('Me gusta');
@@ -911,31 +777,30 @@ const ReelsScreen = () => {
   };
 
   const handleShowShares = (taskId, tier = 'all') => {
-    setLikesModalUrl(`tasks/${taskId}/users-who-shared/`); // Asegúrate que este endpoint exista y funcione
+    setLikesModalUrl(`tasks/${taskId}/users-who-shared/`);
     setLikesModalTitle('Compartido por');
     setInitialTier(tier);
     setLikesModalVisible(true);
   };
 
   const handleShowProfileLikes = (userId, tier = 'all') => {
-    // ✅ CORRECCIÓN: Se elimina el prefijo 'api/' para evitar duplicados en la URL.
     setLikesModalUrl(`profiles/${userId}/likes/`);
     setLikesModalTitle('Likes del Perfil');
     setInitialTier(tier);
     setLikesModalVisible(true);
   };
 
+  // ✅ CONTROL DE VISIBILIDAD DE REELS ORIGINAL SÓLIDO (Sin glitches al hacer scroll)
   const onViewableItemsChanged = useRef(({ viewableItems }) => {
-    if (viewableItems.length > 0) {
+    if (viewableItems && viewableItems.length > 0) {
       setActiveIndex(viewableItems[0].index);
     }
   }).current;
 
-  const onScroll = useCallback((event) => {
-    const { contentOffset } = event.nativeEvent;
-    const index = Math.round(contentOffset.y / windowHeight);
-    setActiveIndex(index);
-  }, []);
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50
+  }).current;
+
   return (
     <View style={styles.container}>
       <View style={{ flex: 1 }}>
@@ -956,7 +821,6 @@ const ReelsScreen = () => {
             <View style={styles.topBarRight} />
           </View>
         )}
-        {/* El botón de filtro ahora solo aparece cuando el video está pausado */}
         {paused && (
           <TouchableOpacity style={styles.pausedFilterButton} onPress={() => setFilterModalVisible(true)}>
             <Ionicons name="options-outline" size={28} color="#fff" />
@@ -968,11 +832,7 @@ const ReelsScreen = () => {
           <FlatList
             ref={flatListRef}
             data={reels}
-            renderItem={({ item, index }) => {
-              // ✅ EL "HACK" EN ACCIÓN: La key ahora cambia con cada like, forzando el re-render.
-              const key = `${item.id}-${item._version || 0}`;
-              return (
-              <View key={key}>
+            renderItem={({ item, index }) => (
               <ReelRenderer
                 item={item}
                 index={index}
@@ -1000,22 +860,21 @@ const ReelsScreen = () => {
                 openShareModal={openShareModal}
                 handleShowShares={handleShowShares}
                 handleShowLikes={handleShowLikes}
-                handleShowProfileLikes={handleShowProfileLikes} // Se mantiene
-                openActionModal={openActionModal} // Se mantiene
+                handleShowProfileLikes={handleShowProfileLikes}
+                openActionModal={openActionModal}
                 likedProfiles={likedProfiles}
-                // ✅ SOLUCIÓN: Pasamos los objetos de estado completos a ReelRenderer
                 taskLikesById={taskLikesById}
                 taskSharesById={taskSharesById}
                 profileLikesById={profileLikesById}
                 handleToggleProfileFavoriteDirect={handleToggleProfileFavoriteDirect}
                 tema={tema}
               />
-              </View>
-            )}}
-            keyExtractor={(item) => `${item.id}-${item._version || 0}`}
+            )}
+            keyExtractor={(item) => item.id.toString()} // ✅ KEY LIMPIA Y ESTÁTICA
             pagingEnabled
-            onScroll={onScroll}
-            viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
+            showsVerticalScrollIndicator={false}
+            onViewableItemsChanged={onViewableItemsChanged} // ✅ REPRODUCCIÓN ULTRA FLUIDA NATIVA
+            viewabilityConfig={viewabilityConfig} // ✅ CONFIGURACIÓN ORIGINAL SÓLIDA
             onEndReached={() => { if (hasMore && !loading) { fetchReels(page + 1); } }}
             onEndReachedThreshold={0.5}
           />
@@ -1051,9 +910,7 @@ const ReelsScreen = () => {
           title={likesModalTitle}
           initialTier={initialTier}
         />
-        {/* Este es el modal que se abrirá con el nuevo botón */}
 
-        {/* Modales */}
         <ShareModal
           visible={shareModalVisible}
           onClose={() => setShareModalVisible(false)}
@@ -1061,14 +918,12 @@ const ReelsScreen = () => {
           onShareSuccess={handleShareSuccess}
         />
         
-        {/* Modal Acciones 3 puntos */}
         <Modal visible={actionModalVisible} transparent animationType='fade' onRequestClose={() => setActionModalVisible(false)}>
           <TouchableOpacity style={styles.overlayModal} activeOpacity={1} onPress={() => setActionModalVisible(false)}>
             <View style={styles.actionModalContainer}>
               <View style={styles.modalDragHandle} />
               {selectedActionTask && (
                 <>
-                  {/* ⚡ AÑADIMOS LA OPCIÓN PARA OCULTAR/MOSTRAR LA INTERFAZ */}
                   <TouchableOpacity style={styles.actionOption} onPress={() => { setIsUIVisible(v => !v); setActionModalVisible(false); }}>
                     <Ionicons name={isUIVisible ? 'eye-off-outline' : 'eye-outline'} size={20} color='#555' />
                     <Text style={styles.actionText}>{isUIVisible ? 'Ocultar Interfaz' : 'Mostrar Interfaz'}</Text>

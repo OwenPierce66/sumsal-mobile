@@ -102,11 +102,7 @@ const ProfileScreen = ({ route, navigation }) => {
       <TouchableOpacity 
         style={styles.taskCard} 
         onPress={() => {
-          if (navigation.push) {
-            navigation.push('TaskDetail', { taskId: item.id });
-          } else {
-            navigation.navigate('TaskDetail', { taskId: item.id });
-          }
+          navigation.push('TaskDetail', { taskId: item.id });
         }}
         activeOpacity={0.9}
       >
