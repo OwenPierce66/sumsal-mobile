@@ -238,7 +238,9 @@ const TasksScreen = ({ navigation }) => {
 
 
   const handleShowTaskLikes = (taskId) => {
-    setLikesModalUrl(`tasks/${taskId}/users-who-liked/`);
+    const url = `tasks/${taskId}/users-who-liked/`;
+    console.log('[TasksScreen] URL para likes:', url);
+    setLikesModalUrl(url);
     setLikesModalTitle('Likes');
     setLikesModalVisible(true);
   };
@@ -405,17 +407,17 @@ const TasksScreen = ({ navigation }) => {
 
     try {
       // 2. Llamada a la API para confirmar el cambio.
-      const response = await api.post(`tasks/${task.id}/like/`);
+      const response = await api.post(`tasks/${task.id}/like/`); // ✅ Endpoint correcto
       const { liked, likes_count } = response.data;
 
       // 3. Sincronización silenciosa con la respuesta del servidor.
-      const finalTask = { ...task, user_has_liked: liked, likes_count: likes_count };
+      const finalTask = { ...updatedTask, user_has_liked: liked, likes_count: likes_count };
       setTasks(prev => prev.map(t => t.id === task.id ? finalTask : t));
       setSharedTasks(prev => prev.map(s => s.task?.id === task.id ? { ...s, task: finalTask } : s));
     } catch (error) {
       // 4. Reversión en caso de error.
-      setTasks(prev => prev.map(t => t.id === task.id ? task : t));
-      setSharedTasks(prev => prev.map(s => s.task?.id === task.id ? { ...s, task: task } : s));
+      setTasks(prev => prev.map(t => t.id === task.id ? originalTask : t));
+      setSharedTasks(prev => prev.map(s => s.task?.id === task.id ? { ...s, task: originalTask } : s));
     }
   };
 

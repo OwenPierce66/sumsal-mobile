@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
+﻿﻿﻿﻿﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -212,43 +212,7 @@ const getUserIdFromTask = (task) => {
   return task?.user?.profile?.id || task?.user?.profile_id || task?.user?.id || task?.user_id || null;
 };
 
-// Componente Wrapper para renderizar cada Reel sin desmontarse
-const ReelRenderer = React.memo(({
-  item,
-  index,
-  activeIndex,
-  isMuted,
-  paused,
-  setPaused,
-  videoRefs,
-  isUIVisible,
-  playbackStatus,
-  setPlaybackStatus,
-  expandedDescriptions,
-  toggleDescription,
-  viewStateById,
-  sharedOpenById,
-  toggleSharedBy,
-  cycleViewOnly,
-  cycleClipWithinView,
-  navigateClip,
-  toggleLike,
-  toggleProfileLike,
-  likeAnimation,
-  navigation,
-  toggleFavorite,
-  openShareModal,
-  handleShowShares,
-  handleShowLikes,
-  handleShowProfileLikes,
-  openActionModal,
-  likedProfiles,
-  taskLikesById,
-  taskSharesById,
-  profileLikesById,
-  handleToggleProfileFavoriteDirect,
-  tema,
-}) => {
+const ReelRenderer = ({ item, index, activeIndex, isMuted, paused, setPaused, videoRefs, isUIVisible, playbackStatus, setPlaybackStatus, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, toggleProfileLike, likeAnimation, navigation, toggleFavorite, openShareModal, handleRepost, handleShowShares, handleShowLikes, handleShowProfileLikes, openActionModal, taskLikesById, taskSharesById, profileLikesById, handleToggleProfileFavoriteDirect, tema }) => {
   const tapToPause = Gesture.Tap()
     .maxDuration(250)
     .onEnd((event, success) => {
@@ -276,27 +240,41 @@ const ReelRenderer = React.memo(({
 
   const memoizedPlaylists = useMemo(() => buildPlaylists(item), [item]);
 
+  // ✅ LÓGICA CENTRALIZADA: Se mueven aquí para pasarlos como props.
+  const contentItem = item.is_original ? item : item.task;
+  const userItem = item.is_original ? item.user : item.task?.user;
+
+  // ✅ LÓGICA DE ENRIQUECIMIENTO SIMPLIFICADA Y DIRECTA
   const enrichedItem = useMemo(() => {
-    const profileLikesData = profileLikesById[getUserIdFromTask(item)];
+    const userId = getUserIdFromTask(item);
+    const profileLikesData = profileLikesById[userId];
+    const taskId = item.task?.id || item.id;
+
     const updatedProfile = { ...item.user?.profile };
 
-    if (profileLikesData?.status === 'ok' && profileLikesData.counts) {
-      updatedProfile.likes_count = profileLikesData.counts.all;
+    // Fusionamos los datos de la API si existen y son válidos
+    if (profileLikesData?.status === 'ok') {
+      if (profileLikesData.counts?.all !== undefined) updatedProfile.likes_count = profileLikesData.counts.all;
+      if (profileLikesData.viewer_has_liked !== undefined) updatedProfile.viewer_has_liked = profileLikesData.viewer_has_liked;
     }
 
     return {
       ...item,
       user: { ...item.user, profile: updatedProfile },
-      taskLikes: taskLikesById[item.id],
-      taskShares: taskSharesById[item.id],
+      // ✅ FIX: Usar siempre el ID de la tarea original para obtener los likes.
+      taskLikes: taskLikesById[item.task?.id || item.id],
+      taskShares: taskSharesById[item.task?.id || item.id],
       profileLikes: profileLikesData,
     };
   }, [item, taskLikesById, taskSharesById, profileLikesById]);
-
+  
   return (
     <GestureDetector gesture={composedGesture}>
       <ReelItem
-        item={enrichedItem}
+        item={item} // Pasamos el item original
+        enrichedItem={enrichedItem} // Y el item enriquecido por separado
+        contentItem={contentItem}
+        userItem={userItem}
         index={index}
         isActive={index === activeIndex}
         isMuted={isMuted}
@@ -317,12 +295,11 @@ const ReelRenderer = React.memo(({
         cycleClipWithinView={cycleClipWithinView}
         navigateClip={navigateClip}
         toggleLike={toggleLike}
-        profile={item.user?.profile}
-        isProfileLiked={likedProfiles.has(getUserIdFromTask(item))}
         toggleProfileLike={toggleProfileLike}
         likeAnimation={likeAnimation}
         navigation={navigation}
         toggleFavorite={toggleFavorite}
+        handleRepost={handleRepost}
         openShareModal={openShareModal}
         handleShowShares={handleShowShares}
         handleShowLikes={handleShowLikes}
@@ -332,7 +309,7 @@ const ReelRenderer = React.memo(({
       />
     </GestureDetector>
   );
-});
+};
 
 const ReelsScreen = () => {
   const { user } = useContext(AuthContext);
@@ -379,30 +356,18 @@ const ReelsScreen = () => {
   const [profileLikesById, setProfileLikesById] = useState({});
   const profileLikesCacheRef = useRef({});
 
-  const [likedProfiles, setLikedProfiles] = useState(new Set());
-
-  useEffect(() => {
-    const newLikedProfiles = new Set();
-    reels.forEach(reel => {
-      const userId = getUserIdFromTask(reel);
-      if (!userId) return;
-      const profileLikesData = profileLikesById[userId];
-      const isLikedInApiData = profileLikesData?.status === 'ok' && profileLikesData.viewer_has_liked;
-      const isLikedInReelData = reel.user?.profile?.viewer_has_liked;
-      if (isLikedInReelData || isLikedInApiData) {
-        newLikedProfiles.add(userId);
-      }
-    });
-    setLikedProfiles(newLikedProfiles);
-  }, [reels, profileLikesById]);
-
   const fetchReels = async (pageNumber = 1, filters = {}) => {
     try {
-      if (pageNumber === 1) setLoading(true);
+      if (pageNumber === 1) {
+        setLoading(true);
+        setReels([]); // Limpiamos al refrescar o cambiar filtros
+      }
+
       const currentCatFilter = filters.category !== undefined ? filters.category : selectedCategory;
       const primaryCategory = currentCatFilter ? currentCatFilter.split(',')[0].trim() : '';
-
-      const response = await api.get('tasks/', {
+      
+      // ✅ AHORA USAMOS EL ENDPOINT UNIFICADO /api/feed/
+      const response = await api.get('feed/', {
         params: { 
           pch: filters.tema || tema, 
           page: pageNumber,
@@ -416,19 +381,22 @@ const ReelsScreen = () => {
         }
       });
       const data = response.data.results ?? response.data ?? [];
-      const validReels = data.map(task => {
-        const anyVideo = getFirstVideoAnywhere(task);
+
+      // ✅ FILTRAMOS PARA MOSTRAR SOLO PUBLICACIONES (originales o compartidas) CON VIDEO
+      const validReels = data.map(item => {
+        // Si es una tarea compartida, el contenido está en 'item.task'. Si es original, está en 'item'.
+        const content = item.is_original ? item : item.task;
+        if (!content) return null;
+
+        const anyVideo = getFirstVideoAnywhere(content);
         if (anyVideo) {
-            return { ...task, _anyVideo: anyVideo };
+            return { ...item, _anyVideo: anyVideo };
         }
         return null;
       }).filter(Boolean);
 
-      if (pageNumber === 1) {
-        setReels(validReels);
-      } else {
-        setReels(prev => [...prev, ...validReels]);
-      }
+      setReels(prev => pageNumber === 1 ? validReels : [...prev, ...validReels]);
+
       setHasMore(!!response.data.next);
       setPage(pageNumber);
     } catch (error) {
@@ -441,8 +409,9 @@ const ReelsScreen = () => {
   const fetchTaskLikesSummary = useCallback(async (taskId) => {
     if (!taskId || taskLikesCacheRef.current[taskId]?.status) return;
     taskLikesCacheRef.current[taskId] = { status: "loading" };
-    setTaskLikesById(prev => ({ ...prev, [taskId]: { status: "loading", counts: prev[taskId]?.counts || null } }));
+    setTaskLikesById(prev => ({ ...prev, [taskId]: { status: "loading", counts: prev[taskId]?.counts || null, viewer_has_liked: prev[taskId]?.viewer_has_liked } }));
     try {
+      // El endpoint para likes de tareas es /tasks/{id}/users-who-liked/
       const { data } = await api.get(`tasks/${taskId}/users-who-liked/`);
       const normalized = Array.isArray(data) ? data : data.results || [];
       const counts = makeTierCounts(normalized);
@@ -450,14 +419,14 @@ const ReelsScreen = () => {
       setTaskLikesById(prev => ({ ...prev, [taskId]: { status: "ok", counts } }));
     } catch (error) {
       taskLikesCacheRef.current[taskId] = { status: "error" };
-      setTaskLikesById(prev => ({ ...prev, [taskId]: { status: "error", counts: null } }));
+      setTaskLikesById(prev => ({ ...prev, [taskId]: { status: "error", counts: null, viewer_has_liked: prev[taskId]?.viewer_has_liked } }));
     }
   }, []);
 
   const fetchTaskSharesSummary = useCallback(async (taskId, force = false) => {
     if (!taskId || (taskSharesCacheRef.current[taskId]?.status === 'ok' && !force)) return;
     taskSharesCacheRef.current[taskId] = { status: "loading" };
-    setTaskSharesById(prev => ({ ...prev, [taskId]: { status: "loading", counts: prev[taskId]?.counts || null } }));
+    setTaskSharesById(prev => ({ ...prev, [taskId]: { status: "loading", counts: prev[taskId]?.counts || null, viewer_has_liked: prev[taskId]?.viewer_has_liked } }));
     try {
       const { data } = await api.get(`tasks/${taskId}/users-who-shared/`);
       const normalized = Array.isArray(data) ? data : data.results || [];
@@ -466,7 +435,7 @@ const ReelsScreen = () => {
       setTaskSharesById(prev => ({ ...prev, [taskId]: { status: "ok", counts } }));
     } catch (error) {
       taskSharesCacheRef.current[taskId] = { status: "error" };
-      setTaskSharesById(prev => ({ ...prev, [taskId]: { status: "error", counts: null } }));
+      setTaskSharesById(prev => ({ ...prev, [taskId]: { status: "error", counts: null, viewer_has_liked: prev[taskId]?.viewer_has_liked } }));
     }
   }, []);
 
@@ -490,8 +459,9 @@ const ReelsScreen = () => {
   useEffect(() => {
     const prefetchDataForReel = (reel) => {
       if (!reel) return;
-      if (reel.id) {
-        fetchTaskLikesSummary(reel.id);
+      const taskId = reel.task?.id || reel.id;
+      if (taskId) {
+        fetchTaskLikesSummary(taskId);
         fetchTaskSharesSummary(reel.id);
       }
       const userId = getUserIdFromTask(reel);
@@ -520,28 +490,29 @@ const ReelsScreen = () => {
   const likeAnimation = useSharedValue(0);
 
   const toggleLike = useCallback(async (item) => {
-    const originalItem = reels.find(r => r.id === item.id);
+    const taskId = item.task?.id || item.id;
+    const originalItem = reels.find(r => (r.task?.id || r.id) === taskId);
     if (!originalItem) return;
 
     const wasLiked = originalItem.user_has_liked;
     const newLikedState = !wasLiked;
     const increment = newLikedState ? 1 : -1;
 
-    setReels(prev => prev.map(r => 
-      r.id === item.id 
+    setReels(prev => prev.map(r =>
+      (r.task?.id || r.id) === taskId
         ? { ...r, user_has_liked: newLikedState, likes_count: (r.likes_count || 0) + increment } 
         : r
     ));
 
     try {
-      const response = await api.post(`tasks/${item.id}/like/`);
-      setReels(prev => prev.map(r => 
-        r.id === item.id 
+      const response = await api.post(`tasks/${taskId}/like/`);
+      setReels(prev => prev.map(r =>
+        (r.task?.id || r.id) === taskId
           ? { ...r, user_has_liked: response.data.liked, likes_count: response.data.likes_count } 
           : r
       ));
-      delete taskLikesCacheRef.current[item.id];
-      fetchTaskLikesSummary(item.id, true);
+      delete taskLikesCacheRef.current[taskId];
+      fetchTaskLikesSummary(taskId, true);
     } catch (error) {
       setReels(prev => prev.map(r => r.id === item.id ? originalItem : r));
     }
@@ -551,27 +522,24 @@ const ReelsScreen = () => {
     const userId = getUserIdFromTask(item);
     if (!userId) return;
 
-    const wasLiked = likedProfiles.has(userId);
+    // Guardamos el estado original para poder revertir en caso de error
+    const originalReels = [...reels];
+    const wasLiked = item.user?.profile?.viewer_has_liked ?? false;
     const newLikedState = !wasLiked;
     const increment = newLikedState ? 1 : -1;
 
-    const newLikedProfilesSet = new Set(likedProfiles);
-    if (newLikedState) {
-      newLikedProfilesSet.add(userId);
-    } else {
-      newLikedProfilesSet.delete(userId);
-    }
-    setLikedProfiles(newLikedProfilesSet);
-
+    // 1. Actualización Optimista: Modificamos el estado local al instante.
     setReels(prevReels => prevReels.map(r => {
       if (getUserIdFromTask(r) === userId) {
-        const currentLikes = r.user?.profile?.likes_count ?? 0;
+        // Aseguramos que profile exista antes de intentar modificarlo
+        const profile = r.user?.profile || {};
+        const currentLikes = profile.likes_count ?? 0;
         return { 
           ...r, 
           user: { 
             ...r.user, 
             profile: { 
-              ...(r.user?.profile || {}), 
+              ...profile,
               viewer_has_liked: newLikedState, 
               likes_count: currentLikes + increment 
             } 
@@ -581,37 +549,57 @@ const ReelsScreen = () => {
       return r;
     }));
 
+    // 2. Llamada a la API en segundo plano.
     try {
-      await api.post(`profiles/${userId}/like/`);
-      delete profileLikesCacheRef.current[userId];
-      fetchProfileLikesSummary(userId, true);
-    } catch (error) {
-      setLikedProfiles(prev => {
-        const newSet = new Set(prev);
-        if (wasLiked) newSet.add(userId);
-        else newSet.delete(userId);
-        return newSet;
-      });
+      const response = await api.post(`profiles/${userId}/like/`);
+      const { liked, likes_count } = response.data;
 
+      // 3. Sincronización Silenciosa: Actualizamos con los datos reales del servidor.
       setReels(prevReels => prevReels.map(r => {
         if (getUserIdFromTask(r) === userId) {
-          const originalProfile = item.user?.profile || {};
-          return { 
-            ...r, 
-            user: { 
-              ...r.user, 
-              profile: { 
-                ...originalProfile, 
-                viewer_has_liked: wasLiked, 
-                likes_count: originalProfile.likes_count 
-              } 
-            } 
-          };
+          const profile = r.user?.profile || {};
+          return { ...r, user: { ...r.user, profile: { ...profile, viewer_has_liked: liked, likes_count: likes_count } } };
         }
         return r;
       }));
+
+      // Forzamos la actualización del cache para consistencia en otras pantallas.
+      delete profileLikesCacheRef.current[userId];
+      fetchProfileLikesSummary(userId, true);
+    } catch (error) {
+      // 4. Reversión: Si la API falla, restauramos el estado original.
+      setReels(originalReels);
     }
-  }, [reels, likedProfiles, fetchProfileLikesSummary]);
+  }, [reels, fetchProfileLikesSummary]);
+
+  const handleRepost = useCallback(async (item) => {
+    const taskId = item.task?.id || item.id;
+    const contentItem = item.is_original ? item : item.task;
+
+    if (!taskId) return;
+
+    // 1. Actualización Optimista: Incrementamos el contador de compartidos en la UI al instante.
+    setReels(prevReels => prevReels.map(r => {
+      const currentContent = r.is_original ? r : r.task;
+      if (currentContent && currentContent.id === taskId) {
+        const newShareCount = (currentContent.share_count || 0) + 1;
+        if (r.is_original) {
+          return { ...r, share_count: newShareCount };
+        }
+        return { ...r, task: { ...r.task, share_count: newShareCount } };
+      }
+      return r;
+    }));
+
+    try {
+      // 2. Llamada al nuevo endpoint de "reposteo" en segundo plano.
+      await api.post(`tasks/${contentItem.id}/repost/`);
+      // No es necesario hacer nada en el success, la UI ya está actualizada.
+    } catch (error) {
+      console.error('Error reposting task:', error.response?.data || error.message);
+      // Opcional: Se podría implementar una lógica para revertir el contador si la API falla.
+    }
+  }, [reels]);
 
   useEffect(() => {
     const video = videoRefs.current[activeIndex];
@@ -760,7 +748,8 @@ const ReelsScreen = () => {
   };
   
   const handleShareSuccess = () => {
-    if (!taskToShare) return;
+    const taskId = taskToShare?.task?.id || taskToShare;
+    if (!taskId) return;
     setReels(prev => prev.map(t => t.id === taskToShare ? { ...t, share_count: (t.share_count || 0) + 1 } : t));
     if (taskSharesCacheRef.current[taskToShare]) {
       delete taskSharesCacheRef.current[taskToShare];
@@ -770,14 +759,18 @@ const ReelsScreen = () => {
   };
 
   const handleShowLikes = (taskId, tier = 'all') => {
-    setLikesModalUrl(`tasks/${taskId}/users-who-liked/`);
+    const url = `tasks/${taskId}/users-who-liked/`;
+    console.log('[ReelsScreen] URL para likes:', url);
+    setLikesModalUrl(url);
     setLikesModalTitle('Me gusta');
     setInitialTier(tier);
     setLikesModalVisible(true);
   };
 
   const handleShowShares = (taskId, tier = 'all') => {
-    setLikesModalUrl(`tasks/${taskId}/users-who-shared/`);
+    const url = `tasks/${taskId}/users-who-shared/`;
+    console.log('[ReelsScreen] URL para compartidos:', url);
+    setLikesModalUrl(url);
     setLikesModalTitle('Compartido por');
     setInitialTier(tier);
     setLikesModalVisible(true);
@@ -857,12 +850,12 @@ const ReelsScreen = () => {
                 likeAnimation={likeAnimation}
                 navigation={navigation}
                 toggleFavorite={toggleFavorite}
+                handleRepost={handleRepost}
                 openShareModal={openShareModal}
                 handleShowShares={handleShowShares}
                 handleShowLikes={handleShowLikes}
                 handleShowProfileLikes={handleShowProfileLikes}
                 openActionModal={openActionModal}
-                likedProfiles={likedProfiles}
                 taskLikesById={taskLikesById}
                 taskSharesById={taskSharesById}
                 profileLikesById={profileLikesById}
@@ -870,7 +863,10 @@ const ReelsScreen = () => {
                 tema={tema}
               />
             )}
-            keyExtractor={(item) => item.id.toString()} // ✅ KEY LIMPIA Y ESTÁTICA
+            // ✅ FIX: Usamos una clave única y consistente. Para un reel compartido, la clave debe ser
+            // el ID de la tarea original (`task.id`) prefijado para evitar colisiones con los IDs
+            // de las tareas originales que podrían estar en la misma lista.
+            keyExtractor={(item) => item.is_original ? item.id.toString() : `shared-${item.task.id}-${item.id}`}
             pagingEnabled
             showsVerticalScrollIndicator={false}
             onViewableItemsChanged={onViewableItemsChanged} // ✅ REPRODUCCIÓN ULTRA FLUIDA NATIVA

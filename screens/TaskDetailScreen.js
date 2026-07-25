@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useCallback } from 'react';
 import { Modal,
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView
@@ -315,7 +315,7 @@ const fetchComments = useCallback(async () => {
     });
 
     try {
-      const response = await api.post(`tasks/${taskId}/like/`);
+      const response = await api.post(`tasks/${taskId}/like/`); // ✅ Endpoint correcto
       // Confirmamos con los datos exactos del servidor en segundo plano
       setTask(prev => prev ? { ...prev, user_has_liked: response.data.liked, likes_count: response.data.likes_count } : prev);
     } catch (error) {
