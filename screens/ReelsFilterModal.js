@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -37,7 +37,7 @@ const ReelsFilterModal = ({
   };
 
   const handleReset = () => {
-    setSortBy('recent');
+    setSortBy('all');
     setDateFilter('');
   };
 
@@ -55,6 +55,7 @@ const ReelsFilterModal = ({
           <ScrollView>
             <Text style={styles.sectionTitle}>Ordenar por</Text>
             <View style={styles.optionsContainer}>
+              <FilterOption label="Todas" value="all" selectedValue={sortBy} onSelect={setSortBy} />
               <FilterOption label="Recientes" value="recent" selectedValue={sortBy} onSelect={setSortBy} />
               <FilterOption label="Más gustados" value="likes" selectedValue={sortBy} onSelect={setSortBy} />
             </View>

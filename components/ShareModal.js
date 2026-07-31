@@ -12,9 +12,9 @@ const ShareModal = ({ visible, onClose, taskId, onShareSuccess }) => {
     
     setLoading(true);
     try {
-      await api.post('shared-tasks/', { task_id: taskId, description: description.trim() });
+      const response = await api.post('shared-tasks/', { task_id: taskId, description: description.trim() });
       setDescription('');
-      onShareSuccess(); // Llama al callback para actualizar optimistamente o recargar
+      onShareSuccess(response.data); // ✅ Llama al callback con la respuesta completa de la API
       onClose();
     } catch (error) {
       console.error('Error sharing task:', error.response?.data || error.message);

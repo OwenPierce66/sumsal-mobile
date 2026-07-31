@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Animated, PanResponder } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View, Text, Modal, StyleSheet, TouchableOpacity, ScrollView, Platform, TextInput, Alert } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons'; // Switch no se usa aquí, se usa en el componente ToggleOption
 import api from '../api';
 
 // ⚡ DICCIONARIO INTELIGENTE DE SUBTEMAS
@@ -15,6 +15,18 @@ const PREDEFINED_SUBTEMAS = {
   'arte': ['Pintura', 'Música', 'Fotografía', 'Cine', 'Diseño'],
   'deportes': ['Fútbol', 'Baloncesto', 'Tenis', 'Natación', 'Fitness'],
 };
+
+const ToggleOption = ({ label, value, onValueChange }) => (
+  <View style={styles.toggleOption}>
+    <Text style={styles.toggleLabel}>{label}</Text>
+    <input
+      type="checkbox"
+      checked={value}
+      onChange={(e) => onValueChange(e.target.checked)}
+      style={{ transform: 'scale(1.2)' }}
+    />
+  </View>
+);
 
 const ROW_HEIGHT = 45;
 const DraggableCategory = ({ cat, index, categories, setCategories, selectedCategory, setSelectedCategory, isSuper, handleDeleteCat, setScrollEnabled, saveCategoriesOrder }) => {
@@ -100,7 +112,7 @@ const DraggableCategory = ({ cat, index, categories, setCategories, selectedCate
   );
 };
 
-const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers }) => {
+const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, isSuperAdmin }) => {
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
@@ -112,7 +124,8 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
   const [favoriteUsersOnly, setFavoriteUsersOnly] = useState(currentFavoriteUsers || false);
   const [verifiedUsersOnly, setVerifiedUsersOnly] = useState(currentVerifiedUsers || false);
   const [recommendedUsersOnly, setRecommendedUsersOnly] = useState(currentRecommendedUsers || false);
-  const [isSuper, setIsSuper] = useState(false);
+  // ✅ USAMOS LA PROP DIRECTAMENTE, NO UN ESTADO LOCAL
+  const isSuper = isSuperAdmin;
   const [newCatName, setNewCatName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -122,7 +135,6 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
 
   useEffect(() => {
     fetchCategories();
-    checkSuperStatus();
     loadSubthemesTree();
   }, []);
 
@@ -134,15 +146,6 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
   };
 
   const handleDeleteCat = (catId) => { if (Platform.OS === "web") { if (window.confirm("¿Estás seguro de que deseas eliminar esta categoria? Esta acción no se puede deshacer.")) { executeDeleteCat(catId); } } else { Alert.alert("Eliminar Categoria", "¿Estás seguro de que deseas eliminar esta categoria? Esta acción no se puede deshacer.", [{ text: "Cancelar", style: "cancel" }, { text: "Eliminar", style: "destructive", onPress: () => executeDeleteCat(catId) }]); } }; const executeDeleteCat = async (catId) => { try { await api.delete("new-categories/" + catId + "/"); fetchCategories(); if (selectedCategory !== "" && categories.find(c => c.id === catId)?.name === selectedCategory) { setSelectedCategory(""); } } catch (error) { console.error("Error deleting category:", error); } };
-
-  const checkSuperStatus = async () => {
-    try {
-      const response = await api.get("verify-admin/");
-      setIsSuper(response.data?.is_admin || response.data?.is_staff);
-    } catch (error) {
-      setIsSuper(false);
-    }
-  };
 
   const handleCreateCat = async () => {
     if (!newCatName.trim()) return;
@@ -417,6 +420,53 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
                   Usuarios Recomendados
                 </Text>
               </TouchableOpacity>
+            </View>
+
+            <Text style={styles.sectionTitle}>Fecha</Text>
+            <View style={styles.optionsContainer}>
+              {dateOptions.map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.optionBadge,
+                    selectedDateFilter === option.value && styles.optionBadgeActive,
+                  ]}
+                  onPress={() => setSelectedDateFilter(option.value)}
+                >
+                  <Text
+                    style={[
+                      styles.optionText,
+                      selectedDateFilter === option.value && styles.optionTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.sectionTitle}>Categoría</Text>
+            <View style={styles.toggleContainer}>
+              <ToggleOption 
+                label="Mis Tareas Favoritas" 
+                value={favoritesOnly} 
+                onValueChange={setFavoritesOnly} 
+              />
+              <ToggleOption 
+                label="Mis Creadores Favoritos" 
+                value={favoriteUsersOnly} 
+                onValueChange={setFavoriteUsersOnly} 
+              />
+              <ToggleOption 
+                label="Solo Usuarios Verificados" 
+                value={verifiedUsersOnly} 
+                onValueChange={setVerifiedUsersOnly} 
+              />
+              <ToggleOption 
+                label="Solo Usuarios Recomendados" 
+                value={recommendedUsersOnly} 
+                onValueChange={setRecommendedUsersOnly} 
+              />
             </View>
 
             <Text style={styles.sectionTitle}>Fecha</Text>
@@ -722,6 +772,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
+  toggleContainer: { gap: 10, marginBottom: 15 },
+  toggleOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8f8f8', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10 },
+  toggleLabel: { fontSize: 15, color: '#333', fontWeight: '500' },
 });
 
 export default FilterModal;

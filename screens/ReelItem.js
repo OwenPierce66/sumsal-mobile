@@ -261,12 +261,12 @@ const ReelItemComponent = ({
                 <Text style={[styles.iconText, { fontSize: 10, marginTop: 0 }]}>{counterLabel}</Text>
               </View>
 
-              <TouchableOpacity style={styles.iconButton} onPress={() => toggleLike(item)} onLongPress={() => handleShowLikes(contentItem.id, 'all')}>
+              <TouchableOpacity style={styles.iconButton} onPress={() => toggleLike(enrichedItem)} onLongPress={() => handleShowLikes(enrichedItem.task?.id || enrichedItem.id, 'all')}>
                 <Ionicons name={enrichedItem.user_has_liked ? "heart" : "heart-outline"} size={24} color={enrichedItem.user_has_liked ? "#ff004f" : "white"} />
                 <Text style={styles.iconText}>{contentItem.likes_count || 0}</Text>
                 {/* ✅ FIX: Añadimos una guarda para evitar el crash si enrichedItem.taskLikes es undefined */}
                 {paused && enrichedItem.taskLikes && enrichedItem.taskLikes.status === 'ok' && enrichedItem.taskLikes.counts && (
-                  <TouchableOpacity onPress={() => handleShowLikes(contentItem.id, 'all')}>
+                  <TouchableOpacity onPress={() => handleShowLikes(enrichedItem.task?.id || enrichedItem.id, 'all')}>
                     <View style={styles.tierCountersVertical}>{renderTierDigits(enrichedItem.taskLikes.counts, handleShowLikes)}</View>
                   </TouchableOpacity>
                 )}
@@ -276,19 +276,25 @@ const ReelItemComponent = ({
                 <Ionicons name="chatbubble-ellipses" size={22} color="white" />
                 <Text style={styles.iconText}>{contentItem.comments_count || 0}</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity style={styles.iconButton} onPress={() => handleRepost(item)} onLongPress={() => handleShowShares(contentItem.id, 'all')}>
+
+              {/* ✅ CONTADOR DE IMPULSOS (REPOST) */}
+              <TouchableOpacity style={styles.iconButton} onPress={() => handleRepost(contentItem)}>
+                <Ionicons name="trending-up" size={24} color="#f59f00" />
+                <Text style={styles.iconText}>{contentItem.interaction_score || 0}</Text>
+              </TouchableOpacity>
+
+              {/* ✅ CONTADOR DE COMPARTIDOS */}
+              <TouchableOpacity style={styles.iconButton} onPress={() => openShareModal(contentItem)} onLongPress={() => handleShowShares(enrichedItem.task?.id || enrichedItem.id, 'all')}>
                 <Ionicons name="arrow-redo" size={24} color="white" />
                 <Text style={styles.iconText}>{contentItem.share_count || 0}</Text>
-                {/* ✅ FIX: Añadimos una guarda para evitar el crash si enrichedItem.taskShares es undefined */}
                 {paused && enrichedItem.taskShares && enrichedItem.taskShares.status === 'ok' && enrichedItem.taskShares.counts && (
-                  <TouchableOpacity onPress={() => handleShowShares(contentItem.id, 'all')}>
+                  <TouchableOpacity onPress={() => handleShowShares(enrichedItem.task?.id || enrichedItem.id, 'all')}>
                      <View style={styles.tierCountersVertical}>{renderTierDigits(enrichedItem.taskShares.counts, handleShowShares)}</View>
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.iconButton} onPress={() => openActionModal(enrichedItem)}>
+              <TouchableOpacity style={styles.iconButton} onPress={() => openActionModal(item)}>
                 <Ionicons name="ellipsis-vertical" size={22} color="white" />
               </TouchableOpacity>
             </View>

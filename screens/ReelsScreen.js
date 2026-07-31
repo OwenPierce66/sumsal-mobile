@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -335,10 +335,10 @@ const ReelsScreen = () => {
   const [paused, setPaused] = useState(false);
   const [playbackStatus, setPlaybackStatus] = useState({});
   const videoRefs = useRef({});
-
+  
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('');
-  const [selectedSortBy, setSelectedSortBy] = useState('recent');
+  const [selectedSortBy, setSelectedSortBy] = useState('all');
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [selectedFavoritesOnly, setSelectedFavoritesOnly] = useState(false);
   const [selectedFavoriteUsersOnly, setSelectedFavoriteUsersOnly] = useState(false);
@@ -576,40 +576,42 @@ const ReelsScreen = () => {
     const taskId = item.task?.id || item.id;
     const contentItem = item.is_original ? item : item.task;
 
-    if (!taskId) return;
-
-    // 1. Actualización Optimista: Incrementamos el contador de compartidos en la UI al instante.
+    if (!taskId) return; // Salimos si no hay ID
+    console.log('[ReelsScreen] Iniciando Repost para taskId:', taskId);
+    
+    // Optimistic update
     setReels(prevReels => prevReels.map(r => {
       const currentContent = r.is_original ? r : r.task;
       if (currentContent && currentContent.id === taskId) {
-        const newShareCount = (currentContent.share_count || 0) + 1;
-        if (r.is_original) {
-          return { ...r, share_count: newShareCount };
-        }
-        return { ...r, task: { ...r.task, share_count: newShareCount } };
+        return r.is_original ? { ...r, interaction_score: (r.interaction_score || 0) + 1 } : { ...r, task: { ...r.task, interaction_score: (r.task.interaction_score || 0) + 1 } };
       }
       return r;
     }));
 
     try {
-      // 2. Llamada al nuevo endpoint de "reposteo" en segundo plano.
-      await api.post(`tasks/${contentItem.id}/repost/`);
-      // No es necesario hacer nada en el success, la UI ya está actualizada.
+      // Llamada al endpoint de "repost" que solo afecta el score interno.
+      const response = await api.post(`tasks/${taskId}/repost/`);
+      console.log('[ReelsScreen] Respuesta de la API:', response.data);
+      // Damos feedback al usuario de que la acción fue exitosa.
+      Alert.alert('Éxito', '¡Publicación impulsada!');
+
+      // Sync with actual response
+      const finalScore = response.data.interaction_score;
+      console.log('[ReelsScreen] Sincronizando con score final del servidor:', finalScore);
+      setReels(prevReels => prevReels.map(r => {
+        const currentContent = r.is_original ? r : r.task;
+        if (currentContent && currentContent.id === taskId) {
+          return r.is_original ? { ...r, interaction_score: finalScore } : { ...r, task: { ...r.task, interaction_score: finalScore } };
+        }
+        return r;
+      }));
     } catch (error) {
       console.error('Error reposting task:', error.response?.data || error.message);
-      // Opcional: Se podría implementar una lógica para revertir el contador si la API falla.
+      Alert.alert('Error', 'No se pudo impulsar la publicación.');
+      // En caso de error, podrías recargar para revertir el cambio optimista.
+      // fetchReels(1); 
     }
   }, [reels]);
-
-  useEffect(() => {
-    const video = videoRefs.current[activeIndex];
-    if (!video) return;
-    if (paused) {
-      video.pauseAsync();
-    } else {
-      video.playAsync();
-    }
-  }, [paused, activeIndex]);
 
   const toggleDescription = (id) => {
     setExpandedDescriptions(prev => ({...prev, [id]: !prev[id]}));
@@ -743,18 +745,38 @@ const ReelsScreen = () => {
   };
 
   const openShareModal = (taskId) => {
-    setTaskToShare(taskId);
+    // Aseguramos que siempre pasamos solo el ID (string/uuid)
+    setTaskToShare(taskId?.task?.id || taskId?.id || taskId);
     setShareModalVisible(true);
   };
   
-  const handleShareSuccess = () => {
-    const taskId = taskToShare?.task?.id || taskToShare;
-    if (!taskId) return;
-    setReels(prev => prev.map(t => t.id === taskToShare ? { ...t, share_count: (t.share_count || 0) + 1 } : t));
-    if (taskSharesCacheRef.current[taskToShare]) {
-      delete taskSharesCacheRef.current[taskToShare];
+  const handleShareSuccess = (sharedTaskResponse) => {
+    if (!taskToShare) {
+      console.error('[ReelsScreen] No hay `taskToShare` para actualizar.');
+      return;
     }
-    fetchTaskSharesSummary(taskToShare);
+
+    const taskId = taskToShare; // El ID ya está guardado
+
+    // Actualizamos el estado de reels para reflejar el nuevo contador.
+    setReels(prevReels => prevReels.map(reel => {
+      const contentItem = reel.is_original ? reel : reel.task;
+      if (contentItem && contentItem.id === taskId) {
+        // ✅ FIX: Usamos los valores que vienen del servidor para máxima consistencia
+        const newShareCount = sharedTaskResponse.task.share_count;
+        const newInteractionScore = sharedTaskResponse.task.interaction_score;
+
+        return reel.is_original
+          ? { ...reel, share_count: newShareCount, interaction_score: newInteractionScore }
+          : { ...reel, task: { ...reel.task, share_count: newShareCount, interaction_score: newInteractionScore } };
+      }
+      return reel;
+    }));
+
+    if (taskSharesCacheRef.current[taskId]) {
+      delete taskSharesCacheRef.current[taskId];
+    }
+    fetchTaskSharesSummary(taskId, true); // Forzamos la recarga del resumen de compartidos.
     setTaskToShare(null); 
   };
 
