@@ -445,51 +445,72 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
               ))}
             </View>
 
-            <Text style={styles.sectionTitle}>Categoría</Text>
-            <View style={styles.toggleContainer}>
-              <ToggleOption 
-                label="Mis Tareas Favoritas" 
-                value={favoritesOnly} 
-                onValueChange={setFavoritesOnly} 
-              />
-              <ToggleOption 
-                label="Mis Creadores Favoritos" 
-                value={favoriteUsersOnly} 
-                onValueChange={setFavoriteUsersOnly} 
-              />
-              <ToggleOption 
-                label="Solo Usuarios Verificados" 
-                value={verifiedUsersOnly} 
-                onValueChange={setVerifiedUsersOnly} 
-              />
-              <ToggleOption 
-                label="Solo Usuarios Recomendados" 
-                value={recommendedUsersOnly} 
-                onValueChange={setRecommendedUsersOnly} 
-              />
-            </View>
-
-            <Text style={styles.sectionTitle}>Fecha</Text>
+            <Text style={styles.sectionTitle}>Especiales</Text>
             <View style={styles.optionsContainer}>
-              {dateOptions.map((option) => (
-                <TouchableOpacity
-                  key={option.value}
+              <TouchableOpacity
+                style={[
+                  styles.optionBadge,
+                  favoritesOnly && styles.optionBadgeActive,
+                ]}
+                onPress={() => setFavoritesOnly(!favoritesOnly)}
+              >
+                <Text
                   style={[
-                    styles.optionBadge,
-                    selectedDateFilter === option.value && styles.optionBadgeActive,
+                    styles.optionText,
+                    favoritesOnly && styles.optionTextActive,
                   ]}
-                  onPress={() => setSelectedDateFilter(option.value)}
                 >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      selectedDateFilter === option.value && styles.optionTextActive,
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                  Mis Favoritas
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.optionBadge,
+                  favoriteUsersOnly && styles.optionBadgeActive,
+                ]}
+                onPress={() => setFavoriteUsersOnly(!favoriteUsersOnly)}
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    favoriteUsersOnly && styles.optionTextActive,
+                  ]}
+                >
+                  Mis Usuarios Favoritos
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.optionBadge,
+                  verifiedUsersOnly && styles.optionBadgeActive,
+                ]}
+                onPress={() => setVerifiedUsersOnly(!verifiedUsersOnly)}
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    verifiedUsersOnly && styles.optionTextActive,
+                  ]}
+                >
+                  Usuarios Verificados
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.optionBadge,
+                  recommendedUsersOnly && styles.optionBadgeActive,
+                ]}
+                onPress={() => setRecommendedUsersOnly(!recommendedUsersOnly)}
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    recommendedUsersOnly && styles.optionTextActive,
+                  ]}
+                >
+                  Usuarios Recomendados
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <Text style={styles.sectionTitle}>Categoría</Text>

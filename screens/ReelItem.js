@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ScrollView, ActivityIndicator, LogBox } from 'react-native';
 import { Video } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -8,22 +8,20 @@ import { getImageUrl } from '../api';
 import ProgressControls from './ProgressControls';
 
 const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'regular'];
+const { buildPlaylists } = require('./reelUtils');
+
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 
+// ReelItemComponent ahora es ReelItem
 const ReelItemComponent = ({
   item,
   enrichedItem,
-  contentItem,
-  userItem,
   index,
   isActive,
   isMuted,
   paused,
-  videoRefs,
   setPaused,
   isUIVisible,
-  setPlaybackStatus,
-  playbackStatus,
   expandedDescriptions,
   toggleDescription,
   viewStateById,
@@ -45,10 +43,20 @@ const ReelItemComponent = ({
   openActionModal,
   toggleProfileLike,
   tema,
-  playlists,
 }) => {
+  // ✅ FIX: Se mueven las definiciones al principio para evitar errores de "undefined".
+  const contentItem = useMemo(() => (item.is_original ? item : item.task), [item]);
+  const userItem = useMemo(() => (item.is_original ? item.user : (item.task?.user || {})), [item]);
+  const playlists = useMemo(() => buildPlaylists(contentItem), [contentItem]);
   const rawState = viewStateById[item.id] || { mode: "main", pos: 0 };
-  const onLayout = (event) => { item.onLayout?.(event.nativeEvent.layout); };
+
+  const videoRefs = useRef([]);
+  if (videoRefs.current.length !== (playlists.main?.length || 1)) {
+    videoRefs.current = Array(playlists.main?.length || 1).fill(null).map((_, i) => videoRefs.current[i] || React.createRef());
+  }
+
+  const [playbackStatus, setPlaybackStatus] = useState({});
+
   const VIEW_ORDER = ["main", "factores", "fuentes"];
   const fallbackMode = VIEW_ORDER.find((m) => (playlists?.[m]?.length || 0) > 0) || "main";
   const effMode = playlists?.[rawState.mode]?.length ? rawState.mode : fallbackMode;
@@ -56,9 +64,6 @@ const ReelItemComponent = ({
   const effPos = len ? Math.min(Math.max(0, rawState.pos || 0), len - 1) : 0;
 
   const list = playlists[effMode] || [];
-  // const entry = list[effPos] || null; // This logic is now handled inside the ScrollView
-  // const videoSrc = entry ? entry.src : item._anyVideo; // This is also handled inside the ScrollView map
-
   const extraCount = (playlists.factores?.length > 0 ? 1 : 0) + (playlists.fuentes?.length > 0 ? 1 : 0);
   const badgeCount = extraCount === 0 ? 0 : extraCount === 1 ? 1 : effMode === "main" ? 2 : 1;
   const viewLabel = effMode === "main" ? tema : effMode === "factores" ? "factor" : "fuente";
@@ -71,19 +76,19 @@ const ReelItemComponent = ({
     };
   }, []);
 
-  const sharedByInfo = getSharedByInfo(item);
-  const isSharedOpen = sharedOpenById[item.is_original ? item.id : item.task?.id];
-  const favoriteSharersCount = item.favorite_sharers_count || 0;
+  const sharedByInfo = useMemo(() => getSharedByInfo(item), [item, getSharedByInfo]);
 
-  const profileLikesCount = useMemo(() => {
-    return enrichedItem.user?.profile?.likes_count ?? 0;
-  }, [enrichedItem.user?.profile?.likes_count]);
+  const isSharedOpen = sharedOpenById[item.is_original ? item.id : item.task?.id];
+
+  // Usamos el `enrichedItem` que ya tiene los datos de likes de perfil actualizados
+  const profileLikesCount = enrichedItem.user?.profile?.likes_count ?? 0; // Ya estaba bien
+  const viewerHasLikedProfile = enrichedItem.user?.profile?.viewer_has_liked ?? false;
 
   const userTier = useMemo(() => {
       // ✅ Leemos el perfil directamente del `enrichedItem` que ya tiene los datos actualizados
       const currentProfile = enrichedItem.user?.profile || {};
       if (currentProfile.is_verified) return { key: 'verified', color: '#4dabf7' };
-      if (currentProfile.is_recommended) return { key: 'recommended', color: '#f59f00' };
+      if (currentProfile.is_recommended) return { key: 'recommended', color: '#f59f00' }; // Naranja para recomendados
       return { key: 'regular', color: '#fff' };
   }, [enrichedItem.user?.profile]);
 
@@ -103,6 +108,22 @@ const ReelItemComponent = ({
       );
     });
   };
+
+  useEffect(() => {
+    LogBox.ignoreLogs(['Non-serializable values were found in the navigation state']);
+  }, []);
+  
+  // ✅ FIX: Controlamos la reproducción del video de forma más explícita
+  useEffect(() => {
+    const player = videoRefs.current[rawState.pos]?.current;
+    if (!player) return;
+
+    if (isActive && !paused) {
+      player.playAsync();
+    } else {
+      player.pauseAsync();
+    }
+  }, [isActive, paused, rawState.pos]); // Ahora depende directamente de la prop `paused`
 
   return (
     <View style={styles.reelContainer}>
@@ -124,69 +145,74 @@ const ReelItemComponent = ({
         {list.length > 0 ? (
           list.map((entry, clipIdx) => (
             <View key={`${item.id}-clip-${clipIdx}`} style={{ width: windowWidth, height: windowHeight }}>
-              <Video
-                ref={ref => {
-                  if (rawState.pos === clipIdx) {
-                    videoRefs.current[index] = ref;
-                  }
-                }}
+              <Video // 🪵 LOG DE DIAGNÓSTICO: Video componente
+                ref={videoRefs.current[clipIdx]} // ✅ Asignamos la referencia correcta del array
                 source={{ uri: getImageUrl(entry.src) }}
                 style={styles.video}
-                resizeMode="cover"
+                resizeMode="cover" // ✅ Usamos la prop `paused` directamente
                 shouldPlay={isActive && !paused && rawState.pos === clipIdx}
                 isLooping
                 isMuted={isMuted}
                 onPlaybackStatusUpdate={(status) => {
-                  if (isActive && rawState.pos === clipIdx) { setPlaybackStatus(status); }
+                  if (rawState.pos === clipIdx) {
+                    setPlaybackStatus(status);
+                  }
                 }}
               />
             </View>
           ))
         ) : (
-          <View style={{ width: windowWidth, height: windowHeight }}>
-            <Video
-              ref={ref => { videoRefs.current[index] = ref; }}
+          <View style={{ width: windowWidth, height: windowHeight }}> 
+            <Video // 🪵 LOG DE DIAGNÓSTICO: Fallback Video componente
+              ref={videoRefs.current[0]} // ✅ Asignamos la primera referencia si no hay lista
               source={{ uri: getImageUrl(item._anyVideo) }}
               style={styles.video}
-              resizeMode="cover"
-              shouldPlay={isActive && !paused}
+              resizeMode="cover" 
+              shouldPlay={isActive && !paused} // ✅ Usamos la prop `paused` directamente
               isLooping
               isMuted={isMuted}
-              onPlaybackStatusUpdate={(status) => { if (isActive) { setPlaybackStatus(status); } }}
+              onPlaybackStatusUpdate={(status) => {
+                setPlaybackStatus(status);
+              }}
             />
           </View>
         )}
       </ScrollView>
 
       {isUIVisible ? (
-        <>
+        <> 
+          {playbackStatus.isBuffering && (
+            <ActivityIndicator style={styles.buffering} color="#fff" />
+          )}
+
           <View style={styles.overlay} pointerEvents="box-none">
             <View style={styles.bottomSection} pointerEvents="box-none">
-              {!item.is_original && sharedByInfo && (
-                <TouchableOpacity style={styles.sharedByContainer} onPress={() => toggleSharedBy(item.id)}>
+              {/* ✅ FIX: Se muestra si es compartido Y si sharedByInfo tiene datos */}
+              {!enrichedItem.is_original && sharedByInfo && (
+                <TouchableOpacity style={styles.sharedByContainer} onPress={() => toggleSharedBy(contentItem.id)}>
                   <View style={styles.sharedByRow}>
                     <Image source={{ uri: sharedByInfo.avatar }} style={styles.sharedByAvatar} />
                     {!isSharedOpen && (
                       <Text style={styles.sharedByName}>{sharedByInfo.name} compartió</Text>
                     )}
                   </View>
-                {/* ✅ INDICADOR DE COMPARTIDOS POR FAVORITOS */}
-                {favoriteSharersCount > 0 && !isSharedOpen && (
+                {/* ✅ INDICADOR DE COMPARTIDOS POR FAVORITOS (Corregido) */}
+                {sharedByInfo && sharedByInfo.favoriteSharersCount > 0 && !isSharedOpen && (
                   <Text style={styles.favoriteSharerIndicator}>
-                    <Ionicons name="heart" size={10} color="#ff6b6b" /> {favoriteSharersCount}
+                    <Ionicons name="heart" size={10} color="#ff6b6b" /> {sharedByInfo.favoriteSharersCount}
                   </Text>
                 )}
                   {isSharedOpen && sharedByInfo.description && (
-                    <View>
-                      <Text style={[styles.sharedByName, { marginBottom: 4 }]}>{sharedByInfo.name} escribió:</Text>
+                    <View style={styles.sharedByExpanded}>
+                      <Text style={[styles.sharedByName, { marginBottom: 4 }]}>{sharedByInfo.name} <Text style={{ fontWeight: 'normal', color: '#ddd' }}>escribió:</Text></Text>
                       <Text style={styles.sharedByDescription}>{sharedByInfo.description}</Text>
                     </View>
                   )}
                 </TouchableOpacity>
               )}
               <TouchableOpacity
-                style={styles.userInfo}
-                onPress={() => navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) })}
+                style={styles.userInfo} // Ya estaba bien
+                onPress={() => navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) })} // Ya estaba bien
               >
                 <Text style={styles.username}>@{userItem?.username || 'Usuario'}</Text>
               </TouchableOpacity>
@@ -220,7 +246,7 @@ const ReelItemComponent = ({
               ) : null}
             </View>
 
-            <View style={styles.rightSection} onLayout={onLayout}>
+            <View style={styles.rightSection}>
               <TouchableOpacity 
                 style={styles.iconButton} 
                 onPress={() => navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) })}
@@ -231,8 +257,8 @@ const ReelItemComponent = ({
                   style={styles.followBtn}
                   onPress={(e) => { e.stopPropagation(); toggleProfileLike(item); }}
                 >
-                  
-                  <Ionicons name={enrichedItem.user?.profile?.viewer_has_liked ? "heart" : "heart-outline"} size={12} color={enrichedItem.user?.profile?.viewer_has_liked ? "#ff004f" : "#fff"} />
+                  {/* Usamos el estado de like del perfil enriquecido */}
+                  <Ionicons name={viewerHasLikedProfile ? "heart" : "heart-outline"} size={12} color={viewerHasLikedProfile ? "#ff004f" : "#fff"} />
                 </TouchableOpacity>
               </TouchableOpacity>
 
@@ -261,12 +287,12 @@ const ReelItemComponent = ({
                 <Text style={[styles.iconText, { fontSize: 10, marginTop: 0 }]}>{counterLabel}</Text>
               </View>
 
-              <TouchableOpacity style={styles.iconButton} onPress={() => toggleLike(enrichedItem)} onLongPress={() => handleShowLikes(enrichedItem.task?.id || enrichedItem.id, 'all')}>
+              <TouchableOpacity style={styles.iconButton} onPress={() => toggleLike(item)} onLongPress={() => handleShowLikes(contentItem.id, 'all')}>
                 <Ionicons name={enrichedItem.user_has_liked ? "heart" : "heart-outline"} size={24} color={enrichedItem.user_has_liked ? "#ff004f" : "white"} />
                 <Text style={styles.iconText}>{contentItem.likes_count || 0}</Text>
                 {/* ✅ FIX: Añadimos una guarda para evitar el crash si enrichedItem.taskLikes es undefined */}
                 {paused && enrichedItem.taskLikes && enrichedItem.taskLikes.status === 'ok' && enrichedItem.taskLikes.counts && (
-                  <TouchableOpacity onPress={() => handleShowLikes(enrichedItem.task?.id || enrichedItem.id, 'all')}>
+                  <TouchableOpacity onPress={() => handleShowLikes(contentItem.id, 'all')}>
                     <View style={styles.tierCountersVertical}>{renderTierDigits(enrichedItem.taskLikes.counts, handleShowLikes)}</View>
                   </TouchableOpacity>
                 )}
@@ -284,11 +310,11 @@ const ReelItemComponent = ({
               </TouchableOpacity>
 
               {/* ✅ CONTADOR DE COMPARTIDOS */}
-              <TouchableOpacity style={styles.iconButton} onPress={() => openShareModal(contentItem)} onLongPress={() => handleShowShares(enrichedItem.task?.id || enrichedItem.id, 'all')}>
+              <TouchableOpacity style={styles.iconButton} onPress={() => openShareModal(contentItem)} onLongPress={() => handleShowShares(contentItem.id, 'all')}>
                 <Ionicons name="arrow-redo" size={24} color="white" />
                 <Text style={styles.iconText}>{contentItem.share_count || 0}</Text>
                 {paused && enrichedItem.taskShares && enrichedItem.taskShares.status === 'ok' && enrichedItem.taskShares.counts && (
-                  <TouchableOpacity onPress={() => handleShowShares(enrichedItem.task?.id || enrichedItem.id, 'all')}>
+                  <TouchableOpacity onPress={() => handleShowShares(contentItem.id, 'all')}>
                      <View style={styles.tierCountersVertical}>{renderTierDigits(enrichedItem.taskShares.counts, handleShowShares)}</View>
                   </TouchableOpacity>
                 )}
@@ -303,8 +329,9 @@ const ReelItemComponent = ({
         </>
       ) : null}
 
+      {/* ✅ FIX DEFINITIVO: Solo mostramos los controles si estamos en pausa Y si ya tenemos una duración válida. */}
       {isActive && paused && (
-        <ProgressControls status={playbackStatus} onSeek={(value) => videoRefs.current[index]?.setPositionAsync(value)} />
+        playbackStatus.durationMillis > 0 && <ProgressControls status={playbackStatus} onSeek={(value) => videoRefs.current[rawState.pos]?.current?.setPositionAsync(value)} />
       )}
 
       <Animated.View style={[styles.likeAnimation, heartStyle, { pointerEvents: 'none' }]}>
@@ -314,6 +341,8 @@ const ReelItemComponent = ({
   );
 };
 
+const ReelItem = React.memo(ReelItemComponent);
+
 const styles = StyleSheet.create({
   reelContainer: { width: windowWidth, height: windowHeight },
   video: { ...StyleSheet.absoluteFillObject },
@@ -322,6 +351,7 @@ const styles = StyleSheet.create({
   sharedByAvatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#eee' },
   sharedByName: { color: '#fff', fontWeight: 'bold', fontSize: 13, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
   favoriteSharerIndicator: { color: '#ffc9c9', fontWeight: 'bold', fontSize: 11, marginLeft: 8, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
+  sharedByExpanded: { marginTop: 4 },
   sharedByDescription: { color: '#fff', fontSize: 13, marginTop: 4, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
   overlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'none' },
   bottomSection: { flex: 1, padding: 15, paddingRight: 80, justifyContent: 'flex-end' },
@@ -343,28 +373,7 @@ const styles = StyleSheet.create({
   tierCountersVertical: { flexDirection: 'column', gap: 3, alignItems: 'center', marginTop: 4, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 5, paddingHorizontal: 4, paddingVertical: 2 },
   tierText: { fontSize: 10, fontWeight: '900', lineHeight: 10 },
   likeAnimation: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 99 },
+  buffering: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
 });
 
-const arePropsEqual = (prevProps, nextProps) => {
-  // Obtenemos el ID de la tarea principal, ya sea original o compartida.
-  const getTaskId = (props) => props.item.is_original ? props.item.id : props.item.task?.id;
-
-  // 1. La comprobación más importante: si el ID del item cambió, es un reel completamente diferente.
-  //    FlatList está reutilizando la celda. DEBEMOS re-renderizar.
-  if (getTaskId(prevProps) !== getTaskId(nextProps)) {
-    return false;
-  }
-
-  // 2. Comprobar cambios de estado que afectan la reproducción y la UI.
-  return (
-    prevProps.isActive === nextProps.isActive &&
-    prevProps.paused === nextProps.paused &&
-    // 3. Comparamos el objeto enriquecido, que es nuestra única fuente de verdad para datos dinámicos.
-    // Si la referencia no ha cambiado, significa que no hay nuevos datos de likes, shares, etc.
-    prevProps.enrichedItem === nextProps.enrichedItem &&
-    // Usamos el ID de la tarea principal para acceder a los estados de UI.
-    prevProps.expandedDescriptions[getTaskId(prevProps)] === nextProps.expandedDescriptions[getTaskId(nextProps)] &&
-    prevProps.viewStateById[getTaskId(prevProps)] === nextProps.viewStateById[getTaskId(nextProps)]
-  );
-};
-export default React.memo(ReelItemComponent, arePropsEqual);
+export default ReelItem;

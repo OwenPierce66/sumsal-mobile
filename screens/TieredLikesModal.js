@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { Modal, View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api, { getImageUrl } from '../api';
@@ -41,6 +41,7 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
     if (visible) {
       setActiveTier(initialTier); // Reset to initial tier every time it opens
       if (apiUrl) {
+        console.log(`[TieredLikesModal] MODAL OPEN - Fetching users from apiUrl: ${apiUrl}`);
         fetchUsers();
       }
     } else {
@@ -52,9 +53,11 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
     setLoading(true);
     try {
       const response = await api.get(apiUrl);
+      console.log(`[TieredLikesModal] FETCH SUCCESS - API Response Status: ${response.status}`);
       const fetchedUsers = Array.isArray(response.data) ? response.data : (response.data.results || []);
-      setUsers(fetchedUsers);
+      setUsers(fetchedUsers); 
     } catch (error) {
+      console.error(`[TieredLikesModal] FETCH ERROR - API call to ${apiUrl} failed:`, error.response?.status, error.response?.data || error);
       console.error("Error fetching users for modal:", error);
       setUsers([]);
     } finally {

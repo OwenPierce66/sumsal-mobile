@@ -21,9 +21,6 @@ const TasksScreen = ({ navigation }) => {
   const currentUserId = user?.id;
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
 
-  // 🪵 LOG DE DIAGNÓSTICO
-  console.log(`[TasksScreen] Estado de admin al renderizar (del contexto): ${isAdminFromContext}, (estado local): ${isAdmin}`);
-
   const [tasks, setTasks] = useState([]);
   const [sharedTasks, setSharedTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -69,11 +66,9 @@ const TasksScreen = ({ navigation }) => {
     // ✅ FIX: Si el contexto no nos da el estado de admin, lo verificamos aquí.
     const verifyAdminStatus = async () => {
       if (isAdmin === undefined || isAdmin === null) {
-        console.log("[TasksScreen] 'isAdmin' es undefined. Verificando estado de admin manualmente...");
         try {
           const response = await api.get("verify-admin/");
           const isAdminResponse = response.data?.is_admin || response.data?.is_staff;
-          console.log(`[TasksScreen] Verificación manual completada. Es admin: ${isAdminResponse}`);
           setIsAdmin(isAdminResponse);
         } catch (error) {
           console.error("[TasksScreen] Error en la verificación manual de admin:", error);
@@ -87,7 +82,6 @@ const TasksScreen = ({ navigation }) => {
   // --- Funciones para el nuevo flujo de compartir ---
   const openShareModal = (task) => {
     const taskId = task.isSharedTask ? task.task.id : task.id;
-    console.log('TasksScreen: ID de tarea original que se pasa a ShareModal:', taskId);
     setTaskToShare(taskId);
     setShareModalVisible(true);
   };
@@ -141,12 +135,10 @@ const TasksScreen = ({ navigation }) => {
     if (!taskToRepost) return;
 
     const taskId = taskToRepost.isSharedTask ? taskToRepost.task.id : taskToRepost.id;
-    console.log('[TasksScreen] Iniciando Repost para taskId:', taskId);
     if (!task) handleCloseShareActionMenu(); // Solo cerramos el menú si venimos de él
 
     try {
       // Optimistic update
-      console.log('[TasksScreen] Aplicando actualización optimista...');
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, interaction_score: (t.interaction_score || 0) + 1 } : t));
       setSharedTasks(prev => prev.map(s => {
         if (s.task?.id === taskId) {
@@ -156,14 +148,12 @@ const TasksScreen = ({ navigation }) => {
       }));
 
       // Llamada al endpoint de "repost" que solo afecta el score interno, no el share_count.
-      const response = await api.post(`/tasks/${taskId}/repost/`); 
-      console.log('[TasksScreen] Respuesta de la API:', response.data);
+      const response = await api.post(`/tasks/${taskId}/repost/`);
       Alert.alert('Éxito', '¡Publicación impulsada!'); // Damos feedback al usuario.
 
       // Sync with actual response
       const finalScore = response.data.interaction_score;
       // ✅ FIX: Solo actualizamos el interaction_score, que es lo único que devuelve este endpoint.
-      console.log('[TasksScreen] Sincronizando con interaction_score final del servidor:', finalScore);
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, interaction_score: finalScore } : t));
       setSharedTasks(prev => prev.map(s => {
         if (s.task?.id === taskId) {
@@ -186,8 +176,6 @@ const TasksScreen = ({ navigation }) => {
   };
 
   const openActionModal = (task) => {
-    // 🪵 LOG DE DIAGNÓSTICO
-    console.log(`[TasksScreen] Abriendo menú de acciones. El estado 'isAdmin' es: ${isAdmin}`);
     setSelectedActionTask(task);
     setActionModalVisible(true);
   };
@@ -365,21 +353,22 @@ const TasksScreen = ({ navigation }) => {
 
 
   const handleShowTaskLikes = (taskId) => {
-    const url = `tasks/${taskId}/users-who-liked/`;
-    console.log('[TasksScreen] URL para likes:', url);
+    const url = `tasks/${taskId}/users-who-liked/`; // ✅ CORRECCIÓN: URL correcta
     setLikesModalUrl(url);
     setLikesModalTitle('Likes');
     setLikesModalVisible(true);
   };
 
   const handleShowTaskShares = (taskId) => {
-    setLikesModalUrl(`tasks/${taskId}/users-who-shared/`);
+    const url = `tasks/${taskId}/users-who-shared/`;
+    setLikesModalUrl(url);
     setLikesModalTitle('Compartido por');
     setLikesModalVisible(true);
   };
 
   const handleShowSharedTaskLikes = (sharedTaskId) => {
-    setLikesModalUrl(`shared-tasks/${sharedTaskId}/users-who-liked/`);
+    const url = `shared-tasks/${sharedTaskId}/users-who-liked/`;
+    setLikesModalUrl(url);
     setLikesModalTitle('Likes');
     setLikesModalVisible(true);
   };
@@ -524,6 +513,7 @@ const TasksScreen = ({ navigation }) => {
       setTasks(prev => prev.map(t => t.id === task.id ? finalTask : t));
       setSharedTasks(prev => prev.map(s => s.task?.id === task.id ? { ...s, task: finalTask } : s));
     } catch (error) {
+      console.error(`[TasksScreen | handleLikeTask] ERROR - API call failed:`, error.response?.data || error);
       // 4. Reversión en caso de error.
       // Necesitamos el estado original para revertir, que no está directamente disponible aquí.
       // Una solución simple es volver a cargar la tarea o la lista completa.
@@ -575,6 +565,7 @@ const TasksScreen = ({ navigation }) => {
         }));
       }
     } catch (error) {
+      console.error(`[TasksScreen | handleLikeSharedTask] ERROR - API call failed:`, error.response?.data || error.message);
       console.error('Error liking shared task:', error.response?.data || error.message);
       onRefresh(); // Revertir si hay error
     }
@@ -1084,8 +1075,6 @@ const TasksScreen = ({ navigation }) => {
                 {isAdmin && (
                   // 🪵 LOG DE DIAGNÓSTICO: Confirmamos que se intenta renderizar
                   <>
-                    {/* El console.log se mueve aquí para no romper el JSX */}
-                    {console.log(`[TasksScreen] Renderizando opciones de Admin en el menú. isAdmin: ${isAdmin}`)}
                     <TouchableOpacity style={styles.actionOption} onPress={handleToggleVerified}>
                       <Ionicons name={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "checkmark-circle" : "checkmark-circle-outline"} size={20} color={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "#4dabf7" : "#555"} />
                       <Text style={styles.actionText}>{((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "Quitar Verificación" : "Verificar Perfil"}</Text>
