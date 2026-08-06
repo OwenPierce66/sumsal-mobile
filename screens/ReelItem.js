@@ -117,7 +117,6 @@ const ReelItemComponent = ({
   useEffect(() => {
     const player = videoRefs.current[rawState.pos]?.current;
     if (!player) return;
-
     if (isActive && !paused) {
       player.playAsync();
     } else {
@@ -153,11 +152,7 @@ const ReelItemComponent = ({
                 shouldPlay={isActive && !paused && rawState.pos === clipIdx}
                 isLooping
                 isMuted={isMuted}
-                onPlaybackStatusUpdate={(status) => {
-                  if (rawState.pos === clipIdx) {
-                    setPlaybackStatus(status);
-                  }
-                }}
+                onPlaybackStatusUpdate={(status) => { if (rawState.pos === clipIdx) { setPlaybackStatus(status); } }}
               />
             </View>
           ))
@@ -171,9 +166,7 @@ const ReelItemComponent = ({
               shouldPlay={isActive && !paused} // ✅ Usamos la prop `paused` directamente
               isLooping
               isMuted={isMuted}
-              onPlaybackStatusUpdate={(status) => {
-                setPlaybackStatus(status);
-              }}
+              onPlaybackStatusUpdate={setPlaybackStatus}
             />
           </View>
         )}
@@ -330,9 +323,7 @@ const ReelItemComponent = ({
       ) : null}
 
       {/* ✅ FIX DEFINITIVO: Solo mostramos los controles si estamos en pausa Y si ya tenemos una duración válida. */}
-      {isActive && paused && (
-        playbackStatus.durationMillis > 0 && <ProgressControls status={playbackStatus} onSeek={(value) => videoRefs.current[rawState.pos]?.current?.setPositionAsync(value)} />
-      )}
+      {isActive && paused && playbackStatus.durationMillis > 0 && <ProgressControls status={playbackStatus} onSeek={(value) => videoRefs.current[rawState.pos]?.current?.setPositionAsync(value)} />}
 
       <Animated.View style={[styles.likeAnimation, heartStyle, { pointerEvents: 'none' }]}>
         <Ionicons name="heart" size={100} color="white" />
