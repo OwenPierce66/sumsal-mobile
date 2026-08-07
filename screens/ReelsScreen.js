@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
+﻿﻿﻿﻿﻿﻿﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -399,6 +399,12 @@ const ReelsScreen = () => {
         }
       });
       const data = response.data.results ?? response.data ?? [];
+      console.log('[ReelsScreen] fetchReels raw results', data.map(item => ({
+        id: item?.id,
+        is_original: item?.is_original,
+        nestedTaskId: item?.task?.id ?? null,
+        likes_count: item?.likes_count ?? item?.task?.likes_count ?? 0,
+      })));
 
       // ✅ FILTRAMOS PARA MOSTRAR SOLO PUBLICACIONES (originales o compartidas) CON VIDEO
       const validReels = data.map(item => {        
@@ -802,6 +808,8 @@ const ReelsScreen = () => {
 
   const handleShowLikes = useCallback((taskId, tier = 'all') => {
     const url = `tasks/${taskId}/users-who-liked/`;
+    console.log('[ReelsScreen] handleShowLikes', { taskId, tier, url });
+    setLikesModalUrl(url);
     setLikesModalTitle('Me gusta');
     setInitialTier(tier);
     setLikesModalVisible(true);
@@ -809,17 +817,32 @@ const ReelsScreen = () => {
 
   const handleShowShares = useCallback((taskId, tier = 'all') => {
     const url = `tasks/${taskId}/users-who-shared/`;
+    console.log('[ReelsScreen] handleShowShares', { taskId, tier, url });
+    setLikesModalUrl(url);
     setLikesModalTitle('Compartido por');
     setInitialTier(tier);
     setLikesModalVisible(true);
   }, []);
 
   const handleShowProfileLikes = useCallback((userId, tier = 'all') => {
+    console.log('[ReelsScreen] handleShowProfileLikes', { userId, tier, url: `profiles/${userId}/likes/` });
     setLikesModalUrl(`profiles/${userId}/likes/`);
     setLikesModalTitle('Likes del Perfil');
     setInitialTier(tier);
     setLikesModalVisible(true);
   }, []);
+
+  useEffect(() => {
+    if (!likesModalVisible) {
+      return;
+    }
+
+    console.log('[ReelsScreen] likes modal state', {
+      likesModalUrl,
+      likesModalTitle,
+      initialTier,
+    });
+  }, [likesModalVisible, likesModalUrl, likesModalTitle, initialTier]);
 
   // ✅ CONTROL DE VISIBILIDAD DE REELS ORIGINAL SÓLIDO (Sin glitches al hacer scroll)
   const onViewableItemsChanged = useCallback(({ viewableItems }) => {
@@ -872,9 +895,8 @@ const ReelsScreen = () => {
         ) : (
           // ✅ FIX: Usamos un solo View con flex: 1 para contener una única FlatList.
           // Esto asegura que la lista ocupe el espacio correcto y la virtualización funcione.
-          <View 
-            style={{ flex: 1 }} 
-            onLayout={(event) => {}}
+          <View
+            style={{ flex: 1, height: windowHeight }} // Explicitly set height to windowHeight
           >
             <FlatList
               data={reels}
@@ -886,6 +908,7 @@ const ReelsScreen = () => {
               onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={viewabilityConfig}
               getItemLayout={getItemLayout}
+              style={{ flex: 1 }} // Ensure FlatList itself takes all available vertical space
               onEndReached={() => { if (hasMore && !loading) { fetchReels(page + 1); } }}
               onEndReachedThreshold={0.5}
             />

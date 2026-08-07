@@ -23,7 +23,7 @@ const styles = StyleSheet.create({
     // ✅ CORRECCIÓN: Se usa la sintaxis correcta para textShadow en React Native
     progressText: { position: 'absolute', right: 5, top: 15, color: '#fff', fontSize: 11, fontWeight: 'bold', 
         textShadowColor: 'rgba(0, 0, 0, 0.7)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2,
-        backgroundColor: 'rgba(0,0,0,0.3)', paddingHorizontal: 4, borderRadius: 4, pointerEvents: 'none' 
+        paddingHorizontal: 4, borderRadius: 4, pointerEvents: 'none' 
     },
 });
 

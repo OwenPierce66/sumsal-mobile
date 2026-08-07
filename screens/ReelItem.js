@@ -92,15 +92,14 @@ const ReelItemComponent = ({
       return { key: 'regular', color: '#fff' };
   }, [enrichedItem.user?.profile]);
 
-  const renderTierDigits = (counts, handler) => {
+  const renderTierDigits = (counts, targetId, handler) => {
     if (!counts) return null;
     return TIER_ORDER.map(key => {
       const n = counts[key] || 0;
       if (!n) return null;
       const meta = { color: key === 'verified' ? '#4dabf7' : key === 'recommended' ? '#f59f00' : 'grey' };
       return (
-        // ✅ Usa el ID del usuario correcto.
-        <TouchableOpacity key={key} onPress={() => handler(userItem?.id, key)}>
+        <TouchableOpacity key={key} onPress={() => handler(targetId, key)}>
           <Text style={[styles.tierText, { color: meta.color }]}>
             <Ionicons name="ellipse" size={8} color={meta.color} /> {n}
           </Text>
@@ -260,7 +259,7 @@ const ReelItemComponent = ({
                 {/* ✅ FIX: Añadimos una guarda para evitar el crash si enrichedItem.profileLikes es undefined */}
                 {paused && enrichedItem.profileLikes && enrichedItem.profileLikes.status === 'ok' && enrichedItem.profileLikes.counts && (
                   <TouchableOpacity onPress={() => handleShowProfileLikes(item.user?.id, 'all')}>
-                    <View style={styles.tierCountersVertical}>{renderTierDigits(enrichedItem.profileLikes.counts, handleShowProfileLikes)}</View>
+                    <View style={[styles.tierCountersVertical, { zIndex: 20, marginBottom: -34 }]}>{renderTierDigits(enrichedItem.profileLikes.counts, userItem?.id, handleShowProfileLikes)}</View>
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -269,7 +268,7 @@ const ReelItemComponent = ({
                 <TouchableOpacity onPress={() => cycleViewOnly(item)}>
                   <View style={{ alignItems: 'center' }}>
                     <Ionicons name="layers" size={26} color="white" />
-                    {badgeCount > 0 && (
+                    {badgeCount > 0 && ( // ✅ Aplicamos el nuevo estilo al badge
                       <View style={styles.badgeContainer}><Text style={styles.badgeText}>{badgeCount}</Text></View>
                     )}
                   </View>
@@ -280,13 +279,26 @@ const ReelItemComponent = ({
                 <Text style={[styles.iconText, { fontSize: 10, marginTop: 0 }]}>{counterLabel}</Text>
               </View>
 
-              <TouchableOpacity style={styles.iconButton} onPress={() => toggleLike(item)} onLongPress={() => handleShowLikes(contentItem.id, 'all')}>
+              <TouchableOpacity
+                style={[styles.iconButton, { marginBottom: paused && enrichedItem.taskLikes?.status === 'ok' ? 4 : 12 }]}
+                onPress={() => toggleLike(item)}
+                onLongPress={() => {
+                  console.log('[ReelItem] like long press', {
+                    reelId: item?.id,
+                    is_original: item?.is_original,
+                    originalTaskId: contentItem?.id,
+                    nestedTaskId: item?.task?.id ?? null,
+                    likes_count: contentItem?.likes_count ?? 0,
+                  });
+                  handleShowLikes(contentItem.id, 'all');
+                }}
+              >
                 <Ionicons name={enrichedItem.user_has_liked ? "heart" : "heart-outline"} size={24} color={enrichedItem.user_has_liked ? "#ff004f" : "white"} />
                 <Text style={styles.iconText}>{contentItem.likes_count || 0}</Text>
                 {/* ✅ FIX: Añadimos una guarda para evitar el crash si enrichedItem.taskLikes es undefined */}
                 {paused && enrichedItem.taskLikes && enrichedItem.taskLikes.status === 'ok' && enrichedItem.taskLikes.counts && (
                   <TouchableOpacity onPress={() => handleShowLikes(contentItem.id, 'all')}>
-                    <View style={styles.tierCountersVertical}>{renderTierDigits(enrichedItem.taskLikes.counts, handleShowLikes)}</View>
+                    <View style={styles.tierCountersVertical}>{renderTierDigits(enrichedItem.taskLikes.counts, contentItem?.id, handleShowLikes)}</View>
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -297,18 +309,18 @@ const ReelItemComponent = ({
               </TouchableOpacity>
 
               {/* ✅ CONTADOR DE IMPULSOS (REPOST) */}
-              <TouchableOpacity style={styles.iconButton} onPress={() => handleRepost(contentItem)}>
+              <TouchableOpacity style={[styles.iconButton, { marginBottom: 12 }]} onPress={() => handleRepost(contentItem)}>
                 <Ionicons name="trending-up" size={24} color="#f59f00" />
                 <Text style={styles.iconText}>{contentItem.interaction_score || 0}</Text>
               </TouchableOpacity>
 
               {/* ✅ CONTADOR DE COMPARTIDOS */}
-              <TouchableOpacity style={styles.iconButton} onPress={() => openShareModal(contentItem)} onLongPress={() => handleShowShares(contentItem.id, 'all')}>
+              <TouchableOpacity style={[styles.iconButton, { marginBottom: paused && enrichedItem.taskShares?.status === 'ok' ? 4 : 12 }]} onPress={() => openShareModal(contentItem)} onLongPress={() => handleShowShares(contentItem.id, 'all')}>
                 <Ionicons name="arrow-redo" size={24} color="white" />
                 <Text style={styles.iconText}>{contentItem.share_count || 0}</Text>
                 {paused && enrichedItem.taskShares && enrichedItem.taskShares.status === 'ok' && enrichedItem.taskShares.counts && (
                   <TouchableOpacity onPress={() => handleShowShares(contentItem.id, 'all')}>
-                     <View style={styles.tierCountersVertical}>{renderTierDigits(enrichedItem.taskShares.counts, handleShowShares)}</View>
+                     <View style={styles.tierCountersVertical}>{renderTierDigits(enrichedItem.taskShares.counts, contentItem?.id, handleShowShares)}</View>
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -358,8 +370,8 @@ const styles = StyleSheet.create({
   followBtn: { position: 'absolute', bottom: -5, backgroundColor: 'rgba(0,0,0,0.6)', width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   iconButton: { alignItems: 'center', marginBottom: 12, pointerEvents: 'auto' },
   iconText: { color: '#fff', fontSize: 10, marginTop: 3, fontWeight: '600', textShadow: '1px 1px 3px rgba(0,0,0,0.5)' },
-  iconTextSmall: { color: '#fff', fontSize: 9, marginTop: 3, fontWeight: '600', textShadow: '1px 1px 3px rgba(0,0,0,0.5)' },
-  badgeContainer: { position: 'absolute', top: -3, right: -6, backgroundColor: '#ff004f', borderRadius: 8, minWidth: 16, height: 16, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },
+  iconTextSmall: { color: '#fff', fontSize: 9, marginTop: 3, fontWeight: '600', textShadow: '1px 1px 3px rgba(0,0,0,0.5)' }, // ✅ Nuevo estilo para el badge
+  badgeContainer: { position: 'absolute', top: -3, right: -6, width: 11, height: 11, backgroundColor: 'rgb(255, 255, 255)', zIndex: 1, borderRadius: 10, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 0 },
   badgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
   tierCountersVertical: { flexDirection: 'column', gap: 3, alignItems: 'center', marginTop: 4, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 5, paddingHorizontal: 4, paddingVertical: 2 },
   tierText: { fontSize: 10, fontWeight: '900', lineHeight: 10 },

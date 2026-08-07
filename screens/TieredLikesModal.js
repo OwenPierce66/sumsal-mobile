@@ -43,8 +43,11 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
       if (apiUrl) {
         console.log(`[TieredLikesModal] MODAL OPEN - Fetching users from apiUrl: ${apiUrl}`);
         fetchUsers();
+      } else {
+        console.log('[TieredLikesModal] MODAL OPEN - Missing apiUrl');
       }
     } else {
+      console.log('[TieredLikesModal] MODAL CLOSED - Clearing users');
       setUsers([]); // Limpiar al cerrar
     }
   }, [visible, apiUrl, initialTier]);
@@ -55,6 +58,11 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
       const response = await api.get(apiUrl);
       console.log(`[TieredLikesModal] FETCH SUCCESS - API Response Status: ${response.status}`);
       const fetchedUsers = Array.isArray(response.data) ? response.data : (response.data.results || []);
+      console.log('[TieredLikesModal] FETCH USERS', {
+        apiUrl,
+        count: fetchedUsers.length,
+        userIds: fetchedUsers.map(user => user?.id),
+      });
       setUsers(fetchedUsers); 
     } catch (error) {
       console.error(`[TieredLikesModal] FETCH ERROR - API call to ${apiUrl} failed:`, error.response?.status, error.response?.data || error);
