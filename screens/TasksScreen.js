@@ -52,6 +52,7 @@ const TasksScreen = ({ navigation }) => {
   const [isActionMenuVisible, setActionMenuVisible] = useState(false);
   const [isShareModalVisible, setShareModalVisible] = useState(false);
   const [taskToShare, setTaskToShare] = useState(null);
+  const [taskShareDetails, setTaskShareDetails] = useState(null);
 
   
   // ✅ SOLUCIÓN: Cargamos las categorías una sola vez aquí.
@@ -82,9 +83,22 @@ const TasksScreen = ({ navigation }) => {
 
   // --- Funciones para el nuevo flujo de compartir ---
   const openShareModal = (task) => {
-    const taskId = task.isSharedTask ? task.task.id : task.id;
+    const sourceTask = task.isSharedTask ? task.task : task;
+    const taskId = sourceTask.id;
     setTaskToShare(taskId);
+    setTaskShareDetails({
+      ...sourceTask,
+      messageTaskId: task.id,
+      messageTaskType: task.isSharedTask ? 'shared-task' : 'task',
+    });
     setShareModalVisible(true);
+  };
+
+  const handleOpenTaskMessageShare = () => {
+    if (!selectedActionTask) return;
+    const task = selectedActionTask;
+    handleCloseShareActionMenu();
+    openShareModal(task);
   };
 
   const handleShareSuccess = (sharedTaskResponse) => {
@@ -1167,6 +1181,7 @@ const TasksScreen = ({ navigation }) => {
         isVisible={isActionMenuVisible}
         onClose={handleCloseShareActionMenu}
         onShare={handleOpenShareDescriptionModal} // Abre el modal de descripción
+        onSendMessage={handleOpenTaskMessageShare}
         onRepost={handleRepost}
         onShareToStory={handleShareToStory}
       />
@@ -1178,6 +1193,10 @@ const TasksScreen = ({ navigation }) => {
         taskId={taskToShare}
         onShareSuccess={handleShareSuccess}
         navigation={navigation}
+        taskTitle={taskShareDetails?.title || 'Publicación'}
+        taskDescription={taskShareDetails?.description || ''}
+        messageTaskId={taskShareDetails?.messageTaskId}
+        messageTaskType={taskShareDetails?.messageTaskType}
       />
     </SafeAreaView>
   );

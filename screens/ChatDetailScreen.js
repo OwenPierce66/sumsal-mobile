@@ -13,36 +13,51 @@ import * as ImagePicker from 'expo-image-picker';
 import TouchableUsername from '../components/TouchableUsername';
 
 const STORY_REPLY_PREFIX = '↪ Respuesta a tu historia:';
+const TASK_SHARE_PREFIX = '↪ Publicación compartida:';
 
-const buildStoryReplyContextLine = (storyReplyContext) => {
-  if (!storyReplyContext) return '';
-  const safeTitle = String(storyReplyContext.storyTitle || 'Historia').replace(/\s+/g, ' ').trim();
-  const safeId = String(storyReplyContext.storyId || '').trim();
+const buildSharedContentContextLine = (context) => {
+  if (!context) return '';
+  if (context.taskId) {
+    const safeTitle = String(context.taskTitle || 'Publicación').replace(/\s+/g, ' ').trim();
+    const markerName = context.taskType === 'shared-task' ? 'shared-task' : 'task';
+    return `${TASK_SHARE_PREFIX} ${safeTitle} [${markerName}:${String(context.taskId).trim()}]`;
+  }
+
+  const safeTitle = String(context.storyTitle || 'Historia').replace(/\s+/g, ' ').trim();
+  const safeId = String(context.storyId || '').trim();
   if (!safeId) return `${STORY_REPLY_PREFIX} ${safeTitle}`;
   return `${STORY_REPLY_PREFIX} ${safeTitle} [story:${safeId}]`;
 };
 
-const parseStoryReplyFromContent = (content) => {
-  if (!content) return { storyContext: null, bodyText: '' };
+const parseSharedContentFromMessage = (content) => {
+  if (!content) return { contentContext: null, bodyText: '' };
   const normalized = String(content);
   const lines = normalized.split('\n');
   const firstLine = (lines[0] || '').trim();
-  if (!firstLine.startsWith(STORY_REPLY_PREFIX)) {
-    return { storyContext: null, bodyText: normalized };
+
+  const isStory = firstLine.startsWith(STORY_REPLY_PREFIX);
+  const isTask = firstLine.startsWith(TASK_SHARE_PREFIX);
+  if (!isStory && !isTask) {
+    return { contentContext: null, bodyText: normalized };
   }
 
-  const markerMatch = firstLine.match(/\[story:([^\]]+)\]/i);
-  const storyId = markerMatch?.[1] ? String(markerMatch[1]).trim() : null;
+  const prefix = isTask ? TASK_SHARE_PREFIX : STORY_REPLY_PREFIX;
+  const markerMatch = isTask
+    ? firstLine.match(/\[(shared-task|task):([^\]]+)\]/i)
+    : firstLine.match(/\[(story):([^\]]+)\]/i);
+  const markerName = markerMatch?.[1]?.toLowerCase() || (isTask ? 'task' : 'story');
+  const contentId = markerMatch?.[2] ? String(markerMatch[2]).trim() : null;
   const titlePart = firstLine
-    .replace(STORY_REPLY_PREFIX, '')
-    .replace(/\[story:[^\]]+\]/i, '')
+    .replace(prefix, '')
+    .replace(/\[(?:shared-task|task|story):[^\]]+\]/i, '')
     .trim();
   const bodyText = lines.slice(1).join('\n').trim();
 
   return {
-    storyContext: {
-      storyId,
-      storyTitle: titlePart || 'Historia',
+    contentContext: {
+      type: isTask ? markerName : 'story',
+      id: contentId,
+      title: titlePart || (isTask ? 'Publicación' : 'Historia'),
     },
     bodyText,
   };
@@ -61,9 +76,9 @@ const getImageUrl = (path) => {
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
-const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigateToProfile, onOpenStory, navigation }) => {
+const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigateToProfile, onOpenContent, navigation }) => {
   const pan = useRef(new Animated.ValueXY()).current;
-  const { storyContext, bodyText } = parseStoryReplyFromContent(item?.content || '');
+  const { contentContext, bodyText } = parseSharedContentFromMessage(item?.content || '');
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -102,10 +117,17 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigat
       )}
       <Animated.View
         {...panResponder.panHandlers}
-        style={{ transform: [{ translateX: pan.x }] }}
+        style={[
+          contentContext ? styles.sharedContentMessageContainer : null,
+          { transform: [{ translateX: pan.x }] },
+        ]}
       >
         <TouchableOpacity 
-          style={[styles.messageBubble, isMe ? styles.messageBubbleMe : styles.messageBubbleThem]}
+          style={[
+            styles.messageBubble,
+            contentContext ? styles.sharedContentMessageBubble : null,
+            isMe ? styles.messageBubbleMe : styles.messageBubbleThem,
+          ]}
           onLongPress={() => {
             if (isMe) {
               if (Platform.OS === 'web') {
@@ -143,16 +165,21 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigat
               textStyle={styles.messageSenderName}
             />
           )}
-          {storyContext ? (
+          {contentContext ? (
             <TouchableOpacity
               style={[styles.storyContextBox, isMe ? styles.storyContextBoxMe : styles.storyContextBoxThem]}
-              onPress={() => onOpenStory && onOpenStory(storyContext.storyId)}
+              onPress={() => onOpenContent && onOpenContent(contentContext)}
               activeOpacity={0.85}
             >
-              <Ionicons name="time-outline" size={14} color={isMe ? '#fff' : '#4dabf7'} />
-              <Text style={[styles.storyContextText, isMe ? styles.storyContextTextMe : styles.storyContextTextThem]} numberOfLines={1}>
-                {storyContext.storyTitle || 'Historia'}
-              </Text>
+              <Ionicons name={contentContext.type !== 'story' ? 'document-text-outline' : 'time-outline'} size={15} color={isMe ? '#fff' : '#4dabf7'} />
+              <View style={styles.storyContextCopy}>
+                <Text style={[styles.storyContextLabel, isMe ? styles.storyContextTextMe : styles.storyContextTextThem]}>
+                  {contentContext.type !== 'story' ? 'Publicación' : 'Historia'}
+                </Text>
+                <Text style={[styles.storyContextText, isMe ? styles.storyContextTextMe : styles.storyContextTextThem]} numberOfLines={2}>
+                  {contentContext.title}
+                </Text>
+              </View>
               <Ionicons name="arrow-forward" size={12} color={isMe ? '#fff' : '#4dabf7'} />
             </TouchableOpacity>
           ) : null}
@@ -183,7 +210,14 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigat
 };
 
 const ChatDetailScreen = ({ route, navigation }) => {
-  const { chatId, type, title, avatar, storyReplyContext: incomingStoryReplyContext } = route.params;
+  const {
+    chatId,
+    type,
+    title,
+    avatar,
+    initialMessage = '',
+    storyReplyContext: incomingStoryReplyContext,
+  } = route.params;
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -234,13 +268,14 @@ const ChatDetailScreen = ({ route, navigation }) => {
 
   useEffect(() => {
     setStoryReplyContext(incomingStoryReplyContext || null);
-  }, [incomingStoryReplyContext]);
+    setNewMessage(initialMessage || '');
+  }, [incomingStoryReplyContext, initialMessage]);
 
   const fetchGroupInfo = async () => {
     if (type !== 'group') return;
     try {
       const res = await api.get('massaging/groupss/');
-      const group = res.data.find(g => g.id === chatId);
+      const group = res.data.find((item) => String(item.id) === String(chatId));
       if (group) {
         setGroupMembers(group.members || []);
         setGroupCreatorId(group.created_by);
@@ -388,16 +423,16 @@ const ChatDetailScreen = ({ route, navigation }) => {
   };
 
   const handleSend = async () => {
-    if (!newMessage.trim() && !selectedImage) return;
+    if (!newMessage.trim() && !selectedImage && !storyReplyContext) return;
     
     try {
       const formData = new FormData();
-      const hasStoryContext = !!storyReplyContext && !replyTo;
-      const contextLine = hasStoryContext
-        ? buildStoryReplyContextLine(storyReplyContext)
+      const hasSharedContentContext = !!storyReplyContext && !replyTo;
+      const contextLine = hasSharedContentContext
+        ? buildSharedContentContextLine(storyReplyContext)
         : '';
       const plainMessage = newMessage.trim();
-      const finalMessageContent = hasStoryContext
+      const finalMessageContent = hasSharedContentContext
         ? (plainMessage ? `${contextLine}\n${plainMessage}` : contextLine)
         : plainMessage;
       if (finalMessageContent) formData.append("content", finalMessageContent);
@@ -475,13 +510,34 @@ const ChatDetailScreen = ({ route, navigation }) => {
     });
   };
 
-  const handleOpenStoryFromMessage = useCallback((storyId) => {
-    const parentNavigation = navigation.getParent();
-    if (parentNavigation) {
-      parentNavigation.navigate('Stories', { openStoryId: storyId || null });
+  const handleOpenContentFromMessage = useCallback((context) => {
+    if (!context?.id) return;
+    if (context.type === 'shared-task') {
+      const parentNavigation = navigation.getParent();
+      const targetNavigation = parentNavigation || navigation;
+      targetNavigation.navigate('Tasks', {
+        screen: 'SharedTaskDetail',
+        params: { sharedTaskId: context.id },
+      });
       return;
     }
-    navigation.navigate('Stories', { openStoryId: storyId || null });
+
+    if (context.type === 'task') {
+      const parentNavigation = navigation.getParent();
+      const targetNavigation = parentNavigation || navigation;
+      targetNavigation.navigate('Tasks', {
+        screen: 'TaskDetail',
+        params: { taskId: context.id },
+      });
+      return;
+    }
+
+    const parentNavigation = navigation.getParent();
+    if (parentNavigation) {
+      parentNavigation.navigate('Stories', { openStoryId: context.id });
+      return;
+    }
+    navigation.navigate('Stories', { openStoryId: context.id });
   }, [navigation]);
 
   const renderMessage = ({ item }) => {
@@ -497,7 +553,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
         onReply={setReplyTo} 
         onDelete={handleDeleteMessage} 
         onNavigateToProfile={navigateToProfile}
-        onOpenStory={handleOpenStoryFromMessage}
+        onOpenContent={handleOpenContentFromMessage}
         navigation={navigation}
       />
     );
@@ -556,9 +612,11 @@ const ChatDetailScreen = ({ route, navigation }) => {
       {storyReplyContext && !replyTo && (
         <View style={styles.replyIndicatorContainer}>
           <View style={styles.replyIndicatorTextContainer}>
-            <Text style={styles.replyIndicatorSender}>Respondiendo historia</Text>
+            <Text style={styles.replyIndicatorSender}>
+              {storyReplyContext.taskId ? 'Compartiendo publicación' : 'Respondiendo historia'}
+            </Text>
             <Text style={styles.replyIndicatorContent} numberOfLines={1}>
-              {storyReplyContext.storyTitle || 'Historia'} • #{String(storyReplyContext.storyId || '').slice(0, 8)}
+              {storyReplyContext.taskTitle || storyReplyContext.storyTitle || 'Contenido'}
             </Text>
           </View>
           <TouchableOpacity onPress={() => setStoryReplyContext(null)}>
@@ -590,9 +648,9 @@ const ChatDetailScreen = ({ route, navigation }) => {
           multiline
         />
         <TouchableOpacity 
-          style={[styles.sendBtn, (!newMessage.trim() && !selectedImage) && { backgroundColor: '#ccc' }]} 
+          style={[styles.sendBtn, (!newMessage.trim() && !selectedImage && !storyReplyContext) && { backgroundColor: '#ccc' }]} 
           onPress={handleSend}
-          disabled={!newMessage.trim() && !selectedImage}
+          disabled={!newMessage.trim() && !selectedImage && !storyReplyContext}
         >
           <Ionicons name="send" size={18} color="#fff" />
         </TouchableOpacity>
@@ -742,6 +800,8 @@ const styles = StyleSheet.create({
   messageWrapperThem: { justifyContent: 'flex-start' },
   messageAvatar: { width: 28, height: 28, borderRadius: 14, marginRight: 8, marginBottom: 4 },
   messageBubble: { maxWidth: '75%', padding: 12, borderRadius: 20 },
+  sharedContentMessageContainer: { width: '50%' },
+  sharedContentMessageBubble: { width: '100%', maxWidth: '100%' },
   messageBubbleMe: { backgroundColor: '#4dabf7', borderBottomRightRadius: 4 },
   messageBubbleThem: { backgroundColor: '#fff', borderBottomLeftRadius: 4, borderWidth: 1, borderColor: '#eee' },
   messageSenderNameWrap: { marginBottom: 2 },
@@ -769,7 +829,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#f3f8ff',
     borderColor: '#d6e9ff',
   },
-  storyContextText: { fontSize: 13, fontWeight: '600', flex: 1 },
+  storyContextCopy: { flex: 1 },
+  storyContextLabel: { fontSize: 10, fontWeight: '700', opacity: 0.78, marginBottom: 1 },
+  storyContextText: { fontSize: 13, fontWeight: '600' },
   storyContextTextMe: { color: '#fff' },
   storyContextTextThem: { color: '#297fce' },
   messageImage: { width: 180, height: 180, borderRadius: 10, marginTop: 8 },

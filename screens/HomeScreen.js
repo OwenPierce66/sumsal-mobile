@@ -4,6 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import api, { clearAuthData } from '../api'; // Importamos lo que realmente usamos
 import { AuthContext } from '../App';
 import { Ionicons } from '@expo/vector-icons';
+import { NotificationsContext } from '../contexts/NotificationsContext';
 
 const HomeScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
@@ -11,6 +12,7 @@ const HomeScreen = ({ navigation }) => {
 
   // ✅ OBTENEMOS EL USUARIO Y SIGNOUT DEL CONTEXTO GLOBAL
   const { user, signOut } = useContext(AuthContext);
+  const { unreadCount, refreshUnreadCount } = useContext(NotificationsContext);
 
   const fetchData = useCallback(async () => {
     try {
@@ -34,6 +36,12 @@ const HomeScreen = ({ navigation }) => {
       fetchData();
     }
   }, [fetchData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshUnreadCount();
+    }, [refreshUnreadCount])
+  );
 
 const handleLogout = () => {
     // Esto borra los tokens y le avisa a App.js que te expulse al Login de inmediato
@@ -68,6 +76,19 @@ const handleLogout = () => {
           Sumsal{user?.first_name ? `, ${user.first_name}` : ''} 🖤
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Notifications')}
+            style={styles.notificationButton}
+          >
+            <Ionicons name={unreadCount > 0 ? 'notifications' : 'notifications-outline'} size={26} color="#333" />
+            {unreadCount > 0 ? (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => navigation.navigate('ChatList')}>
             <Ionicons name="chatbubbles-outline" size={26} color="#333" />
           </TouchableOpacity>
@@ -123,6 +144,22 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
   },
+  notificationButton: { position: 'relative', padding: 2 },
+  notificationBadge: {
+    position: 'absolute',
+    right: -7,
+    top: -5,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ff4d6d',
+    borderWidth: 1.5,
+    borderColor: '#f5f5f5',
+  },
+  notificationBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -294,6 +294,7 @@ const ReelsScreen = () => {
   const [initialTier, setInitialTier] = useState('all');
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [taskToShare, setTaskToShare] = useState(null);
+  const [taskShareDetails, setTaskShareDetails] = useState(null);
   const [expandedDescriptions, setExpandedDescriptions] = useState({});
   const [viewStateById, setViewStateById] = useState({});
   const [actionModalVisible, setActionModalVisible] = useState(false);
@@ -734,11 +735,15 @@ const ReelsScreen = () => {
     } catch (error) {}
   }, []);
 
-  const openShareModal = useCallback((taskId) => {
-    // Aseguramos que siempre pasamos solo el ID (string/uuid)
-    setTaskToShare(taskId?.task?.id || taskId?.id || taskId);
+  const openShareModal = useCallback((taskOrId) => {
+    const reelItem = typeof taskOrId === 'object'
+      ? taskOrId
+      : reels.find((item) => String(item.id) === String(taskOrId));
+    const sourceTask = reelItem?.task || reelItem || null;
+    setTaskToShare(sourceTask?.id || taskOrId);
+    setTaskShareDetails(sourceTask);
     setShareModalVisible(true);
-  }, []);
+  }, [reels]);
   
   const handleShareSuccess = useCallback((sharedTaskResponse) => {
     if (!taskToShare) {
@@ -920,6 +925,8 @@ const ReelsScreen = () => {
           taskId={taskToShare}
           onShareSuccess={handleShareSuccess}
           navigation={navigation}
+          taskTitle={taskShareDetails?.title || 'Publicación'}
+          taskDescription={taskShareDetails?.description || ''}
         />
         
         <Modal visible={actionModalVisible} transparent animationType='fade' onRequestClose={() => setActionModalVisible(false)}>
@@ -936,9 +943,9 @@ const ReelsScreen = () => {
                     <Ionicons name={selectedActionTask.is_favorited ? "bookmark" : "bookmark-outline"} size={20} color={selectedActionTask.is_favorited ? "#f1c40f" : "#555"} />
                     <Text style={styles.actionText}>{selectedActionTask.is_favorited ? "Quitar de guardados" : "Guardar"}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); openShareModal(selectedActionTask.id); }}>
-                    <Ionicons name='share-social-outline' size={20} color='#555' />
-                    <Text style={styles.actionText}>Compartir</Text>
+                  <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); openShareModal(selectedActionTask); }}>
+                    <Ionicons name='paper-plane-outline' size={20} color='#555' />
+                    <Text style={styles.actionText}>Enviar o compartir</Text>
                   </TouchableOpacity>
                   {selectedActionTask.user && currentUserId !== selectedActionTask.user.id && (
                     <>

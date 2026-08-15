@@ -2,7 +2,7 @@ import React from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-const ShareActionMenu = ({ isVisible, onClose, onShare, onRepost, onShareToStory }) => {
+const ShareActionMenu = ({ isVisible, onClose, onShare, onSendMessage, onRepost, onShareToStory }) => {
   if (!isVisible) {
     return null;
   }
@@ -21,6 +21,11 @@ const ShareActionMenu = ({ isVisible, onClose, onShare, onRepost, onShareToStory
           <TouchableOpacity style={styles.option} onPress={onShare}>
             <Ionicons name="chatbubble-ellipses-outline" size={24} color="#333" />
             <Text style={styles.optionText}>Compartir con descripción</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.option} onPress={onSendMessage}>
+            <Ionicons name="paper-plane-outline" size={24} color="#333" />
+            <Text style={styles.optionText}>Enviar por mensaje</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.option} onPress={onRepost}>

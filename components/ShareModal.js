@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ActivityIndicator, Platform, KeyboardAvoidingView, ScrollView, Alert, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api, { getImageUrl } from '../api';
-import TouchableUsername from './TouchableUsername';
 
 const resolveFavoriteUserName = (user) => {
   if (!user) return 'Usuario';
@@ -20,6 +19,8 @@ const ShareModal = ({
   navigation,
   taskTitle = 'esta publicación',
   taskDescription = '',
+  messageTaskId,
+  messageTaskType = 'task',
 }) => {
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -129,23 +130,31 @@ const ShareModal = ({
       return;
     }
 
-    const messageText = description.trim()
-      ? `${description.trim()}\n↪ ${taskTitle}`
-      : `↪ ${taskTitle}`;
-
-    navigation.navigate('ChatDetail', {
+    const messageText = description.trim();
+    const chatParams = {
       chatId: user.id,
       type: 'direct',
       title: resolveFavoriteUserName(user),
       avatar: getImageUrl(user.user_image || user.avatar || user.profile_image),
       initialMessage: messageText,
       storyReplyContext: {
-        taskId,
+        taskId: messageTaskId || taskId,
+        taskType: messageTaskType,
         taskTitle,
         taskDescription,
-        sourceType: 'share-modal',
+        sourceType: messageTaskType,
       },
-    });
+    };
+
+    const availableRoutes = navigation.getState?.()?.routeNames || [];
+    if (availableRoutes.includes('ChatDetail')) {
+      navigation.navigate('ChatDetail', chatParams);
+    } else {
+      navigation.navigate('HomeTab', {
+        screen: 'ChatDetail',
+        params: chatParams,
+      });
+    }
 
     resetAndClose();
     Alert.alert('Listo', 'Se abrió la conversación para enviarla al favorito.');
@@ -166,49 +175,55 @@ const ShareModal = ({
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>Añade un comentario (opcional):</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="¿Qué opinas sobre esto?"
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            numberOfLines={4}
-            editable={!loading}
-          />
+          <ScrollView
+            style={styles.modalScroll}
+            contentContainerStyle={styles.modalScrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={styles.label}>Añade un comentario (opcional):</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="¿Qué opinas sobre esto?"
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              numberOfLines={4}
+              editable={!loading}
+            />
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-          <View style={styles.actionGroup}>
-            <TouchableOpacity
-              style={[styles.primaryButton, styles.storyButton, loading && styles.buttonDisabled]}
-              onPress={handleShareToStory}
-              disabled={loading}
-            >
-              <Ionicons name="image-outline" size={18} color="#fff" />
-              <Text style={styles.primaryButtonText}>Compartir en mi historia</Text>
-            </TouchableOpacity>
+            <View style={styles.actionGroup}>
+              <TouchableOpacity
+                style={[styles.primaryButton, styles.storyButton, loading && styles.buttonDisabled]}
+                onPress={handleShareToStory}
+                disabled={loading}
+              >
+                <Ionicons name="image-outline" size={18} color="#fff" />
+                <Text style={styles.primaryButtonText}>Compartir en mi historia</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.primaryButton, styles.publishButton, loading && styles.buttonDisabled]}
-              onPress={handleSharePublication}
-              disabled={loading}
-            >
-              <Ionicons name="share-social-outline" size={18} color="#fff" />
-              <Text style={styles.primaryButtonText}>Compartir como publicación</Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                style={[styles.primaryButton, styles.publishButton, loading && styles.buttonDisabled]}
+                onPress={handleSharePublication}
+                disabled={loading}
+              >
+                <Ionicons name="share-social-outline" size={18} color="#fff" />
+                <Text style={styles.primaryButtonText}>Compartir como publicación</Text>
+              </TouchableOpacity>
+            </View>
 
-          <View style={styles.divider} />
+            <View style={styles.divider} />
 
-          <Text style={styles.sectionTitle}>Enviar a un favorito</Text>
-          {loadingFavorites ? (
-            <View style={styles.favLoading}><ActivityIndicator size="small" color="#4dabf7" /></View>
-          ) : favorites.length === 0 ? (
-            <Text style={styles.emptyText}>No tienes favoritos aún.</Text>
-          ) : (
-            <ScrollView style={styles.favoriteList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-              {favorites.map((favorite) => {
+            <Text style={styles.sectionTitle}>Enviar por mensaje</Text>
+            {loadingFavorites ? (
+              <View style={styles.favLoading}><ActivityIndicator size="small" color="#4dabf7" /></View>
+            ) : favorites.length === 0 ? (
+              <Text style={styles.emptyText}>No tienes favoritos aún.</Text>
+            ) : (
+              <View>
+                {favorites.map((favorite) => {
                 const user = getFavoriteUser(favorite);
                 const username = resolveFavoriteUserName(user);
                 const avatar = getImageUrl(user?.user_image || user?.avatar || user?.profile_image);
@@ -217,25 +232,15 @@ const ShareModal = ({
                   <TouchableOpacity key={user?.id || favorite?.id || username} style={styles.favoriteRow} onPress={() => handleSendToFavorite(user)}>
                     <Image source={{ uri: avatar || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(username) }} style={styles.favoriteAvatar} />
                     <View style={styles.favoriteInfo}>
-                      {user && user.id ? (
-                        <TouchableUsername
-                          username={username}
-                          userId={user.id}
-                          userImage={avatar || null}
-                          navigation={navigation}
-                          textStyle={styles.favoriteName}
-                          numberOfLines={1}
-                        />
-                      ) : (
-                        <Text style={styles.favoriteName}>{username}</Text>
-                      )}
+                      <Text style={styles.favoriteName} numberOfLines={1}>{username}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color="#999" />
                   </TouchableOpacity>
                 );
-              })}
-            </ScrollView>
-          )}
+                })}
+              </View>
+            )}
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -256,11 +261,14 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingHorizontal: 16,
     paddingBottom: 14,
-    width: '88%',
-    maxHeight: '46%',
+    width: '94%',
+    maxWidth: 520,
+    maxHeight: '84%',
     alignSelf: 'center',
-    marginBottom: 18,
+    marginBottom: 8,
   },
+  modalScroll: { flexShrink: 1 },
+  modalScrollContent: { paddingBottom: 8 },
   modalHandle: {
     alignSelf: 'center',
     width: 46,
@@ -346,9 +354,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#777',
     paddingVertical: 8,
-  },
-  favoriteList: {
-    maxHeight: 170,
   },
   favoriteRow: {
     flexDirection: 'row',

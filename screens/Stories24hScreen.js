@@ -128,6 +128,9 @@ const Stories24hScreen = ({ route }) => {
   const [muted, setMuted] = useState(true);
   const [progress, setProgress] = useState(0);
   const [sourcePromptVisible, setSourcePromptVisible] = useState(false);
+  const [sourcePromptPosition, setSourcePromptPosition] = useState({ left: 12, top: 12 });
+  const [storyReplyText, setStoryReplyText] = useState('');
+  const [sendingStoryReply, setSendingStoryReply] = useState(false);
 
   const [likesModalVisible, setLikesModalVisible] = useState(false);
   const [likesModalUrl, setLikesModalUrl] = useState('');
@@ -153,6 +156,10 @@ const Stories24hScreen = ({ route }) => {
   const progressTimerRef = useRef(null);
   const lastFinishedStoryIdRef = useRef(null);
   const pausedBeforeSourcePromptRef = useRef(false);
+  const sharedStoryCardSizeRef = useRef({ width: 0, height: 0 });
+  const viewerVideoRef = useRef(null);
+  const pausedBeforeReplyRef = useRef(false);
+  const storyReplyInputRef = useRef(null);
 
   const resetUploadState = useCallback(() => {
     if (Platform.OS === 'web' && uploadUri && uploadUri.startsWith('blob:')) {
@@ -381,6 +388,18 @@ const Stories24hScreen = ({ route }) => {
     event?.stopPropagation?.();
     if (!originalTaskId) return;
 
+    const { locationX, locationY } = event?.nativeEvent || {};
+    const { width, height } = sharedStoryCardSizeRef.current;
+    const promptWidth = 42;
+    const promptHeight = 30;
+    const edgeGap = 8;
+    const tapX = Number.isFinite(locationX) ? locationX : width / 2;
+    const tapY = Number.isFinite(locationY) ? locationY : height / 2;
+
+    setSourcePromptPosition({
+      left: Math.max(edgeGap, Math.min(tapX - (promptWidth / 2), width - promptWidth - edgeGap)),
+      top: Math.max(edgeGap, Math.min(tapY - promptHeight - 12, height - promptHeight - edgeGap)),
+    });
     pausedBeforeSourcePromptRef.current = paused;
     setPaused(true);
     setSourcePromptVisible(true);
@@ -507,6 +526,24 @@ const Stories24hScreen = ({ route }) => {
     return () => clearStoryTimers();
   }, [viewerOpen, activeStory?.id, activeMedia?.type, paused, nextStory, clearStoryTimers, activeUserIndex, activeStoryIndex]);
 
+  useEffect(() => {
+    if (!viewerOpen || activeMedia?.type !== 'video' || !viewerVideoRef.current) return;
+
+    const syncVideoPlayback = async () => {
+      try {
+        if (paused) {
+          await viewerVideoRef.current.pauseAsync();
+        } else {
+          await viewerVideoRef.current.playAsync();
+        }
+      } catch (error) {
+        console.warn('[Stories24hScreen] No se pudo sincronizar la pausa del video:', error);
+      }
+    };
+
+    syncVideoPlayback();
+  }, [viewerOpen, activeStory?.id, activeMedia?.type, paused]);
+
   const updateStoryById = useCallback((storyId, updater) => {
     setStories((prev) => prev.map((story) => {
       if (String(story.id) !== String(storyId)) return story;
@@ -517,6 +554,7 @@ const Stories24hScreen = ({ route }) => {
   useEffect(() => {
     lastFinishedStoryIdRef.current = null;
     setSourcePromptVisible(false);
+    setStoryReplyText('');
   }, [activeStory?.id]);
 
   useEffect(() => {
@@ -840,22 +878,49 @@ const Stories24hScreen = ({ route }) => {
     }
   }, [activeStory, shareToStoryCaption, closeShareModal]);
 
-  const handleReplyToCreator = useCallback(() => {
-    if (!activeStory?.user) return;
-    setViewerOpen(false);
-    navigation.navigate('ChatDetail', {
-      chatId: activeStory.user.id,
-      type: 'direct',
-      title: activeStory.user.username || 'Usuario',
-      avatar: getImageUrl(activeStory.user.user_image),
-      storyReplyContext: {
-        storyId: activeStory.id,
-        storyTitle: activeStory.title || 'Historia',
-        storyDescription: activeStory.description || '',
-        storyMediaType: activeStory?._storyMedia?.type || null,
-      },
-    });
-  }, [activeStory, navigation]);
+  const handleStoryReplyFocus = useCallback(() => {
+    pausedBeforeReplyRef.current = paused;
+    setPaused(true);
+  }, [paused]);
+
+  const handleStoryReplyBlur = useCallback(() => {
+    if (!sendingStoryReply && !sourcePromptVisible) {
+      setPaused(pausedBeforeReplyRef.current);
+    }
+  }, [sendingStoryReply, sourcePromptVisible]);
+
+  const handleSendStoryReply = useCallback(async () => {
+    const receiverId = activeStory?.user?.id || activeStory?.user_id;
+    const message = storyReplyText.trim();
+    if (!receiverId || !activeStory?.id || !message || sendingStoryReply) return;
+
+    setSendingStoryReply(true);
+    try {
+      const storyTitle = String(activeStory.title || 'Historia').replace(/\s+/g, ' ').trim();
+      const formData = new FormData();
+      formData.append(
+        'content',
+        `↪ Respuesta a tu historia: ${storyTitle} [story:${activeStory.id}]\n${message}`
+      );
+      formData.append('receiver', receiverId);
+
+      await api.post('massaging/messages/', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      setStoryReplyText('');
+      storyReplyInputRef.current?.blur?.();
+      setPaused(pausedBeforeReplyRef.current);
+    } catch (error) {
+      const backendError =
+        error?.response?.data?.detail
+        || error?.response?.data?.error
+        || 'No se pudo enviar la respuesta.';
+      Alert.alert('Error', String(backendError));
+    } finally {
+      setSendingStoryReply(false);
+    }
+  }, [activeStory, storyReplyText, sendingStoryReply]);
 
   return (
     <View style={styles.container}>
@@ -967,6 +1032,10 @@ const Stories24hScreen = ({ route }) => {
                         styles.sharedStoryCard,
                         pressed && styles.sharedStoryCardPressed,
                       ]}
+                      onLayout={(event) => {
+                        const { width, height } = event.nativeEvent.layout;
+                        sharedStoryCardSizeRef.current = { width, height };
+                      }}
                       onPress={(event) => {
                         event?.stopPropagation?.();
                         if (sourcePromptVisible) dismissSharedStorySourcePrompt(event);
@@ -980,6 +1049,7 @@ const Stories24hScreen = ({ route }) => {
                       <View style={styles.sharedStoryMediaFrame}>
                         {activeMedia.type === 'video' ? (
                           <Video
+                            ref={viewerVideoRef}
                             key={`viewer-video-${activeStory.id}`}
                             source={{ uri: activeMedia.src }}
                             style={styles.sharedStoryMediaVideo}
@@ -1008,19 +1078,12 @@ const Stories24hScreen = ({ route }) => {
                     </Pressable>
 
                     {sourcePromptVisible && originalTaskId ? (
-                      <View style={styles.sharedStorySourcePrompt}>
-                        <Text style={styles.sharedStorySourcePromptText}>¿Ver la publicación?</Text>
+                      <View style={[styles.sharedStorySourcePrompt, sourcePromptPosition]}>
                         <TouchableOpacity
                           style={styles.sharedStorySourcePromptButton}
                           onPress={openSharedStorySource}
                         >
                           <Text style={styles.sharedStorySourcePromptButtonText}>Ir</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.sharedStorySourcePromptClose}
-                          onPress={dismissSharedStorySourcePrompt}
-                        >
-                          <Ionicons name="close" size={15} color="#ddd" />
                         </TouchableOpacity>
                       </View>
                     ) : null}
@@ -1041,6 +1104,7 @@ const Stories24hScreen = ({ route }) => {
                   <>
                     {activeMedia.type === 'video' ? (
                       <Video
+                        ref={viewerVideoRef}
                         key={`viewer-video-${activeStory.id}`}
                         source={{ uri: activeMedia.src }}
                         style={styles.media}
@@ -1068,37 +1132,72 @@ const Stories24hScreen = ({ route }) => {
               ) : null}
 
               <View style={styles.viewerFooter}>
-                <TouchableOpacity style={styles.actionBtn} onPress={handleToggleLike}>
-                  <Ionicons name={activeStory.user_has_liked ? 'heart' : 'heart-outline'} size={22} color={activeStory.user_has_liked ? '#ff4d6d' : '#fff'} />
-                  <Text style={styles.actionCount}>{activeStory.likes_count || 0}</Text>
-                </TouchableOpacity>
+                <View style={styles.actionBtn}>
+                  <TouchableOpacity style={styles.actionIconButton} onPress={handleToggleLike}>
+                    <Ionicons name={activeStory.user_has_liked ? 'heart' : 'heart-outline'} size={22} color={activeStory.user_has_liked ? '#ff4d6d' : '#fff'} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.actionCountButton}
+                    onPress={() => handleShowLikes(activeStory.id)}
+                    disabled={!isOwnActiveStory}
+                  >
+                    <Text style={[styles.actionCount, isOwnActiveStory && styles.actionCountInteractive]}>
+                      {activeStory.likes_count || 0}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
                 {!isOwnActiveStory ? (
-                  <TouchableOpacity style={styles.actionBtn} onPress={handleReplyToCreator}>
-                    <Ionicons name="chatbubble-outline" size={22} color="#fff" />
-                    <Text style={styles.actionCount}>Responder</Text>
-                  </TouchableOpacity>
+                  <View style={styles.storyReplyComposer}>
+                    <TextInput
+                      ref={storyReplyInputRef}
+                      value={storyReplyText}
+                      onChangeText={setStoryReplyText}
+                      onFocus={handleStoryReplyFocus}
+                      onBlur={handleStoryReplyBlur}
+                      onSubmitEditing={handleSendStoryReply}
+                      editable={!sendingStoryReply}
+                      placeholder="Responder historia..."
+                      placeholderTextColor="#aaa"
+                      returnKeyType="send"
+                      blurOnSubmit={false}
+                      style={styles.storyReplyInput}
+                    />
+                    <TouchableOpacity
+                      style={[
+                        styles.storyReplySend,
+                        (!storyReplyText.trim() || sendingStoryReply) && styles.storyReplySendDisabled,
+                      ]}
+                      onPress={handleSendStoryReply}
+                      disabled={!storyReplyText.trim() || sendingStoryReply}
+                    >
+                      {sendingStoryReply ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Ionicons name="send" size={16} color="#fff" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
                 ) : null}
-                <TouchableOpacity style={styles.actionBtn} onPress={() => openShareModal(activeStory.id)}>
-                  <Ionicons name="share-social-outline" size={22} color="#fff" />
-                  <Text style={styles.actionCount}>{activeStory.share_count || 0}</Text>
-                </TouchableOpacity>
+                <View style={styles.actionBtn}>
+                  <TouchableOpacity style={styles.actionIconButton} onPress={() => openShareModal(activeStory.id)}>
+                    <Ionicons name="share-social-outline" size={22} color="#fff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.actionCountButton}
+                    onPress={() => handleShowShares(activeStory.id)}
+                    disabled={!isOwnActiveStory}
+                  >
+                    <Text style={[styles.actionCount, isOwnActiveStory && styles.actionCountInteractive]}>
+                      {activeStory.share_count || 0}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
                 <TouchableOpacity style={styles.actionBtn} onPress={() => setPaused((prev) => !prev)}>
                   <Ionicons name={paused ? 'play' : 'pause'} size={22} color="#fff" />
                 </TouchableOpacity>
               </View>
-
-              {isOwnActiveStory ? (
-                <View style={styles.secondaryActions}>
-                  <TouchableOpacity onPress={() => handleShowLikes(activeStory.id)}>
-                    <Text style={styles.secondaryActionText}>Ver likes</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => handleShowShares(activeStory.id)}>
-                    <Text style={styles.secondaryActionText}>Ver compartidos</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : null}
             </>
           ) : (
             <View style={styles.viewerLoading}>
@@ -1372,9 +1471,9 @@ const styles = StyleSheet.create({
   viewerRoot: { flex: 1, backgroundColor: '#000' },
   progressBarWrap: {
     position: 'absolute',
-    top: 56,
-    left: 10,
-    right: 10,
+    top: Platform.OS === 'web' ? 10 : 30,
+    left: 8,
+    right: 8,
     zIndex: 10,
     flexDirection: 'row',
     gap: 6,
@@ -1383,9 +1482,9 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: '#fff' },
   viewerHeader: {
     position: 'absolute',
-    top: 66,
-    left: 10,
-    right: 10,
+    top: Platform.OS === 'web' ? 20 : 40,
+    left: 8,
+    right: 8,
     zIndex: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1412,8 +1511,8 @@ const styles = StyleSheet.create({
   viewerTime: { color: '#ccc', fontSize: 12, marginTop: 2 },
   mediaWrap: { flex: 1 },
   sharedStoryMediaWrap: {
-    paddingTop: 64,
-    paddingBottom: 128,
+    paddingTop: Platform.OS === 'web' ? 30 : 48,
+    paddingBottom: 72,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#000',
@@ -1444,42 +1543,26 @@ const styles = StyleSheet.create({
   },
   sharedStorySourcePrompt: {
     position: 'absolute',
-    top: 14,
-    alignSelf: 'center',
+    width: 42,
+    height: 30,
     zIndex: 5,
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingLeft: 12,
-    paddingRight: 5,
-    paddingVertical: 5,
+    justifyContent: 'center',
     borderRadius: 999,
-    backgroundColor: 'rgba(12,12,12,0.88)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-  },
-  sharedStorySourcePromptText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '700',
+    overflow: 'hidden',
   },
   sharedStorySourcePromptButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    width: '100%',
+    height: '100%',
     borderRadius: 999,
     backgroundColor: '#4dabf7',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sharedStorySourcePromptButtonText: {
     color: '#fff',
     fontSize: 11,
     fontWeight: '800',
-  },
-  sharedStorySourcePromptClose: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   sharedStoryMediaFrame: {
     flex: 1,
@@ -1502,9 +1585,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 16,
-    backgroundColor: 'rgba(8,8,8,0.38)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(8,8,8,0.32)',
+    borderTopWidth: 0,
   },
   sharedStoryAuthorRow: {
     position: 'absolute',
@@ -1546,7 +1628,7 @@ const styles = StyleSheet.create({
   tapZone: { flex: 1 },
   storyDescription: {
    position: 'absolute',
-   bottom: 110,
+   bottom: 76,
    left: '50%',
    width: '60%',
    maxWidth: 220,
@@ -1570,36 +1652,78 @@ const styles = StyleSheet.create({
   sharedByNameWrapper: { marginLeft: 0 },
   viewerFooter: {
     position: 'absolute',
-    bottom: 74,
-    left: 10,
-    right: 10,
+    bottom: 18,
+    left: 12,
+    right: 12,
     zIndex: 12,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
     alignItems: 'center',
   },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.35)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
-    paddingVertical: 8,
-    paddingHorizontal: 11,
+    minWidth: 42,
+    minHeight: 42,
+    paddingHorizontal: 5,
     borderRadius: 999,
   },
-  actionCount: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  secondaryActions: {
-    position: 'absolute',
-    bottom: 24,
-    left: 14,
-    right: 14,
-    zIndex: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  actionIconButton: {
+    width: 34,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  secondaryActionText: { color: '#ddd', fontSize: 13, fontWeight: '600' },
+  actionCountButton: {
+    minWidth: 28,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingRight: 5,
+  },
+  actionCount: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  actionCountInteractive: {
+    color: '#8ec5ff',
+    textDecorationLine: 'underline',
+  },
+  storyReplyComposer: {
+    flex: 1,
+    minWidth: 104,
+    maxWidth: 176,
+    height: 42,
+    marginHorizontal: 5,
+    paddingLeft: 12,
+    paddingRight: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  storyReplyInput: {
+    flex: 1,
+    minWidth: 0,
+    color: '#fff',
+    fontSize: 12,
+    paddingVertical: 8,
+    paddingRight: 6,
+  },
+  storyReplySend: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4dabf7',
+  },
+  storyReplySendDisabled: {
+    opacity: 0.42,
+  },
   viewerLoading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   uploadOverlay: {
     flex: 1,

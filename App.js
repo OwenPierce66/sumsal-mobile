@@ -23,6 +23,8 @@ import SharedTasksScreen from './screens/SharedTasksScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import ChatListScreen from './screens/ChatListScreen';
 import ChatDetailScreen from './screens/ChatDetailScreen';
+import NotificationsScreen from './screens/NotificationsScreen';
+import { NotificationsProvider } from './contexts/NotificationsContext';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -48,6 +50,7 @@ const HomeStackNavigator = () => {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="HomeMain" component={HomeScreen} />
       <Stack.Screen name="ChatList" component={ChatListScreen} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
@@ -86,7 +89,8 @@ const ProfileStackNavigator = () => {
 
 const AuthenticatedTabs = () => {
   return (
-    <Tab.Navigator
+    <NotificationsProvider>
+      <Tab.Navigator
       backBehavior="none"
       screenOptions={({ route }) => ({
         headerShown: false,
@@ -113,7 +117,8 @@ const AuthenticatedTabs = () => {
       <Tab.Screen name="SharedTasks" component={SharedTasksStackNavigator} options={{ tabBarLabel: 'Compartidas' }} />
       <Tab.Screen name="Forum" component={ForumStackNavigator} options={{ tabBarLabel: 'Foro' }} />
       <Tab.Screen name="Profile" component={ProfileStackNavigator} options={{ tabBarLabel: 'Perfil' }} />
-    </Tab.Navigator>
+      </Tab.Navigator>
+    </NotificationsProvider>
   );
 };
 
@@ -127,6 +132,7 @@ const linking = {
             screens: {
               HomeMain: 'home',
               ChatList: 'chats',
+              Notifications: 'notifications',
               ChatDetail: 'chat/:chatId',
               UserProfile: 'user/:userId',
               TaskDetail: 'task/:taskId',
