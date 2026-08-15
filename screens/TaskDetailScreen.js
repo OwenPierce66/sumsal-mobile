@@ -10,14 +10,15 @@ import 'moment/locale/es';
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
 import ShareModal from '../components/ShareModal';
-import TieredLikesModal from './TieredLikesModal'; // ✅ 1. Importamos el modal correcto
+import TieredLikesModal from './TieredLikesModal';
+import TouchableUsername from '../components/TouchableUsername';
 
 moment.locale('es');
 
 // =====================================================================
 // COMPONENTE RECURSIVO (COMENTARIOS)
 // =====================================================================
-const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onDelete, currentUserId, expandedCommentIds, toggleExpand }) => {
+const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onDelete, currentUserId, expandedCommentIds, toggleExpand, navigation }) => {
   const hasChildren = comment.children && comment.children.length > 0;
   const isExpanded = expandedCommentIds.includes(comment.id);
 
@@ -57,11 +58,16 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
             source={{ uri: getImageUrl(comment.created_by?.user_image || comment.user?.user_image) || 'https://ui-avatars.com/api/?name=Usuario' }}
             style={styles.commentAvatar}
           />
-          <View>
-            {/* âš¡ APLICAMOS EL HELPER PARA EL NOMBRE DEL COMENTARIO */}
-            <Text style={styles.commentAuthor}>
-              {getCommentAuthorName(comment)}
-            </Text>
+          <View style={{ flex: 1 }}>
+            <TouchableUsername
+              username={getCommentAuthorName(comment)}
+              userId={comment.created_by?.id || comment.user?.id || null}
+              userImage={getImageUrl(comment.created_by?.user_image || comment.user?.user_image) || null}
+              navigation={navigation}
+              style={styles.commentAuthorWrapper}
+              textStyle={styles.commentAuthor}
+              numberOfLines={1}
+            />
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Text style={styles.commentDate}>
                 {moment(comment.created_at).fromNow()}
@@ -118,6 +124,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
               currentUserId={currentUserId}
               expandedCommentIds={expandedCommentIds}
               toggleExpand={toggleExpand}
+              navigation={navigation}
             />
           ))}
         </View>
@@ -469,7 +476,15 @@ const fetchComments = useCallback(async () => {
           <View style={styles.taskAuthorHeader}>
             <Image source={{ uri: getTaskAuthorAvatar() }} style={styles.taskAuthorAvatar} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.taskAuthorName}>{getTaskAuthorName()}</Text>
+              <TouchableUsername
+                username={getTaskAuthorName()}
+                userId={task.user?.id || null}
+                userImage={getTaskAuthorAvatar() || null}
+                navigation={navigation}
+                style={styles.taskAuthorNameWrap}
+                textStyle={styles.taskAuthorName}
+                numberOfLines={1}
+              />
               <Text style={styles.taskDate}>{moment(task.created_at).format('LL')}</Text>
             </View>
             
@@ -541,6 +556,7 @@ const fetchComments = useCallback(async () => {
                 currentUserId={currentUserId}
                 expandedCommentIds={expandedCommentIds}
                 toggleExpand={toggleCommentExpansion}
+                navigation={navigation}
               />
             ))
           )}
@@ -635,6 +651,9 @@ const fetchComments = useCallback(async () => {
         onClose={() => setShareModalVisible(false)}
         taskId={taskToShare}
         onShareSuccess={handleShareSuccess}
+        navigation={navigation}
+        taskTitle={task?.title || 'esta publicación'}
+        taskDescription={task?.description || ''}
       />
     </KeyboardAvoidingView>
   );
@@ -657,6 +676,7 @@ const styles = StyleSheet.create({
   // âš¡ ESTILOS NUEVOS PARA EL AUTOR DE LA TAREA
   taskAuthorHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, paddingBottom: 0, gap: 10 },
   taskAuthorAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#eee' },
+  taskAuthorNameWrap: { flexShrink: 1 },
   taskAuthorName: { fontSize: 16, fontWeight: 'bold', color: '#333' },
   taskDate: { fontSize: 12, color: '#999' },
   dmButton: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#4dabf7', borderRadius: 20, justifyContent: 'center', alignItems: 'center', gap: 4 },
@@ -679,6 +699,7 @@ const styles = StyleSheet.create({
   commentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   commentUserInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   commentAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#eee' },
+  commentAuthorWrapper: { flexShrink: 1 },
   commentAuthor: { fontSize: 14, fontWeight: 'bold', color: '#333' },
   commentDate: { fontSize: 11, color: '#999' },
   commentLikeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },

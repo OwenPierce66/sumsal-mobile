@@ -14,6 +14,7 @@ import { Video } from 'expo-av';
 import ShareModal from '../components/ShareModal';
 import { AuthContext } from '../App';
 import ShareActionMenu from './ShareActionMenu'; // Importa el nuevo menú
+import TouchableUsername from '../components/TouchableUsername';
 
 const TasksScreen = ({ navigation }) => {
   // ✅ OBTENEMOS EL USUARIO Y ADMIN STATUS DEL CONTEXTO GLOBAL
@@ -174,6 +175,33 @@ const TasksScreen = ({ navigation }) => {
     handleCloseShareActionMenu(); // Cierra el menú de acciones
     openShareModal(selectedActionTask); // Abre el modal de compartir correcto
   };
+
+  const handleShareToStory = useCallback(async (sourceItem = null) => {
+    const taskSource = selectedActionTask;
+    if (!taskSource) return;
+
+    const taskId = taskSource.isSharedTask ? taskSource.task?.id : taskSource.id;
+    if (!taskId) {
+      Alert.alert('Error', 'No se pudo detectar la tarea para compartir a historia.');
+      return;
+    }
+
+    const payload = { task_id: taskId };
+    if (sourceItem) {
+      payload.source_item_type = sourceItem.type;
+      payload.source_item_id = sourceItem.id;
+    }
+
+    try {
+      await api.post('stories/share-task/', payload);
+      handleCloseShareActionMenu();
+      Alert.alert('Éxito', 'Se compartió en tu historia de 24 horas.');
+      navigation.navigate('Stories');
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || 'No se pudo compartir esta tarea en historia.';
+      Alert.alert('Error', errorMessage);
+    }
+  }, [selectedActionTask, navigation, handleCloseShareActionMenu]);
 
   const openActionModal = (task) => {
     setSelectedActionTask(task);
@@ -692,6 +720,23 @@ const TasksScreen = ({ navigation }) => {
     return comments.reduce((total, comment) => total + 1 + countNestedComments(comment.children || []), 0);
   };
 
+  const handleShareSubItemToStory = useCallback(async (task, section, sub) => {
+    if (!task || !sub) return;
+
+    try {
+      await api.post('stories/share-task/', {
+        task_id: task.id,
+        source_item_type: section,
+        source_item_id: sub.id,
+      });
+      Alert.alert('Éxito', 'Se compartió la aportación en tu historia de 24 horas.');
+      navigation.navigate('Stories');
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || 'No se pudo compartir esta aportación en historia.';
+      Alert.alert('Error', errorMessage);
+    }
+  }, [navigation]);
+
   const renderSubContent = (task, section) => {
     const content = task[section] || []; 
     if (content.length === 0) return <Text style={styles.noContent}>Sin datos en esta sección</Text>;
@@ -702,13 +747,21 @@ const TasksScreen = ({ navigation }) => {
 
       return (
         <View key={idx} style={styles.subItem}>
-          <Text style={styles.subItemTitle}>• {sub.title}</Text>
+          <View style={styles.subItemHeaderRow}>
+            <Text style={styles.subItemTitle}>• {sub.title}</Text>
+            <TouchableOpacity
+              style={styles.subShareButton}
+              onPress={() => handleShareSubItemToStory(task, section, sub)}
+            >
+              <Ionicons name="share-social-outline" size={15} color="#51cf66" />
+              <Text style={styles.subShareText}>Historia</Text>
+            </TouchableOpacity>
+          </View>
           
           {sub.description ? (
             <Text style={styles.subItemDesc}>{sub.description}</Text>
           ) : null}
 
-          {/* RENDERIZAMOS CON LA URI PROCESADA Y FIX PARA WEB */}
           {finalUri && (
             <Image 
               source={{ uri: finalUri }} 
@@ -737,7 +790,16 @@ const TasksScreen = ({ navigation }) => {
       <View style={styles.taskCard}>
         <View style={styles.sharedByHeader}>
           <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
-            <Text style={styles.sharedByName}>{getSharerName(shared.shared_by)} compartió</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <TouchableUsername
+                username={getSharerName(shared.shared_by)}
+                userId={shared.shared_by?.id}
+                userImage={getImageUrl(shared.shared_by?.user_image)}
+                navigation={navigation}
+                textStyle={styles.sharedByName}
+              />
+              <Text style={styles.sharedByName}>compartió</Text>
+            </View>
             <Text style={styles.sharedDate}>{moment(shared.created_at).fromNow()}</Text>
           </View>
           <TouchableOpacity onPress={() => openActionModal({...shared, isSharedTask: true})}>
@@ -760,15 +822,18 @@ const TasksScreen = ({ navigation }) => {
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.taskTitle}>{task.title}</Text>
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-              onPress={() => handleShowProfileLikes(task.user?.id)}
-            >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Text style={[styles.taskUser, { color: getUserStatusColor(task.user) }]}>{getAuthorName(task)}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <TouchableUsername
+                    username={getAuthorName(task)}
+                    userId={task.user?.id}
+                    userImage={getImageUrl(task.user?.user_image)}
+                    navigation={navigation}
+                    textStyle={[styles.taskUser, { color: getUserStatusColor(task.user) }]}
+                  />
                   {getUserStatusIcon(task.user) && <Ionicons name={getUserStatusIcon(task.user)} size={14} color={getUserStatusColor(task.user)} />}
               </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(task.created_at).fromNow()}</Text>
-              </TouchableOpacity>
+              </View>
             </View>
             <TouchableOpacity onPress={() => openActionModal({ ...task, isSharedTask: false })}>
               <Ionicons name="ellipsis-vertical" size={20} color="#999" />
@@ -856,11 +921,17 @@ const TasksScreen = ({ navigation }) => {
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <Text style={styles.taskTitle}>{item.title}</Text>
-            <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} onPress={() => handleShowProfileLikes(item.user?.id)}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={[styles.taskUser, { color: getUserStatusColor(item.user) }]}>{getAuthorName(item)}</Text>
+                <TouchableUsername
+                  username={getAuthorName(item)}
+                  userId={item.user?.id}
+                  userImage={getImageUrl(item.user?.user_image)}
+                  navigation={navigation}
+                  textStyle={[styles.taskUser, { color: getUserStatusColor(item.user) }]}
+                />
                 {getUserStatusIcon(item.user) && <Ionicons name={getUserStatusIcon(item.user)} size={14} color={getUserStatusColor(item.user)} />}
-              </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(item.created_at).fromNow()}</Text></TouchableOpacity>
+              </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(item.created_at).fromNow()}</Text></View>
             
           </View>
           <TouchableOpacity onPress={() => openActionModal(item)}>
@@ -1097,7 +1168,7 @@ const TasksScreen = ({ navigation }) => {
         onClose={handleCloseShareActionMenu}
         onShare={handleOpenShareDescriptionModal} // Abre el modal de descripción
         onRepost={handleRepost}
-        onShareToStory={() => alert("Función no implementada")} // Placeholder
+        onShareToStory={handleShareToStory}
       />
 
       {/* MODAL DE COMPARTIR (el que ya funcionaba) */}
@@ -1106,6 +1177,7 @@ const TasksScreen = ({ navigation }) => {
         onClose={() => setShareModalVisible(false)}
         taskId={taskToShare}
         onShareSuccess={handleShareSuccess}
+        navigation={navigation}
       />
     </SafeAreaView>
   );
@@ -1154,8 +1226,11 @@ const styles = StyleSheet.create({
   tabTextActive: { color: '#4dabf7' },
   dynamicContent: { minHeight: 40 },
   subItem: { marginBottom: 10, paddingLeft: 5 },
-  subItemTitle: { fontSize: 14, color: '#333', fontWeight: '500' },
+  subItemHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  subItemTitle: { fontSize: 14, color: '#333', fontWeight: '500', flex: 1 },
   subItemDesc: { fontSize: 14, color: '#666', marginTop: 4, paddingLeft: 10 },
+  subShareButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, gap: 4 },
+  subShareText: { fontSize: 11, color: '#1f9d5a', fontWeight: '700' },
   subImage: { width: '100%', height: 150, borderRadius: 12, marginTop: 8 },
   noContent: { fontSize: 12, color: '#bbb', fontStyle: 'italic', textAlign: 'center' },
   taskFooter: { marginTop: 15, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f0f0f0' },

@@ -1,42 +1,171 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ActivityIndicator, Platform, KeyboardAvoidingView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ActivityIndicator, Platform, KeyboardAvoidingView, ScrollView, Alert, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import api from '../api';
+import api, { getImageUrl } from '../api';
+import TouchableUsername from './TouchableUsername';
 
-const ShareModal = ({ visible, onClose, taskId, onShareSuccess }) => {
+const resolveFavoriteUserName = (user) => {
+  if (!user) return 'Usuario';
+  if (user.username) return user.username;
+  if (user.first_name || user.last_name) return `${user.first_name || ''} ${user.last_name || ''}`.trim();
+  if (user.email) return user.email.split('@')[0];
+  return 'Usuario';
+};
+
+const ShareModal = ({
+  visible,
+  onClose,
+  taskId,
+  onShareSuccess,
+  navigation,
+  taskTitle = 'esta publicación',
+  taskDescription = '',
+}) => {
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  const [favorites, setFavorites] = useState([]);
+  const [loadingFavorites, setLoadingFavorites] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleShare = async () => {
+  const getFavoriteUser = (favorite) => {
+    if (!favorite || typeof favorite !== 'object') return null;
+    if (favorite.username || favorite.first_name || favorite.last_name || favorite.email) return favorite;
+    if (favorite.user && (favorite.user.username || favorite.user.first_name || favorite.user.last_name || favorite.user.email)) return favorite.user;
+    if (favorite.profile && (favorite.profile.username || favorite.profile.first_name || favorite.profile.last_name || favorite.profile.email)) return favorite.profile;
+    return favorite;
+  };
+
+  useEffect(() => {
+    if (!visible) return;
+
+    const fetchFavorites = async () => {
+      try {
+        setLoadingFavorites(true);
+        const response = await api.get('pfavoritos/listar/');
+        const list = Array.isArray(response.data)
+          ? response.data
+          : Array.isArray(response.data?.results)
+            ? response.data.results
+            : Array.isArray(response.data?.favoritos)
+              ? response.data.favoritos
+              : [];
+        setFavorites(list);
+      } catch (fetchError) {
+        setFavorites([]);
+      } finally {
+        setLoadingFavorites(false);
+      }
+    };
+
+    fetchFavorites();
+  }, [visible]);
+
+  const resetAndClose = () => {
+    setDescription('');
+    setError('');
+    onClose();
+  };
+
+  const handleSharePublication = async () => {
     if (!taskId) return;
-    
+
     setLoading(true);
+    setError('');
     try {
-      const response = await api.post('shared-tasks/', { task_id: taskId, description: description.trim() });
-      setDescription('');
-      onShareSuccess(response.data); // ✅ Llama al callback con la respuesta completa de la API
-      onClose();
-    } catch (error) {
-      console.error('Error sharing task:', error.response?.data || error.message);
+      const response = await api.post('shared-tasks/', {
+        task_id: taskId,
+        description: description.trim(),
+      });
+      if (onShareSuccess) onShareSuccess(response.data);
+
+      if (navigation?.navigate) {
+        try {
+          navigation.navigate('TaskDetail', { taskId });
+        } catch (navError) {
+          // no-op: some screens don't expose that route in the current stack
+        }
+      }
+
+      resetAndClose();
+    } catch (shareError) {
+      const backendError = shareError?.response?.data?.detail || shareError?.response?.data?.error || 'No se pudo compartir la publicación.';
+      setError(Array.isArray(backendError) ? backendError.join(', ') : String(backendError));
     } finally {
       setLoading(false);
     }
   };
 
+  const handleShareToStory = async () => {
+    if (!taskId) return;
+
+    setLoading(true);
+    setError('');
+    try {
+      await api.post('stories/share-task/', {
+        task_id: taskId,
+        caption: description.trim(),
+      });
+      resetAndClose();
+      Alert.alert('Listo', 'Se compartió en tu historia.');
+      if (navigation?.navigate) {
+        try {
+          navigation.navigate('Stories24h');
+        } catch (navError) {
+          // no-op: navigation target may be unavailable in some screens
+        }
+      }
+    } catch (shareError) {
+      const backendError = shareError?.response?.data?.detail || shareError?.response?.data?.error || 'No se pudo compartir en tu historia.';
+      setError(Array.isArray(backendError) ? backendError.join(', ') : String(backendError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendToFavorite = (favoriteUser) => {
+    const user = getFavoriteUser(favoriteUser);
+    if (!user?.id || !navigation?.navigate) {
+      Alert.alert('Error', 'No se pudo abrir la conversación con este favorito.');
+      return;
+    }
+
+    const messageText = description.trim()
+      ? `${description.trim()}\n↪ ${taskTitle}`
+      : `↪ ${taskTitle}`;
+
+    navigation.navigate('ChatDetail', {
+      chatId: user.id,
+      type: 'direct',
+      title: resolveFavoriteUserName(user),
+      avatar: getImageUrl(user.user_image || user.avatar || user.profile_image),
+      initialMessage: messageText,
+      storyReplyContext: {
+        taskId,
+        taskTitle,
+        taskDescription,
+        sourceType: 'share-modal',
+      },
+    });
+
+    resetAndClose();
+    Alert.alert('Listo', 'Se abrió la conversación para enviarla al favorito.');
+  };
+
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <KeyboardAvoidingView 
-        style={styles.modalContainer} 
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={resetAndClose}>
+      <KeyboardAvoidingView
+        style={styles.modalContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : null}
       >
         <View style={styles.modalContent}>
+          <View style={styles.modalHandle} />
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Compartir publicación</Text>
-            <TouchableOpacity onPress={onClose} disabled={loading}>
+            <TouchableOpacity onPress={resetAndClose} disabled={loading}>
               <Ionicons name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
-          
+
           <Text style={styles.label}>Añade un comentario (opcional):</Text>
           <TextInput
             style={styles.input}
@@ -47,18 +176,66 @@ const ShareModal = ({ visible, onClose, taskId, onShareSuccess }) => {
             numberOfLines={4}
             editable={!loading}
           />
-          
-          <TouchableOpacity 
-            style={[styles.shareButton, loading && styles.shareButtonDisabled]} 
-            onPress={handleShare}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.shareButtonText}>Compartir</Text>
-            )}
-          </TouchableOpacity>
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <View style={styles.actionGroup}>
+            <TouchableOpacity
+              style={[styles.primaryButton, styles.storyButton, loading && styles.buttonDisabled]}
+              onPress={handleShareToStory}
+              disabled={loading}
+            >
+              <Ionicons name="image-outline" size={18} color="#fff" />
+              <Text style={styles.primaryButtonText}>Compartir en mi historia</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.primaryButton, styles.publishButton, loading && styles.buttonDisabled]}
+              onPress={handleSharePublication}
+              disabled={loading}
+            >
+              <Ionicons name="share-social-outline" size={18} color="#fff" />
+              <Text style={styles.primaryButtonText}>Compartir como publicación</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.divider} />
+
+          <Text style={styles.sectionTitle}>Enviar a un favorito</Text>
+          {loadingFavorites ? (
+            <View style={styles.favLoading}><ActivityIndicator size="small" color="#4dabf7" /></View>
+          ) : favorites.length === 0 ? (
+            <Text style={styles.emptyText}>No tienes favoritos aún.</Text>
+          ) : (
+            <ScrollView style={styles.favoriteList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+              {favorites.map((favorite) => {
+                const user = getFavoriteUser(favorite);
+                const username = resolveFavoriteUserName(user);
+                const avatar = getImageUrl(user?.user_image || user?.avatar || user?.profile_image);
+
+                return (
+                  <TouchableOpacity key={user?.id || favorite?.id || username} style={styles.favoriteRow} onPress={() => handleSendToFavorite(user)}>
+                    <Image source={{ uri: avatar || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(username) }} style={styles.favoriteAvatar} />
+                    <View style={styles.favoriteInfo}>
+                      {user && user.id ? (
+                        <TouchableUsername
+                          username={username}
+                          userId={user.id}
+                          userImage={avatar || null}
+                          navigation={navigation}
+                          textStyle={styles.favoriteName}
+                          numberOfLines={1}
+                        />
+                      ) : (
+                        <Text style={styles.favoriteName}>{username}</Text>
+                      )}
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="#999" />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -68,26 +245,40 @@ const ShareModal = ({ visible, onClose, taskId, onShareSuccess }) => {
 const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    minHeight: 250,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    borderRadius: 22,
+    paddingTop: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    width: '88%',
+    maxHeight: '46%',
+    alignSelf: 'center',
+    marginBottom: 18,
+  },
+  modalHandle: {
+    alignSelf: 'center',
+    width: 46,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#dfe3e8',
+    marginBottom: 12,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 12,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: '700',
+    color: '#222',
   },
   label: {
     fontSize: 14,
@@ -99,24 +290,87 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 15,
     fontSize: 15,
-    minHeight: 100,
+    minHeight: 90,
     textAlignVertical: 'top',
-    marginBottom: 20,
+    marginBottom: 12,
+    color: '#222',
   },
-  shareButton: {
-    backgroundColor: '#4dabf7',
-    borderRadius: 25,
-    paddingVertical: 15,
+  errorText: {
+    color: '#d93025',
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  actionGroup: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  primaryButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    gap: 8,
   },
-  shareButtonDisabled: {
-    backgroundColor: '#a5d8ff',
+  storyButton: {
+    backgroundColor: '#6c5ce7',
   },
-  shareButtonText: {
+  publishButton: {
+    backgroundColor: '#4dabf7',
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+  primaryButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#efefef',
+    marginVertical: 10,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 10,
+  },
+  favLoading: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 13,
+    color: '#777',
+    paddingVertical: 8,
+  },
+  favoriteList: {
+    maxHeight: 170,
+  },
+  favoriteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  favoriteAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#eaeaea',
+  },
+  favoriteInfo: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  favoriteName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2d3748',
   },
 });
 

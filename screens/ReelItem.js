@@ -6,6 +6,7 @@ import { Image } from 'expo-image';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { getImageUrl } from '../api';
 import ProgressControls from './ProgressControls';
+import TouchableUsername from '../components/TouchableUsername';
 
 const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'regular'];
 const { buildPlaylists } = require('./reelUtils');
@@ -21,6 +22,7 @@ const ReelItemComponent = ({
   isMuted,
   paused,
   setPaused,
+  selectedReelId,
   isUIVisible,
   expandedDescriptions,
   toggleDescription,
@@ -77,8 +79,13 @@ const ReelItemComponent = ({
   }, []);
 
   const sharedByInfo = useMemo(() => getSharedByInfo(item), [item, getSharedByInfo]);
+  const isSelectedReel = String(selectedReelId) === String(contentItem?.id);
 
   const isSharedOpen = sharedOpenById[item.is_original ? item.id : item.task?.id];
+  const sharedByList = useMemo(
+    () => (Array.isArray(item?.shared_by_list) && item.shared_by_list) || (Array.isArray(item?.task?.shared_by_list) && item.task.shared_by_list) || [],
+    [item]
+  );
 
   // Usamos el `enrichedItem` que ya tiene los datos de likes de perfil actualizados
   const profileLikesCount = enrichedItem.user?.profile?.likes_count ?? 0; // Ya estaba bien
@@ -111,7 +118,7 @@ const ReelItemComponent = ({
   useEffect(() => {
     LogBox.ignoreLogs(['Non-serializable values were found in the navigation state']);
   }, []);
-  
+
   // ✅ FIX: Controlamos la reproducción del video de forma más explícita
   useEffect(() => {
     const player = videoRefs.current[rawState.pos]?.current;
@@ -179,32 +186,77 @@ const ReelItemComponent = ({
 
           <View style={styles.overlay} pointerEvents="box-none">
             <View style={styles.bottomSection} pointerEvents="box-none">
-              {/* ✅ FIX: Se muestra si es compartido Y si sharedByInfo tiene datos */}
-              {!enrichedItem.is_original && sharedByInfo && (
-                <TouchableOpacity style={styles.sharedByContainer} onPress={() => toggleSharedBy(contentItem.id)}>
-                  <View style={styles.sharedByRow}>
+              {sharedByInfo && (
+                <View style={styles.sharedByContainer}>
+                  <TouchableOpacity
+                    style={styles.sharedByRow}
+                    onPress={() => {
+                      if (sharedByInfo.userId) {
+                        navigation.navigate('UserProfile', {
+                          userId: sharedByInfo.userId,
+                          userName: sharedByInfo.name || 'Usuario',
+                          userAvatar: sharedByInfo.avatar,
+                        });
+                      } else {
+                        toggleSharedBy(contentItem.id);
+                      }
+                    }}
+                    onLongPress={() => toggleSharedBy(contentItem.id)}
+                  >
                     <Image source={{ uri: sharedByInfo.avatar }} style={styles.sharedByAvatar} />
                     {!isSharedOpen && (
-                      <Text style={styles.sharedByName}>{sharedByInfo.name} compartió</Text>
+                      <TouchableUsername
+                        username={`${sharedByInfo.name} compartió`}
+                        userId={sharedByInfo.userId}
+                        userImage={sharedByInfo.avatar}
+                        navigation={navigation}
+                        style={styles.sharedByLabel}
+                        textStyle={styles.sharedByName}
+                        numberOfLines={1}
+                      />
                     )}
-                  </View>
-                {/* ✅ INDICADOR DE COMPARTIDOS POR FAVORITOS (Corregido) */}
-                {sharedByInfo && sharedByInfo.favoriteSharersCount > 0 && !isSharedOpen && (
-                  <Text style={styles.favoriteSharerIndicator}>
-                    <Ionicons name="heart" size={10} color="#ff6b6b" /> {sharedByInfo.favoriteSharersCount}
-                  </Text>
-                )}
-                  {isSharedOpen && sharedByInfo.description && (
+                  </TouchableOpacity>
+                  {sharedByInfo && sharedByInfo.favoriteSharersCount > 0 && !isSharedOpen && (
+                    <Text style={styles.favoriteSharerIndicator}>
+                      <Ionicons name="heart" size={10} color="#ff6b6b" /> {sharedByInfo.favoriteSharersCount}
+                    </Text>
+                  )}
+                  {isSelectedReel && isSharedOpen && sharedByInfo.description && (
                     <View style={styles.sharedByExpanded}>
-                      <Text style={[styles.sharedByName, { marginBottom: 4 }]}>{sharedByInfo.name} <Text style={{ fontWeight: 'normal', color: '#ddd' }}>escribió:</Text></Text>
+                      <TouchableUsername
+                        username={sharedByInfo.name}
+                        userId={sharedByInfo.userId}
+                        userImage={sharedByInfo.avatar}
+                        navigation={navigation}
+                        style={styles.sharedByLabel}
+                        textStyle={[styles.sharedByName, { marginBottom: 4 }]}
+                        numberOfLines={1}
+                      />
+                      <Text style={{ fontWeight: 'normal', color: '#ddd', fontSize: 12 }}>escribió:</Text>
                       <Text style={styles.sharedByDescription}>{sharedByInfo.description}</Text>
                     </View>
                   )}
+                </View>
+              )}
+              {paused && isSelectedReel && sharedByInfo?.name && (
+                <TouchableOpacity
+                  style={styles.pausedSharedByLabel}
+                  onPress={() => toggleSharedBy(contentItem.id)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.pausedSharedByText}>compartido por {sharedByInfo.name}</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
-                style={styles.userInfo} // Ya estaba bien
-                onPress={() => navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) })} // Ya estaba bien
+                style={styles.userInfo}
+                onPress={() => {
+                  console.log('[ReelItem] username pressed', {
+                    userId: userItem?.id,
+                    username: userItem?.username,
+                    userImage: getImageUrl(userItem?.user_image),
+                  });
+                  navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) });
+                }}
               >
                 <Text style={styles.username}>@{userItem?.username || 'Usuario'}</Text>
               </TouchableOpacity>
@@ -241,8 +293,18 @@ const ReelItemComponent = ({
             <View style={styles.rightSection}>
               <TouchableOpacity 
                 style={styles.iconButton} 
-                onPress={() => navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) })}
-                onLongPress={() => handleShowProfileLikes(userItem?.id)}
+                onPress={() => {
+                  console.log('[ReelItem] avatar pressed', {
+                    userId: userItem?.id,
+                    username: userItem?.username,
+                    userImage: getImageUrl(userItem?.user_image),
+                  });
+                  navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) });
+                }}
+                onLongPress={() => {
+                  console.log('[ReelItem] avatar longPress', { userId: userItem?.id, username: userItem?.username });
+                  handleShowProfileLikes(userItem?.id);
+                }}
               > 
                 <Image source={{ uri: getImageUrl(userItem?.user_image) || 'https://ui-avatars.com/api/?name=User' }} style={[styles.avatar, { borderColor: userTier.color }]} contentFit="cover" />
                 <TouchableOpacity
@@ -283,13 +345,6 @@ const ReelItemComponent = ({
                 style={[styles.iconButton, { marginBottom: paused && enrichedItem.taskLikes?.status === 'ok' ? 4 : 12 }]}
                 onPress={() => toggleLike(item)}
                 onLongPress={() => {
-                  console.log('[ReelItem] like long press', {
-                    reelId: item?.id,
-                    is_original: item?.is_original,
-                    originalTaskId: contentItem?.id,
-                    nestedTaskId: item?.task?.id ?? null,
-                    likes_count: contentItem?.likes_count ?? 0,
-                  });
                   handleShowLikes(contentItem.id, 'all');
                 }}
               >
@@ -352,10 +407,13 @@ const styles = StyleSheet.create({
   sharedByContainer: { padding: 10, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12, marginBottom: 10, pointerEvents: 'auto' },
   sharedByRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sharedByAvatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#eee' },
+  sharedByLabel: { flexShrink: 1 },
   sharedByName: { color: '#fff', fontWeight: 'bold', fontSize: 13, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
   favoriteSharerIndicator: { color: '#ffc9c9', fontWeight: 'bold', fontSize: 11, marginLeft: 8, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
   sharedByExpanded: { marginTop: 4 },
   sharedByDescription: { color: '#fff', fontSize: 13, marginTop: 4, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
+  pausedSharedByLabel: { marginBottom: 6, alignSelf: 'flex-start', backgroundColor: 'rgba(0,0,0,0.35)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, pointerEvents: 'auto' },
+  pausedSharedByText: { color: '#fff', fontSize: 12, fontWeight: '700', textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
   overlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'none' },
   bottomSection: { flex: 1, padding: 15, paddingRight: 80, justifyContent: 'flex-end' },
   userInfo: { marginBottom: 10, pointerEvents: 'auto' },

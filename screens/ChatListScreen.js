@@ -6,6 +6,7 @@ import moment from 'moment';
 import 'moment/locale/es';
 import api, { getImageUrl } from '../api';
 import { useFocusEffect } from '@react-navigation/native';
+import TouchableUsername from '../components/TouchableUsername';
 
 moment.locale('es');
 
@@ -214,7 +215,14 @@ const ChatListScreen = ({ navigation }) => {
                     source={{ uri: getImageUrl(item.user_image) || `https://ui-avatars.com/api/?name=${item.username}` }} 
                     style={styles.userAvatar} 
                   />
-                  <Text style={styles.userName}>{item.username}</Text>
+                  <TouchableUsername
+                    username={item.username}
+                    userId={item.id}
+                    userImage={getImageUrl(item.user_image) || `https://ui-avatars.com/api/?name=${item.username}`}
+                    navigation={navigation}
+                    style={styles.userNameContainer}
+                    textStyle={styles.userName}
+                  />
                 </TouchableOpacity>
               )}
             />
@@ -286,6 +294,7 @@ const styles = StyleSheet.create({
   modalSearchInput: { backgroundColor: '#f0f0f0', borderRadius: 10, padding: 10, marginBottom: 15, fontSize: 15 },
   userRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
   userAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
+  userNameContainer: { flex: 1 },
   userName: { fontSize: 16, color: '#333', fontWeight: '500' },
 
   // Estilos Modal Grupo

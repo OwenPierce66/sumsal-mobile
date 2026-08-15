@@ -5,12 +5,48 @@ import {
   Animated, PanResponder, Image as RNImage, Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import moment from 'moment';
 import api from '../api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
+import TouchableUsername from '../components/TouchableUsername';
+
+const STORY_REPLY_PREFIX = '↪ Respuesta a tu historia:';
+
+const buildStoryReplyContextLine = (storyReplyContext) => {
+  if (!storyReplyContext) return '';
+  const safeTitle = String(storyReplyContext.storyTitle || 'Historia').replace(/\s+/g, ' ').trim();
+  const safeId = String(storyReplyContext.storyId || '').trim();
+  if (!safeId) return `${STORY_REPLY_PREFIX} ${safeTitle}`;
+  return `${STORY_REPLY_PREFIX} ${safeTitle} [story:${safeId}]`;
+};
+
+const parseStoryReplyFromContent = (content) => {
+  if (!content) return { storyContext: null, bodyText: '' };
+  const normalized = String(content);
+  const lines = normalized.split('\n');
+  const firstLine = (lines[0] || '').trim();
+  if (!firstLine.startsWith(STORY_REPLY_PREFIX)) {
+    return { storyContext: null, bodyText: normalized };
+  }
+
+  const markerMatch = firstLine.match(/\[story:([^\]]+)\]/i);
+  const storyId = markerMatch?.[1] ? String(markerMatch[1]).trim() : null;
+  const titlePart = firstLine
+    .replace(STORY_REPLY_PREFIX, '')
+    .replace(/\[story:[^\]]+\]/i, '')
+    .trim();
+  const bodyText = lines.slice(1).join('\n').trim();
+
+  return {
+    storyContext: {
+      storyId,
+      storyTitle: titlePart || 'Historia',
+    },
+    bodyText,
+  };
+};
 
 const getImageUrl = (path) => {
   if (!path) return null;
@@ -25,8 +61,9 @@ const getImageUrl = (path) => {
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
-const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigateToProfile }) => {
+const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigateToProfile, onOpenStory, navigation }) => {
   const pan = useRef(new Animated.ValueXY()).current;
+  const { storyContext, bodyText } = parseStoryReplyFromContent(item?.content || '');
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -60,7 +97,7 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigat
     <View style={[styles.messageWrapper, isMe ? styles.messageWrapperMe : styles.messageWrapperThem]}>
       {!isMe && type === 'group' && (
         <TouchableOpacity onPress={() => onNavigateToProfile(item.sender)}>
-          <Image source={{ uri: msgAvatar }} style={styles.messageAvatar} />
+          <RNImage source={{ uri: msgAvatar }} style={styles.messageAvatar} />
         </TouchableOpacity>
       )}
       <Animated.View
@@ -97,13 +134,32 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigat
           )}
 
           {!isMe && type === 'group' && (
-            <TouchableOpacity onPress={() => onNavigateToProfile(item.sender)}>
-              <Text style={styles.messageSenderName}>{item.sender?.username}</Text>
-            </TouchableOpacity>
+            <TouchableUsername
+              username={item.sender?.username || 'Usuario'}
+              userId={item.sender?.id}
+              userImage={item.sender?.user_image ? getImageUrl(item.sender.user_image) : undefined}
+              navigation={navigation}
+              style={styles.messageSenderNameWrap}
+              textStyle={styles.messageSenderName}
+            />
           )}
-          {item.content ? (
+          {storyContext ? (
+            <TouchableOpacity
+              style={[styles.storyContextBox, isMe ? styles.storyContextBoxMe : styles.storyContextBoxThem]}
+              onPress={() => onOpenStory && onOpenStory(storyContext.storyId)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="time-outline" size={14} color={isMe ? '#fff' : '#4dabf7'} />
+              <Text style={[styles.storyContextText, isMe ? styles.storyContextTextMe : styles.storyContextTextThem]} numberOfLines={1}>
+                {storyContext.storyTitle || 'Historia'}
+              </Text>
+              <Ionicons name="arrow-forward" size={12} color={isMe ? '#fff' : '#4dabf7'} />
+            </TouchableOpacity>
+          ) : null}
+
+          {bodyText ? (
             <Text style={[styles.messageText, isMe ? styles.messageTextMe : styles.messageTextThem]}>
-              {item.content}
+              {bodyText}
             </Text>
           ) : null}
           
@@ -127,7 +183,7 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigat
 };
 
 const ChatDetailScreen = ({ route, navigation }) => {
-  const { chatId, type, title, avatar } = route.params;
+  const { chatId, type, title, avatar, storyReplyContext: incomingStoryReplyContext } = route.params;
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -136,6 +192,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
   // Secondary features state
   const [selectedImage, setSelectedImage] = useState(null);
   const [replyTo, setReplyTo] = useState(null);
+  const [storyReplyContext, setStoryReplyContext] = useState(incomingStoryReplyContext || null);
 
   // Group Info state
   const [isGroupModalVisible, setIsGroupModalVisible] = useState(false);
@@ -174,6 +231,10 @@ const ChatDetailScreen = ({ route, navigation }) => {
       fetchMessages();
     }, [fetchMessages])
   );
+
+  useEffect(() => {
+    setStoryReplyContext(incomingStoryReplyContext || null);
+  }, [incomingStoryReplyContext]);
 
   const fetchGroupInfo = async () => {
     if (type !== 'group') return;
@@ -331,7 +392,15 @@ const ChatDetailScreen = ({ route, navigation }) => {
     
     try {
       const formData = new FormData();
-      if (newMessage.trim()) formData.append("content", newMessage);
+      const hasStoryContext = !!storyReplyContext && !replyTo;
+      const contextLine = hasStoryContext
+        ? buildStoryReplyContextLine(storyReplyContext)
+        : '';
+      const plainMessage = newMessage.trim();
+      const finalMessageContent = hasStoryContext
+        ? (plainMessage ? `${contextLine}\n${plainMessage}` : contextLine)
+        : plainMessage;
+      if (finalMessageContent) formData.append("content", finalMessageContent);
 
       if (selectedImage) {
         let fileType = 'jpg';
@@ -385,6 +454,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
       setNewMessage('');
       setSelectedImage(null);
       setReplyTo(null);
+      setStoryReplyContext(null);
     } catch (error) {
       console.error('Error sending message:', error.response?.data || error.message);
     }
@@ -405,6 +475,15 @@ const ChatDetailScreen = ({ route, navigation }) => {
     });
   };
 
+  const handleOpenStoryFromMessage = useCallback((storyId) => {
+    const parentNavigation = navigation.getParent();
+    if (parentNavigation) {
+      parentNavigation.navigate('Stories', { openStoryId: storyId || null });
+      return;
+    }
+    navigation.navigate('Stories', { openStoryId: storyId || null });
+  }, [navigation]);
+
   const renderMessage = ({ item }) => {
     const isMe = currentUser && item.sender?.id === currentUser.id;
     const msgAvatar = getImageUrl(item.sender?.user_image) || `https://ui-avatars.com/api/?name=${item.sender?.username || 'U'}`;
@@ -418,6 +497,8 @@ const ChatDetailScreen = ({ route, navigation }) => {
         onReply={setReplyTo} 
         onDelete={handleDeleteMessage} 
         onNavigateToProfile={navigateToProfile}
+        onOpenStory={handleOpenStoryFromMessage}
+        navigation={navigation}
       />
     );
   };
@@ -435,7 +516,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
         <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('ChatList')} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <Image source={{ uri: avatar }} style={styles.headerAvatar} />
+        <RNImage source={{ uri: avatar }} style={styles.headerAvatar} />
         <View style={styles.headerInfo}>
           <Text style={styles.headerName}>{title}</Text>
           <Text style={styles.headerUsername}>{type === 'group' ? 'Grupo' : 'Mensaje Directo'}</Text>
@@ -472,10 +553,24 @@ const ChatDetailScreen = ({ route, navigation }) => {
         </View>
       )}
 
+      {storyReplyContext && !replyTo && (
+        <View style={styles.replyIndicatorContainer}>
+          <View style={styles.replyIndicatorTextContainer}>
+            <Text style={styles.replyIndicatorSender}>Respondiendo historia</Text>
+            <Text style={styles.replyIndicatorContent} numberOfLines={1}>
+              {storyReplyContext.storyTitle || 'Historia'} • #{String(storyReplyContext.storyId || '').slice(0, 8)}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => setStoryReplyContext(null)}>
+            <Ionicons name="close-circle" size={24} color="#999" />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Selected Image Indicator */}
       {selectedImage && (
         <View style={styles.selectedImageContainer}>
-          <Image source={{ uri: selectedImage.uri }} style={styles.selectedImagePreview} />
+          <RNImage source={{ uri: selectedImage.uri }} style={styles.selectedImagePreview} />
           <TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}>
             <Ionicons name="close-circle" size={24} color="#ff4444" />
           </TouchableOpacity>
@@ -526,14 +621,21 @@ const ChatDetailScreen = ({ route, navigation }) => {
                 return (
                 <View style={styles.userRow}>
                   <TouchableOpacity onPress={() => navigateToProfile(item)}>
-                    <Image 
+                    <RNImage 
                       source={{ uri: getImageUrl(item.user_image) || `https://ui-avatars.com/api/?name=${item.username}` }} 
                       style={styles.userAvatar} 
                     />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => navigateToProfile(item)} style={{ flex: 1 }}>
-                    <Text style={styles.userName}>{item.username} {item.is_admin ? '(Admin)' : ''}</Text>
-                  </TouchableOpacity>
+                  <View style={{ flex: 1 }}>
+                    <TouchableUsername
+                      username={`${item.username}${item.is_admin ? ' (Admin)' : ''}`}
+                      userId={item.id}
+                      userImage={getImageUrl(item.user_image) || `https://ui-avatars.com/api/?name=${item.username}`}
+                      navigation={navigation}
+                      style={styles.memberNameWrap}
+                      textStyle={styles.userName}
+                    />
+                  </View>
                   
                   {canManage && item.id !== currentUser.id && (
                     <View style={{flexDirection: 'row', gap: 5}}>
@@ -599,11 +701,18 @@ const ChatDetailScreen = ({ route, navigation }) => {
                   style={styles.userRow}
                   onPress={() => handleAddMember(item.id)}
                 >
-                  <Image 
+                  <RNImage 
                     source={{ uri: getImageUrl(item.user_image) || `https://ui-avatars.com/api/?name=${item.username}` }} 
                     style={styles.userAvatar} 
                   />
-                  <Text style={styles.userName}>{item.username}</Text>
+                  <TouchableUsername
+                    username={item.username}
+                    userId={item.id}
+                    userImage={getImageUrl(item.user_image) || `https://ui-avatars.com/api/?name=${item.username}`}
+                    navigation={navigation}
+                    style={styles.memberNameWrap}
+                    textStyle={styles.userName}
+                  />
                   <Ionicons name="add-circle" size={24} color="#4dabf7" style={{ marginLeft: 'auto' }} />
                 </TouchableOpacity>
               )}
@@ -635,10 +744,34 @@ const styles = StyleSheet.create({
   messageBubble: { maxWidth: '75%', padding: 12, borderRadius: 20 },
   messageBubbleMe: { backgroundColor: '#4dabf7', borderBottomRightRadius: 4 },
   messageBubbleThem: { backgroundColor: '#fff', borderBottomLeftRadius: 4, borderWidth: 1, borderColor: '#eee' },
-  messageSenderName: { fontSize: 11, color: '#4dabf7', fontWeight: 'bold', marginBottom: 2 },
+  messageSenderNameWrap: { marginBottom: 2 },
+  messageSenderNameWrap: { marginBottom: 2 },
+  messageSenderName: { fontSize: 11, color: '#4dabf7', fontWeight: 'bold' },
+  memberNameWrap: { flex: 1 },
   messageText: { fontSize: 15, lineHeight: 20 },
   messageTextMe: { color: '#fff' },
   messageTextThem: { color: '#333' },
+  storyContextBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  storyContextBoxMe: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  storyContextBoxThem: {
+    backgroundColor: '#f3f8ff',
+    borderColor: '#d6e9ff',
+  },
+  storyContextText: { fontSize: 13, fontWeight: '600', flex: 1 },
+  storyContextTextMe: { color: '#fff' },
+  storyContextTextThem: { color: '#297fce' },
   messageImage: { width: 180, height: 180, borderRadius: 10, marginTop: 8 },
   messageTime: { fontSize: 10, alignSelf: 'flex-end', marginTop: 4 },
   messageTimeMe: { color: 'rgba(255,255,255,0.7)' },

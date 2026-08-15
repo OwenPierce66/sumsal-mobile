@@ -6,11 +6,12 @@ import moment from 'moment';
 import 'moment/locale/es';
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
+import TouchableUsername from '../components/TouchableUsername';
 
 moment.locale('es');
 
 // COMPONENTE RECURSIVO PARA RENDERIZAR REPLIES ANIDADAS
-const ReplyItem = ({ reply, depth = 0, onLike, onReply, replyingToId, getAuthorName, expandedReplyIds, toggleExpand }) => {
+const ReplyItem = ({ reply, depth = 0, onLike, onReply, replyingToId, getAuthorName, expandedReplyIds, toggleExpand, navigation }) => {
   const hasChildren = reply.replies && reply.replies.length > 0;
   const isExpanded = expandedReplyIds.includes(reply.id);
   const marginLeft = depth > 0 ? 12 : 0;
@@ -24,8 +25,15 @@ const ReplyItem = ({ reply, depth = 0, onLike, onReply, replyingToId, getAuthorN
               source={{ uri: getImageUrl(reply.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }}
               style={styles.replyAvatar}
             />
-            <View>
-              <Text style={styles.replyAuthor}>{getAuthorName(reply)}</Text>
+            <View style={{ flex: 1 }}>
+              <TouchableUsername
+                username={getAuthorName(reply)}
+                userId={reply.user?.id || null}
+                userImage={getImageUrl(reply.user?.user_image) || null}
+                navigation={navigation}
+                textStyle={styles.replyAuthor}
+                numberOfLines={1}
+              />
               <Text style={styles.replyDate}>{moment(reply.created_at).fromNow()}</Text>
             </View>
           </View>
@@ -76,6 +84,7 @@ const ReplyItem = ({ reply, depth = 0, onLike, onReply, replyingToId, getAuthorN
                 getAuthorName={getAuthorName}
                 expandedReplyIds={expandedReplyIds}
                 toggleExpand={toggleExpand}
+                navigation={navigation}
               />
             ))}
           </View>
@@ -237,8 +246,15 @@ const PostDetailScreen = () => {
                   source={{ uri: getImageUrl(post.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }}
                   style={styles.postAvatar}
                 />
-                <View>
-                  <Text style={styles.postAuthor}>{getPostAuthorName(post)}</Text>
+                <View style={{ flex: 1 }}>
+                  <TouchableUsername
+                    username={getPostAuthorName(post)}
+                    userId={post.user?.id || null}
+                    userImage={getImageUrl(post.user?.user_image) || null}
+                    navigation={navigation}
+                    textStyle={styles.postAuthor}
+                    numberOfLines={1}
+                  />
                   <Text style={styles.postDate}>{moment(post.created_at).fromNow()}</Text>
                 </View>
               </View>
@@ -276,6 +292,7 @@ const PostDetailScreen = () => {
                 getAuthorName={getPostAuthorName}
                 expandedReplyIds={expandedReplyIds}
                 toggleExpand={toggleReplyExpansion}
+                navigation={navigation}
               />
             ))
           )}

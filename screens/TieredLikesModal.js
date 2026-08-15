@@ -3,6 +3,7 @@ import { Modal, View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndi
 import { Ionicons } from '@expo/vector-icons';
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
+import TouchableUsername from '../components/TouchableUsername';
 
 const TIER_ORDER = ['all', 'verified', 'recommended', 'app', 'sub_red', 'sub_green', 'regular'];
 const TIER_META = {
@@ -32,7 +33,7 @@ const getTierKey = (user) => {
   return 'regular';
 };
 
-const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title = "Usuarios" }) => {
+const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title = "Usuarios", navigation }) => {
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState([]);
   const [activeTier, setActiveTier] = useState(initialTier);
@@ -90,15 +91,24 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
   }, [users, activeTier]);
 
   const renderUser = ({ item }) => {
-    // ✅ CORRECCIÓN: La API de likes de perfil devuelve una lista de usuarios,
-    // cada uno con su 'profile'. Usamos el objeto raíz para el avatar y nombre.
-    const userObject = item.user || item; // Si existe item.user, lo usamos; si no, usamos item.
+    const userObject = item.user || item;
     const tierKey = getTierKey(userObject);
     const tierColor = TIER_META[tierKey]?.color || '#868e96';
+    const userName = userObject.username || userObject.user?.username || 'Usuario';
+    const userId = userObject.id || userObject.user?.id;
+    const userImage = userObject.profile?.user_image || userObject.user_image || userObject.user?.user_image;
+
     return (
       <View style={styles.userRow}>
-        <Image source={{ uri: getImageUrl(userObject.profile?.user_image || userObject.user_image) }} style={[styles.avatar, { borderColor: tierColor }]} />
-        <Text style={styles.username}>{userObject.username || userObject.user?.username}</Text>
+        <Image source={{ uri: getImageUrl(userImage) }} style={[styles.avatar, { borderColor: tierColor }]} />
+        <TouchableUsername
+          username={userName}
+          userId={userId}
+          userImage={getImageUrl(userImage)}
+          navigation={navigation}
+          style={styles.userNameCell}
+          textStyle={styles.username}
+        />
         <Text style={[styles.likesCount, { color: tierColor }]}>{userObject.profile?.likes_count || 0} <Ionicons name="heart" size={12} /></Text>
       </View>
     );
@@ -171,6 +181,7 @@ const styles = StyleSheet.create({
   activeTabText: { color: '#4dabf7', fontWeight: 'bold' },
   userRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, borderWidth: 2 },
+  userNameCell: { flex: 1, marginRight: 8 },
   username: { fontSize: 16, fontWeight: '500', flex: 1 },
   likesCount: { fontSize: 14, fontWeight: 'bold' },
   emptyText: { textAlign: 'center', marginTop: 30, color: '#999' },

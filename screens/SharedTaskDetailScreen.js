@@ -14,6 +14,7 @@ import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
 import ShareModal from '../components/ShareModal';
 import LikesListModal from '../components/LikesListModal';
+import TouchableUsername from '../components/TouchableUsername';
 
 moment.locale('es');
 
@@ -29,7 +30,8 @@ const SharedCommentItem = ({
   onDelete,
   currentUserId,
   expandedCommentIds,
-  toggleExpand }) => {
+  toggleExpand,
+  navigation }) => {
   const hasChildren = comment.children && comment.children.length > 0;
   const isExpanded = expandedCommentIds.includes(comment.id);
   const marginLeft = depth > 0 ? 16 : 0;
@@ -62,8 +64,16 @@ const SharedCommentItem = ({
             source={{ uri: getImageUrl(comment.created_by?.profile?.user_image) }}
             style={styles.commentAvatar}
           />
-          <View>
-            <Text style={styles.commentAuthor}>{getCommentAuthorName(comment)}</Text>
+          <View style={{ flex: 1 }}>
+            <TouchableUsername
+              username={getCommentAuthorName(comment)}
+              userId={comment.created_by?.id || comment.user?.id || null}
+              userImage={getImageUrl(comment.created_by?.profile?.user_image || comment.user?.profile?.user_image) || null}
+              navigation={navigation}
+              style={styles.commentAuthorWrapper}
+              textStyle={styles.commentAuthor}
+              numberOfLines={1}
+            />
             <Text style={styles.commentDate}>{moment(comment.created_at).fromNow()}</Text>
           </View>
         </View>
@@ -128,6 +138,7 @@ const SharedCommentItem = ({
               currentUserId={currentUserId}
               expandedCommentIds={expandedCommentIds}
               toggleExpand={toggleExpand}
+              navigation={navigation}
             />
           ))}
         </View>
@@ -379,7 +390,15 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
               style={styles.sharedByAvatar}
             />
             <View style={{ flex: 1 }}>
-              <Text style={styles.sharedByName}>{getUserName(sharedTask.shared_by)}</Text>
+              <TouchableUsername
+                username={getUserName(sharedTask.shared_by)}
+                userId={sharedTask.shared_by?.id || null}
+                userImage={getImageUrl(sharedTask.shared_by?.user_image) || null}
+                navigation={navigation}
+                style={styles.sharedByNameWrapper}
+                textStyle={styles.sharedByName}
+                numberOfLines={1}
+              />
               <Text style={styles.sharedByText}>compartió una tarea</Text>
               <Text style={styles.sharedByDate}>{moment(sharedTask.created_at).fromNow()}</Text>
             </View>
@@ -396,8 +415,16 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
               source={{ uri: getImageUrl(task.user?.user_image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
               style={styles.taskAuthorAvatar}
             />
-            <View>
-              <Text style={styles.taskAuthorName}>{getUserName(task.user) !== 'Usuario' ? getUserName(task.user) : (task.username || 'Anónimo')}</Text>
+            <View style={{ flex: 1 }}>
+              <TouchableUsername
+                username={getUserName(task.user) !== 'Usuario' ? getUserName(task.user) : (task.username || 'Anónimo')}
+                userId={task.user?.id || task.user_id || null}
+                userImage={getImageUrl(task.user?.user_image) || null}
+                navigation={navigation}
+                style={styles.taskAuthorNameWrapper}
+                textStyle={styles.taskAuthorName}
+                numberOfLines={1}
+              />
               <Text style={styles.taskDate}>{moment(task.created_at).fromNow()}</Text>
             </View>
           </View>
@@ -464,6 +491,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
                 currentUserId={currentUserId}
                 expandedCommentIds={expandedCommentIds}
                 toggleExpand={toggleCommentExpansion}
+                navigation={navigation}
               />
             ))
           ) : (
@@ -520,6 +548,9 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
         onClose={() => setShareModalVisible(false)}
         taskId={taskToShare}
         onShareSuccess={handleShareSuccess}
+        navigation={navigation}
+        taskTitle={sharedTask?.title || 'esta publicación'}
+        taskDescription={sharedTask?.description || ''}
       />
     </View>
   );

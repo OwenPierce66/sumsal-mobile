@@ -3,6 +3,7 @@ import { Modal, View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndi
 import { Ionicons } from '@expo/vector-icons';
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
+import TouchableUsername from '../components/TouchableUsername';
 
 const TIER_ORDER = ['all', 'verified', 'recommended', 'app', 'sub_red', 'sub_green', 'regular'];
 
@@ -13,7 +14,7 @@ const getTierKey = (user) => {
   return 'regular';
 };
 
-const UsersListModal = ({ visible, onClose, apiUrl, title = "Usuarios" }) => {
+const UsersListModal = ({ visible, onClose, apiUrl, title = "Usuarios", navigation }) => {
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState([]);
   const [activeTier, setActiveTier] = useState('all');
@@ -59,7 +60,14 @@ const UsersListModal = ({ visible, onClose, apiUrl, title = "Usuarios" }) => {
   const renderUser = ({ item }) => (
     <View style={styles.userRow}>
       <Image source={{ uri: getImageUrl(item.user_image) }} style={styles.avatar} />
-      <Text style={styles.username}>{item.username}</Text>
+      <TouchableUsername
+        username={item.username || 'Usuario'}
+        userId={item.id}
+        userImage={getImageUrl(item.user_image)}
+        navigation={navigation}
+        style={styles.usernameContainer}
+        textStyle={styles.username}
+      />
     </View>
   );
 
@@ -108,6 +116,7 @@ const styles = StyleSheet.create({
   activeTabText: { color: '#4dabf7' },
   userRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
+  usernameContainer: { flex: 1 },
   username: { fontSize: 16, fontWeight: '500' },
   emptyText: { textAlign: 'center', marginTop: 30, color: '#999' },
 });

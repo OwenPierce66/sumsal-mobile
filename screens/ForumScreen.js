@@ -9,6 +9,7 @@ import moment from 'moment';
 import 'moment/locale/es';
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
+import TouchableUsername from '../components/TouchableUsername';
 
 moment.locale('es');
 
@@ -125,7 +126,14 @@ const ForumScreen = ({ navigation }) => {
         />
         <View style={{ flex: 1 }}>
           <Text style={styles.postTitle}>{item.title || 'Sin título'}</Text>
-          <Text style={styles.postAuthor}>{getPostAuthorName(item)}</Text>
+          <TouchableUsername
+            username={getPostAuthorName(item)}
+            userId={item.user?.id || null}
+            userImage={getImageUrl(item.user?.user_image) || null}
+            navigation={navigation}
+            textStyle={styles.postAuthor}
+            numberOfLines={1}
+          />
           <Text style={styles.postDate}>{moment(item.created_at).fromNow()}</Text>
         </View>
       </View>

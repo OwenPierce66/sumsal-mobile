@@ -13,6 +13,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import moment from 'moment';
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
+import TouchableUsername from '../components/TouchableUsername';
 import LikesListModal from '../components/LikesListModal';
 import ShareModal from '../components/ShareModal';
 
@@ -149,7 +150,14 @@ const SharedTasksScreen = ({ navigation }) => {
             style={styles.sharedByAvatar}
           />
           <View style={{ flex: 1 }}>
-            <Text style={styles.sharedByName}>{getUserName(item.shared_by)}</Text>
+            <TouchableUsername
+              username={getUserName(item.shared_by)}
+              userId={item.shared_by?.id || null}
+              userImage={getImageUrl(item.shared_by?.user_image) || null}
+              navigation={navigation}
+              textStyle={styles.sharedByName}
+              numberOfLines={1}
+            />
             <Text style={styles.sharedBySubtext}>compartió una tarea</Text>
           </View>
           <Text style={styles.sharedDate}>{moment(item.created_at).fromNow()}</Text>
@@ -169,9 +177,14 @@ const SharedTasksScreen = ({ navigation }) => {
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.taskTitle}>{task.title}</Text>
-              <Text style={styles.taskAuthor}>
-                {getUserName(task.user) !== 'Usuario' ? getUserName(task.user) : (task.username || 'Anónimo')}
-              </Text>
+              <TouchableUsername
+                username={getUserName(task.user) !== 'Usuario' ? getUserName(task.user) : (task.username || 'Anónimo')}
+                userId={task.user?.id || task.user_id || null}
+                userImage={getImageUrl(task.user?.user_image) || null}
+                navigation={navigation}
+                textStyle={styles.taskAuthor}
+                numberOfLines={1}
+              />
             </View>
           </View>
 
@@ -286,6 +299,7 @@ const SharedTasksScreen = ({ navigation }) => {
         onClose={() => setShareModalVisible(false)}
         taskId={taskToShare}
         onShareSuccess={handleShareSuccess}
+        navigation={navigation}
       />
     </View>
   );

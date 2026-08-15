@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, ActivityIndi
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import api from '../api';
+import TouchableUsername from './TouchableUsername';
 
 const getImageUrl = (path) => {
   if (!path) return 'https://ui-avatars.com/api/?name=User';
@@ -11,7 +12,7 @@ const getImageUrl = (path) => {
   return `http://192.168.0.115:8001${cleanPath}`;
 };
 
-const LikesListModal = ({ visible, onClose, apiUrl, title = "Le gusta a" }) => {
+const LikesListModal = ({ visible, onClose, apiUrl, title = "Le gusta a", navigation }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -52,12 +53,26 @@ const LikesListModal = ({ visible, onClose, apiUrl, title = "Le gusta a" }) => {
             <FlatList
               data={users}
               keyExtractor={(item) => item.id.toString()}
-              renderItem={({ item }) => (
-                <View style={styles.userItem}>
-                  <Image source={{ uri: getImageUrl(item.user_image || item.profile?.image) }} style={styles.userAvatar} />
-                  <Text style={styles.userName}>{item.first_name ? `${item.first_name} ${item.last_name || ''}` : item.username}</Text>
-                </View>
-              )}
+              renderItem={({ item }) => {
+                const user = item.user || item;
+                const displayName = user.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : (user.username || 'Usuario');
+                const userId = user.id || user.user?.id;
+                const userImage = user.user_image || user.profile?.user_image || user.profile?.image || user.user?.user_image;
+
+                return (
+                  <View style={styles.userItem}>
+                    <Image source={{ uri: getImageUrl(userImage) }} style={styles.userAvatar} />
+                    <TouchableUsername
+                      username={displayName}
+                      userId={userId}
+                      userImage={getImageUrl(userImage)}
+                      navigation={navigation}
+                      style={styles.userNameContainer}
+                      textStyle={styles.userName}
+                    />
+                  </View>
+                );
+              }}
             />
           )}
         </View>
@@ -110,6 +125,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginRight: 15,
     backgroundColor: '#eee',
+  },
+  userNameContainer: {
+    flex: 1,
   },
   userName: {
     fontSize: 16,

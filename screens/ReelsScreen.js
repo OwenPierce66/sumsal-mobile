@@ -169,81 +169,25 @@ const getSharedByAvatarSrc = (t) => {
   return null;
 };
 
-const getSharedByName = (t) => {
-  const direct = cleanVal(t?.shared_byName) || cleanVal(t?.shared_by_name) || cleanVal(t?.sharedByName);
-  if (direct) return direct;
+const getSharedByInfo = (t) => {
+  const favoriteSharedBy = t?.favorite_shared_by || t?.task?.favorite_shared_by || null;
+  const favoriteSharedByList = (Array.isArray(t?.favorite_shared_by_list) && t.favorite_shared_by_list) || (Array.isArray(t?.task?.favorite_shared_by_list) && t.task.favorite_shared_by_list) || [];
+  const favoriteSharersCount = t?.favorite_sharers_count ?? t?.task?.favorite_sharers_count ?? favoriteSharedByList.length;
 
-  const objName = cleanVal(t?.shared_by?.username) || cleanVal(t?.shared_by?.user?.username) || cleanVal(t?.sharedBy?.username) || cleanVal(t?.sharedBy?.user?.username);
-  if (objName) return objName;
-
-  const list = (Array.isArray(t?.shared_by_list) && t.shared_by_list) || (Array.isArray(t?.sharedByList) && t.sharedByList) || [];
-  if (list.length) {
-    const last = list[list.length - 1];
-    const name = cleanVal(last?.username) || cleanVal(last?.user?.username) || cleanVal(last?.user);
-    if (name) return name;
+  if (!favoriteSharedBy) {
+    return null;
   }
 
-  const st = Array.isArray(t?.shared_tasks) ? t.shared_tasks : [];
-  if (st.length) {
-    const last = st[st.length - 1];
-    const name = cleanVal(last?.username) || cleanVal(last?.user?.username) || cleanVal(last?.shared_by?.username);
-    if (name) return name;
-  }
-
-  return null;
+  return {
+    userId: favoriteSharedBy?.id || favoriteSharedBy?.user?.id || favoriteSharedBy?.profile?.id || null,
+    name: cleanVal(favoriteSharedBy?.username) || cleanVal(favoriteSharedBy?.user?.username) || cleanVal(favoriteSharedBy?.first_name) || 'Usuario',
+    description: cleanVal(favoriteSharedBy?.description) || null,
+    avatar: getSharedByAvatarSrc({ shared_by_list: [favoriteSharedBy] }),
+    favoriteSharersCount,
+  };
 };
 
-const getSharedByInfo = (t, favoriteUserIds = new Set()) => {
-  const sharedByList = (Array.isArray(t?.shared_by_list) && t.shared_by_list) || (Array.isArray(t?.sharedByList) && t.sharedByList) || [];
-
-  // 1. Buscar si algún usuario favorito ha compartido la tarea.
-  const favoriteSharers = sharedByList.filter(sharer => {
-    const sharerId = sharer.user?.id || sharer.id;
-    return favoriteUserIds.has(sharerId);
-  });
-  const favoriteSharersCount = favoriteSharers.length;
-
-  if (favoriteSharersCount > 0) {
-    // Si hay favoritos, tomamos el último (el más reciente).
-    const lastFavoriteSharer = favoriteSharers[favoriteSharers.length - 1];
-    
-    const name = cleanVal(lastFavoriteSharer?.username) || cleanVal(lastFavoriteSharer?.user?.username);
-    const avatar = getSharedByAvatarSrc({ shared_by_list: [lastFavoriteSharer] }); // Buscamos el avatar solo en este objeto.
-    let description = null;
-    // Buscamos la descripción específica de este favorito en la lista original
-    for (let i = sharedByList.length - 1; i >= 0; i--) {
-        const sharerId = sharedByList[i].user?.id || sharedByList[i].id;
-        if (sharerId === (lastFavoriteSharer.user?.id || lastFavoriteSharer.id)) {
-            const d = cleanVal(sharedByList[i]?.description);
-            if (d) {
-                description = d;
-                break;
-            }
-        }
-    }
-    return { name, description, avatar, favoriteSharersCount };
-  }
-
-  // 2. Si no hay favoritos, volvemos a la lógica original: mostrar el último que compartió.
-  const name = getSharedByName(t); // Usamos la función original como fallback.
-  let description = null;
-
-  // Buscamos la descripción del último compartido que tenga una.
-  for (let i = sharedByList.length - 1; i >= 0; i--) {
-    const d = cleanVal(sharedByList[i]?.description);
-    if (d) { description = d; break; }
-  }
-
-  // Fallback si la descripción no está en la lista.
-  if (!description) {
-    description = cleanVal(t?.shared_by?.description) || cleanVal(t?.sharedBy?.description) || cleanVal(t?.shared_by_description) || cleanVal(t?.sharedByDescription) || null;
-  }
-  
-  // Devolvemos 0 en el contador para que la UI no muestre nada.
-  return name ? { name, description, avatar: getSharedByAvatarSrc(t), favoriteSharersCount: 0 } : null;
-};
-
-const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, setPaused, isUIVisible, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, getSharedByInfo, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, toggleProfileLike, likeAnimation, navigation, toggleFavorite, openShareModal, handleRepost, handleShowShares, handleShowLikes, handleShowProfileLikes, openActionModal, tema, favoriteUserIds, taskLikesById, taskSharesById, profileLikesById }) => {
+const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, setPaused, selectedReelId, handleReelTap, isUIVisible, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, getSharedByInfo, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, toggleProfileLike, likeAnimation, navigation, toggleFavorite, openShareModal, handleRepost, handleShowShares, handleShowLikes, handleShowProfileLikes, openActionModal, tema, taskLikesById, taskSharesById, profileLikesById }) => {
   const tapToPause = Gesture.Tap()
     .maxDuration(250)
     .onEnd((event, success) => {
@@ -251,7 +195,7 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, se
         const touchX = event.absoluteX;
         const rightSideThreshold = windowWidth - 80;
         if (touchX < rightSideThreshold) {
-          runOnJS(setPaused)(p => !p);
+          runOnJS(handleReelTap)(item);
         }
       }
     });
@@ -301,6 +245,7 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, se
         isMuted={isMuted}
         paused={paused}
         setPaused={setPaused}
+        selectedReelId={selectedReelId}
         isUIVisible={isUIVisible}
         expandedDescriptions={expandedDescriptions}
         toggleDescription={toggleDescription}
@@ -354,6 +299,7 @@ const ReelsScreen = () => {
   const [actionModalVisible, setActionModalVisible] = useState(false);
   const [selectedActionTask, setSelectedActionTask] = useState(null);
   const [paused, setPaused] = useState(false);
+  const [selectedReelId, setSelectedReelId] = useState(null);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedSortBy, setSelectedSortBy] = useState('recent');
@@ -372,8 +318,8 @@ const ReelsScreen = () => {
   const [taskSharesById, setTaskSharesById] = useState({});
   const taskSharesCacheRef = useRef({});
   const [profileLikesById, setProfileLikesById] = useState({});
-  const [favoriteUserIds, setFavoriteUserIds] = useState(new Set());
   const profileLikesCacheRef = useRef({});
+  const getReelTaskId = useCallback((reel) => reel?.task?.id || reel?.id || null, []);
 
   const fetchReels = async (pageNumber = 1, filters = {}) => {
     try {
@@ -399,12 +345,6 @@ const ReelsScreen = () => {
         }
       });
       const data = response.data.results ?? response.data ?? [];
-      console.log('[ReelsScreen] fetchReels raw results', data.map(item => ({
-        id: item?.id,
-        is_original: item?.is_original,
-        nestedTaskId: item?.task?.id ?? null,
-        likes_count: item?.likes_count ?? item?.task?.likes_count ?? 0,
-      })));
 
       // ✅ FILTRAMOS PARA MOSTRAR SOLO PUBLICACIONES (originales o compartidas) CON VIDEO
       const validReels = data.map(item => {        
@@ -496,18 +436,9 @@ const ReelsScreen = () => {
     prefetchDataForReel(reels[activeIndex + 1]);
   }, [activeIndex, reels.length, fetchTaskLikesSummary, fetchTaskSharesSummary, fetchProfileLikesSummary]);
 
-  const fetchFavoriteUsers = useCallback(async () => { // ✅ Ya es estable
-    try {
-        const response = await api.get('pfavoritos/listar/');
-        const ids = new Set((response.data || []).map(u => u.id));
-        setFavoriteUserIds(ids);
-    } catch (error) {}
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
       fetchReels(1);
-      fetchFavoriteUsers();
       return () => { };
     }, [tema, selectedCategory, selectedSortBy, selectedDateFilter, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly])
   );
@@ -647,8 +578,40 @@ const ReelsScreen = () => {
   }, []);
 
   const toggleSharedBy = useCallback((taskId) => {
+    if (!taskId) return;
+    if (String(selectedReelId) !== String(taskId)) {
+      setSelectedReelId(taskId);
+      setPaused(true);
+      setSharedOpenById(prev => ({ ...prev, [taskId]: true }));
+      return;
+    }
+    if (!paused) {
+      setPaused(true);
+    }
     setSharedOpenById(prev => ({ ...prev, [taskId]: !prev[taskId] }));
-  }, []);
+  }, [selectedReelId, paused]);
+
+  const handleReelTap = useCallback((reelItem) => {
+    const taskId = getReelTaskId(reelItem);
+    if (!taskId) return;
+
+    const isSameReel = String(selectedReelId) === String(taskId);
+    if (!isSameReel) {
+      setSelectedReelId(taskId);
+      setPaused(true);
+      return;
+    }
+
+    if (paused) {
+      setPaused(false);
+      setSelectedReelId(null);
+      setSharedOpenById(prev => ({ ...prev, [taskId]: false }));
+      return;
+    }
+
+    setPaused(true);
+    setSelectedReelId(taskId);
+  }, [getReelTaskId, selectedReelId, paused]);
 
   const cycleViewOnly = useCallback((task) => {
     const playlists = buildPlaylists(task);
@@ -808,7 +771,6 @@ const ReelsScreen = () => {
 
   const handleShowLikes = useCallback((taskId, tier = 'all') => {
     const url = `tasks/${taskId}/users-who-liked/`;
-    console.log('[ReelsScreen] handleShowLikes', { taskId, tier, url });
     setLikesModalUrl(url);
     setLikesModalTitle('Me gusta');
     setInitialTier(tier);
@@ -817,7 +779,6 @@ const ReelsScreen = () => {
 
   const handleShowShares = useCallback((taskId, tier = 'all') => {
     const url = `tasks/${taskId}/users-who-shared/`;
-    console.log('[ReelsScreen] handleShowShares', { taskId, tier, url });
     setLikesModalUrl(url);
     setLikesModalTitle('Compartido por');
     setInitialTier(tier);
@@ -825,24 +786,11 @@ const ReelsScreen = () => {
   }, []);
 
   const handleShowProfileLikes = useCallback((userId, tier = 'all') => {
-    console.log('[ReelsScreen] handleShowProfileLikes', { userId, tier, url: `profiles/${userId}/likes/` });
     setLikesModalUrl(`profiles/${userId}/likes/`);
     setLikesModalTitle('Likes del Perfil');
     setInitialTier(tier);
     setLikesModalVisible(true);
   }, []);
-
-  useEffect(() => {
-    if (!likesModalVisible) {
-      return;
-    }
-
-    console.log('[ReelsScreen] likes modal state', {
-      likesModalUrl,
-      likesModalTitle,
-      initialTier,
-    });
-  }, [likesModalVisible, likesModalUrl, likesModalTitle, initialTier]);
 
   // ✅ CONTROL DE VISIBILIDAD DE REELS ORIGINAL SÓLIDO (Sin glitches al hacer scroll)
   const onViewableItemsChanged = useCallback(({ viewableItems }) => {
@@ -860,8 +808,22 @@ const ReelsScreen = () => {
     }
   }, []); // ✅ El array de dependencias vacío es intencional y correcto gracias a la actualización funcional.
 
+  useEffect(() => {
+    if (!paused) {
+      if (selectedReelId !== null) {
+        setSelectedReelId(null);
+      }
+      return;
+    }
+
+    const activeTaskId = getReelTaskId(reels[activeIndex]);
+    if (activeTaskId && String(selectedReelId) !== String(activeTaskId)) {
+      setSelectedReelId(activeTaskId);
+    }
+  }, [paused, selectedReelId, activeIndex, reels, getReelTaskId]);
+
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
-  const stableGetSharedByInfo = useCallback((task) => getSharedByInfo(task, favoriteUserIds), [favoriteUserIds]);
+  const stableGetSharedByInfo = useCallback((task) => getSharedByInfo(task), []);
   
   // ✅ FIX DEFINITIVO: Proporcionamos el layout de cada item para que FlatList funcione correctamente.
   const getItemLayout = useCallback((data, index) => ({ length: windowHeight, offset: windowHeight * index, index }), []);
@@ -901,7 +863,7 @@ const ReelsScreen = () => {
             <FlatList
               data={reels}
               ref={flatListRef}
-              renderItem={({ item, index }) => ( <ReelRenderer item={item} index={index} activeIndex={activeIndex} isMuted={isMuted} paused={paused} setPaused={setPaused} isUIVisible={isUIVisible} expandedDescriptions={expandedDescriptions} toggleDescription={toggleDescription} viewStateById={viewStateById} sharedOpenById={sharedOpenById} toggleSharedBy={toggleSharedBy} getSharedByInfo={stableGetSharedByInfo} cycleViewOnly={cycleViewOnly} cycleClipWithinView={cycleClipWithinView} navigateClip={navigateClip} toggleLike={toggleLike} toggleProfileLike={toggleProfileLike} likeAnimation={likeAnimation} navigation={navigation} toggleFavorite={toggleFavorite} handleRepost={handleRepost} openShareModal={openShareModal} handleShowShares={handleShowShares} handleShowLikes={handleShowLikes} handleShowProfileLikes={handleShowProfileLikes} openActionModal={openActionModal} tema={tema} favoriteUserIds={favoriteUserIds} taskLikesById={taskLikesById} taskSharesById={taskSharesById} profileLikesById={profileLikesById} /> )}
+              renderItem={({ item, index }) => ( <ReelRenderer item={item} index={index} activeIndex={activeIndex} isMuted={isMuted} paused={paused} setPaused={setPaused} selectedReelId={selectedReelId} handleReelTap={handleReelTap} isUIVisible={isUIVisible} expandedDescriptions={expandedDescriptions} toggleDescription={toggleDescription} viewStateById={viewStateById} sharedOpenById={sharedOpenById} toggleSharedBy={toggleSharedBy} getSharedByInfo={stableGetSharedByInfo} cycleViewOnly={cycleViewOnly} cycleClipWithinView={cycleClipWithinView} navigateClip={navigateClip} toggleLike={toggleLike} toggleProfileLike={toggleProfileLike} likeAnimation={likeAnimation} navigation={navigation} toggleFavorite={toggleFavorite} handleRepost={handleRepost} openShareModal={openShareModal} handleShowShares={handleShowShares} handleShowLikes={handleShowLikes} handleShowProfileLikes={handleShowProfileLikes} openActionModal={openActionModal} tema={tema} taskLikesById={taskLikesById} taskSharesById={taskSharesById} profileLikesById={profileLikesById} /> )}
               keyExtractor={(item) => item.id.toString()}
               pagingEnabled
               showsVerticalScrollIndicator={false}
@@ -957,6 +919,7 @@ const ReelsScreen = () => {
           onClose={() => setShareModalVisible(false)}
           taskId={taskToShare}
           onShareSuccess={handleShareSuccess}
+          navigation={navigation}
         />
         
         <Modal visible={actionModalVisible} transparent animationType='fade' onRequestClose={() => setActionModalVisible(false)}>
