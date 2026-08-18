@@ -4,6 +4,7 @@ import {
   Alert,
   Dimensions,
   Image as RNImage,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -459,6 +460,10 @@ const Stories24hScreen = ({ route }) => {
     navigation.setParams?.({ openStoryId: undefined });
   }, [route?.params?.openStoryId, storyUsers, clearStoryTimers, navigation]);
 
+  useEffect(() => {
+    setStoryReplyText('');
+  }, [activeStory?.id]);
+
   const goNextUser = useCallback(() => {
     if (activeUserIndex < storyUsers.length - 1) {
       setActiveUserIndex((prev) => prev + 1);
@@ -593,6 +598,17 @@ const Stories24hScreen = ({ route }) => {
     if (!viewerOpen) return;
   }, [viewerOpen, activeUserIndex, activeStoryIndex, activeUser?.userId, activeStory?.id, activeMedia]);
 
+  useEffect(() => {
+    if (!viewerOpen || !activeStory?.id || !currentUserId || isOwnActiveStory) return;
+
+    api.post(`stories/${activeStory.id}/view/`).catch((error) => {
+      console.error(
+        '[Stories24hScreen] No se pudo registrar la visualización:',
+        error.response?.data || error.message
+      );
+    });
+  }, [viewerOpen, activeStory?.id, currentUserId, isOwnActiveStory]);
+
   const handleToggleLike = useCallback(async () => {
     if (!activeStory) return;
     const storyId = activeStory.id;
@@ -648,6 +664,13 @@ const Stories24hScreen = ({ route }) => {
     setPaused(true);
     setLikesModalTitle('Compartido por');
     setLikesModalUrl(`tasks/${storyId}/users-who-shared/`);
+    setLikesModalVisible(true);
+  }, []);
+
+  const handleShowViewers = useCallback((storyId) => {
+    setPaused(true);
+    setLikesModalTitle('Actividad de la historia');
+    setLikesModalUrl(`stories/${storyId}/viewers/`);
     setLikesModalVisible(true);
   }, []);
 
@@ -1126,43 +1149,73 @@ const Stories24hScreen = ({ route }) => {
               </View>
 
               {!isSharedStoryPreview && activeStory.description ? (
-                <View style={styles.storyDescription}>
+                <View style={[
+                  styles.storyDescription,
+                  !isOwnActiveStory && styles.storyDescriptionWithReply,
+                ]}>
                   <Text style={styles.storyDescriptionText} numberOfLines={4}>{activeStory.description}</Text>
                 </View>
               ) : null}
 
-              <View style={styles.viewerFooter}>
-                <View style={styles.actionBtn}>
-                  <TouchableOpacity style={styles.actionIconButton} onPress={handleToggleLike}>
-                    <Ionicons name={activeStory.user_has_liked ? 'heart' : 'heart-outline'} size={22} color={activeStory.user_has_liked ? '#ff4d6d' : '#fff'} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.actionCountButton}
-                    onPress={() => handleShowLikes(activeStory.id)}
-                    disabled={!isOwnActiveStory}
-                  >
-                    <Text style={[styles.actionCount, isOwnActiveStory && styles.actionCountInteractive]}>
-                      {activeStory.likes_count || 0}
-                    </Text>
+              <KeyboardAvoidingView
+                style={styles.viewerFooter}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              >
+                <View style={[styles.viewerActions, !isOwnActiveStory && styles.viewerUtilityActions]}>
+                  {isOwnActiveStory ? (
+                    <TouchableOpacity style={styles.actionBtn} onPress={() => handleShowViewers(activeStory.id)}>
+                      <Ionicons name="eye-outline" size={22} color="#fff" />
+                      <Text style={styles.actionCount}>{activeStory.views_count || 0}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <View style={styles.actionBtn}>
+                    <TouchableOpacity style={styles.actionIconButton} onPress={() => openShareModal(activeStory.id)}>
+                      <Ionicons name="share-social-outline" size={22} color="#fff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.actionCountButton}
+                      onPress={() => handleShowShares(activeStory.id)}
+                      disabled={!isOwnActiveStory}
+                    >
+                      <Text style={[styles.actionCount, isOwnActiveStory && styles.actionCountInteractive]}>
+                        {activeStory.share_count || 0}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <TouchableOpacity style={styles.actionBtn} onPress={() => setPaused((prev) => !prev)}>
+                    <Ionicons name={paused ? 'play' : 'pause'} size={22} color="#fff" />
                   </TouchableOpacity>
                 </View>
 
                 {!isOwnActiveStory ? (
-                  <View style={styles.storyReplyComposer}>
-                    <TextInput
-                      ref={storyReplyInputRef}
-                      value={storyReplyText}
-                      onChangeText={setStoryReplyText}
-                      onFocus={handleStoryReplyFocus}
-                      onBlur={handleStoryReplyBlur}
-                      onSubmitEditing={handleSendStoryReply}
-                      editable={!sendingStoryReply}
-                      placeholder="Responder historia..."
-                      placeholderTextColor="#aaa"
-                      returnKeyType="send"
-                      blurOnSubmit={false}
-                      style={styles.storyReplyInput}
-                    />
+                  <View style={styles.storyReplyRow}>
+                    <TouchableOpacity
+                      style={styles.storyReplyLike}
+                      onPress={handleToggleLike}
+                    >
+                      <Ionicons
+                        name={activeStory.user_has_liked ? 'heart' : 'heart-outline'}
+                        size={23}
+                        color={activeStory.user_has_liked ? '#ff4d6d' : '#fff'}
+                      />
+                    </TouchableOpacity>
+                    <View style={styles.storyReplyComposer}>
+                      <TextInput
+                        ref={storyReplyInputRef}
+                        value={storyReplyText}
+                        onChangeText={setStoryReplyText}
+                        onFocus={handleStoryReplyFocus}
+                        onBlur={handleStoryReplyBlur}
+                        onSubmitEditing={handleSendStoryReply}
+                        editable={!sendingStoryReply}
+                        placeholder="Responder a esta historia..."
+                        placeholderTextColor="rgba(255,255,255,0.62)"
+                        returnKeyType="send"
+                        blurOnSubmit={false}
+                        style={styles.storyReplyInput}
+                      />
+                    </View>
                     <TouchableOpacity
                       style={[
                         styles.storyReplySend,
@@ -1174,30 +1227,12 @@ const Stories24hScreen = ({ route }) => {
                       {sendingStoryReply ? (
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
-                        <Ionicons name="send" size={16} color="#fff" />
+                        <Ionicons name="send" size={18} color="#fff" />
                       )}
                     </TouchableOpacity>
                   </View>
                 ) : null}
-                <View style={styles.actionBtn}>
-                  <TouchableOpacity style={styles.actionIconButton} onPress={() => openShareModal(activeStory.id)}>
-                    <Ionicons name="share-social-outline" size={22} color="#fff" />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.actionCountButton}
-                    onPress={() => handleShowShares(activeStory.id)}
-                    disabled={!isOwnActiveStory}
-                  >
-                    <Text style={[styles.actionCount, isOwnActiveStory && styles.actionCountInteractive]}>
-                      {activeStory.share_count || 0}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity style={styles.actionBtn} onPress={() => setPaused((prev) => !prev)}>
-                  <Ionicons name={paused ? 'play' : 'pause'} size={22} color="#fff" />
-                </TouchableOpacity>
-              </View>
+              </KeyboardAvoidingView>
             </>
           ) : (
             <View style={styles.viewerLoading}>
@@ -1648,6 +1683,9 @@ const styles = StyleSheet.create({
    transform: [{ translateX: -110 }],
    overflow: 'hidden',
   },
+  storyDescriptionWithReply: {
+   bottom: 128,
+  },
   storyDescriptionText: { color: '#fff', fontSize: 10.5, lineHeight: 14.5 },
   sharedByNameWrapper: { marginLeft: 0 },
   viewerFooter: {
@@ -1656,9 +1694,17 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     zIndex: 12,
+    gap: 9,
+  },
+  viewerActions: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
     alignItems: 'center',
+    gap: 18,
+  },
+  viewerUtilityActions: {
+    alignSelf: 'flex-end',
+    gap: 8,
   },
   actionBtn: {
     flexDirection: 'row',
@@ -1692,31 +1738,44 @@ const styles = StyleSheet.create({
   },
   storyReplyComposer: {
     flex: 1,
-    minWidth: 104,
-    maxWidth: 176,
-    height: 42,
-    marginHorizontal: 5,
-    paddingLeft: 12,
-    paddingRight: 3,
+    minHeight: 48,
+    paddingLeft: 16,
+    paddingRight: 10,
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.28)',
-    backgroundColor: 'rgba(0,0,0,0.42)',
+    borderColor: 'rgba(255,255,255,0.42)',
+    backgroundColor: 'rgba(0,0,0,0.62)',
+  },
+  storyReplyRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  storyReplyLike: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    backgroundColor: 'rgba(0,0,0,0.58)',
   },
   storyReplyInput: {
     flex: 1,
     minWidth: 0,
     color: '#fff',
-    fontSize: 12,
-    paddingVertical: 8,
-    paddingRight: 6,
+    fontSize: 14,
+    paddingVertical: 11,
+    paddingRight: 8,
   },
   storyReplySend: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#4dabf7',

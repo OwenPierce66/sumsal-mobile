@@ -33,8 +33,8 @@ const DraggableCategory = ({ cat, index, categories, setCategories, selectedCate
   const pan = useRef(new Animated.Value(0)).current;
   const [isDragging, setIsDragging] = useState(false);
   
-  const panResponder = useRef(
-    PanResponder.create({
+  const panResponder = React.useMemo(
+    () => PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
@@ -72,8 +72,9 @@ const DraggableCategory = ({ cat, index, categories, setCategories, selectedCate
         setScrollEnabled(true);
         Animated.spring(pan, { toValue: 0, useNativeDriver: false }).start();
       }
-    })
-  ).current;
+    }),
+    [categories, index, pan, saveCategoriesOrder, setCategories, setScrollEnabled]
+  );
 
   return (
     <Animated.View style={[
@@ -112,12 +113,64 @@ const DraggableCategory = ({ cat, index, categories, setCategories, selectedCate
   );
 };
 
+const DraggableSubtheme = ({ name, index, subthemes, selected, onSelect, onReorder, setScrollEnabled }) => {
+  const pan = useRef(new Animated.Value(0)).current;
+  const [isDragging, setIsDragging] = useState(false);
+  const panResponder = React.useMemo(
+    () => PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        setIsDragging(true);
+        setScrollEnabled(false);
+        pan.setValue(0);
+      },
+      onPanResponderMove: Animated.event([null, { dy: pan }], { useNativeDriver: false }),
+      onPanResponderRelease: (_, gestureState) => {
+        setIsDragging(false);
+        setScrollEnabled(true);
+        const offset = Math.round(gestureState.dy / ROW_HEIGHT);
+        const newIndex = Math.max(0, Math.min(subthemes.length - 1, index + offset));
+
+        if (newIndex !== index) {
+          const reordered = [...subthemes];
+          const [movedItem] = reordered.splice(index, 1);
+          reordered.splice(newIndex, 0, movedItem);
+          onReorder(reordered);
+        }
+        Animated.spring(pan, { toValue: 0, useNativeDriver: false }).start();
+      },
+      onPanResponderTerminate: () => {
+        setIsDragging(false);
+        setScrollEnabled(true);
+        Animated.spring(pan, { toValue: 0, useNativeDriver: false }).start();
+      },
+    }),
+    [index, onReorder, pan, setScrollEnabled, subthemes]
+  );
+
+  return (
+    <Animated.View style={[
+      styles.draggableSubtheme,
+      { transform: [{ translateY: pan }], zIndex: isDragging ? 100 : 1, opacity: isDragging ? 0.8 : 1 },
+    ]}>
+      <TouchableOpacity
+        style={[styles.optionBadge, selected && styles.optionBadgeActive, styles.draggableSubthemeButton]}
+        onPress={onSelect}
+      >
+        <Text style={[styles.optionText, selected && styles.optionTextActive]}>{name}</Text>
+      </TouchableOpacity>
+      <View {...panResponder.panHandlers} style={styles.dragHandle}>
+        <Ionicons name="menu" size={20} color="#999" />
+      </View>
+    </Animated.View>
+  );
+};
+
 const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, isSuperAdmin }) => {
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
-  const [manualSubthemeText, setManualSubthemeText] = useState('');
-  const [manualSubcategories, setManualSubcategories] = useState([]);
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [sortBy, setSortBy] = useState(currentSortBy || 'recent');
   const [favoritesOnly, setFavoritesOnly] = useState(currentFavorites || false);
@@ -132,6 +185,12 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
   const [categoriesOrder, setCategoriesOrder] = useState([]);
   const [subthemesTree, setSubthemesTree] = useState(PREDEFINED_SUBTEMAS);
   const [adminSubthemeInputs, setAdminSubthemeInputs] = useState({});
+  const rootCategories = React.useMemo(() => {
+    const childNames = new Set(
+      Object.values(subthemesTree).flat().map(name => String(name).trim().toLowerCase())
+    );
+    return categories.filter(category => !childNames.has(String(category.name).trim().toLowerCase()));
+  }, [categories, subthemesTree]);
 
   useEffect(() => {
     fetchCategories();
@@ -169,15 +228,12 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
       if (subcats.length > 0) {
         const allPredefinedSet = new Set(Object.values(subthemesTree).flat());
         setSelectedSubcategories(subcats.filter(c => allPredefinedSet.has(c)));
-        setManualSubcategories(subcats.filter(c => !allPredefinedSet.has(c)));
       } else {
         setSelectedSubcategories([]);
-        setManualSubcategories([]);
       }
     } else {
       setSelectedCategory('');
       setSelectedSubcategories([]);
-      setManualSubcategories([]);
     }
 
     setSelectedDateFilter(currentDateFilter || '');
@@ -221,6 +277,13 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
     } catch(e) {}
   };
 
+  const saveSubthemesOrder = async (parentTheme, reorderedSubthemes) => {
+    const parentKey = parentTheme.toLowerCase();
+    const newTree = { ...subthemesTree, [parentKey]: reorderedSubthemes };
+    setSubthemesTree(newTree);
+    await AsyncStorage.setItem('subthemesTree', JSON.stringify(newTree));
+  };
+
   const dateOptions = [
     { label: 'Cualquier fecha', value: '' },
     { label: 'Hoy', value: 'hoy' },
@@ -233,24 +296,18 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
     { label: 'Más likes', value: 'likes' },
   ];
 
-  // ⚡ LÓGICA PARA GESTIONAR SUBTEMAS MANUALES O DE DICCIONARIO
-  const toggleSubcategory = (subcat) => {
-    setSelectedSubcategories(prev => 
-      prev.includes(subcat) ? prev.filter(c => c !== subcat) : [...prev, subcat]
-    );
+  const selectMainCategory = (category) => {
+    setSelectedCategory(category);
+    setSelectedSubcategories([]);
   };
 
-  const handleAddManualSubtheme = () => {
-    if (!manualSubthemeText.trim()) return;
-    const newSubcat = manualSubthemeText.trim();
-    if (!manualSubcategories.includes(newSubcat) && !selectedSubcategories.includes(newSubcat)) {
-      setManualSubcategories(prev => [...prev, newSubcat]);
-    }
-    setManualSubthemeText('');
-  };
-
-  const removeManualSubcategory = (subcat) => {
-    setManualSubcategories(prev => prev.filter(c => c !== subcat));
+  const selectSubcategoryAtLevel = (subcategory, level) => {
+    setSelectedSubcategories(prev => {
+      if (prev[level] === subcategory) {
+        return prev.slice(0, level);
+      }
+      return [...prev.slice(0, level), subcategory];
+    });
   };
 
   // ⚡ LÓGICA DE ADMIN PARA GUARDAR SUBTEMAS CONSECUTIVOS AL ÁRBOL Y A LA DB
@@ -265,18 +322,13 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
       const newTree = { ...subthemesTree, [parentKey]: [...currentSubs, newSubTheme] };
       setSubthemesTree(newTree);
       await AsyncStorage.setItem('subthemesTree', JSON.stringify(newTree));
-
-      try {
-        await api.post("new-categories/", { name: newSubTheme });
-        fetchCategories();
-      } catch(e){}
     }
     setAdminSubthemeInputs(prev => ({ ...prev, [parentTheme]: '' }));
   };
 
   const handleApply = () => {
     let finalCategory = selectedCategory;
-    const allSubcats = [...selectedSubcategories, ...manualSubcategories];
+    const allSubcats = selectedSubcategories;
     if (finalCategory && allSubcats.length > 0) finalCategory = [finalCategory, ...allSubcats].join(',');
     else if (!finalCategory && allSubcats.length > 0) finalCategory = allSubcats.join(',');
 
@@ -295,7 +347,6 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
   const handleClear = () => {
     setSelectedCategory('');
     setSelectedSubcategories([]);
-    setManualSubcategories([]);
     setSelectedDateFilter('');
     setSortBy('recent');
     setFavoritesOnly(false);
@@ -331,6 +382,70 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
           </View>
 
           <ScrollView style={styles.content} scrollEnabled={scrollEnabled}>
+            <View style={styles.hierarchyContainer}>
+              <Text style={styles.hierarchyTitle}>Temas</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalOptions}>
+                <TouchableOpacity
+                  style={[styles.hierarchyBadge, selectedCategory === '' && styles.hierarchyBadgeActive]}
+                  onPress={() => selectMainCategory('')}
+                >
+                  <Text style={[styles.hierarchyText, selectedCategory === '' && styles.hierarchyTextActive]}>Todos</Text>
+                </TouchableOpacity>
+                {rootCategories.map(category => (
+                  <TouchableOpacity
+                    key={category.id}
+                    style={[styles.hierarchyBadge, selectedCategory === category.name && styles.hierarchyBadgeActive]}
+                    onPress={() => selectMainCategory(category.name)}
+                  >
+                    <Text style={[styles.hierarchyText, selectedCategory === category.name && styles.hierarchyTextActive]}>
+                      {category.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {selectedCategory !== '' && [selectedCategory, ...selectedSubcategories].map((parentTheme, level) => {
+                const subthemes = subthemesTree[parentTheme.toLowerCase()] || [];
+                if (subthemes.length === 0 && !isSuper) return null;
+                const selectedSubtheme = selectedSubcategories[level];
+
+                return (
+                  <View key={`${parentTheme}-${level}`} style={styles.hierarchyLevel}>
+                    <Text style={styles.hierarchyTitle}>Subtemas de {parentTheme}</Text>
+                    {subthemes.length > 0 ? (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalOptions}>
+                        {subthemes.map(subtheme => (
+                          <TouchableOpacity
+                            key={subtheme}
+                            style={[styles.hierarchyBadge, selectedSubtheme === subtheme && styles.hierarchyBadgeActive]}
+                            onPress={() => selectSubcategoryAtLevel(subtheme, level)}
+                          >
+                            <Text style={[styles.hierarchyText, selectedSubtheme === subtheme && styles.hierarchyTextActive]}>
+                              {subtheme}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    ) : null}
+                    {isSuper ? (
+                      <View style={styles.addManualSubthemeContainer}>
+                        <TextInput
+                          style={[styles.manualSubthemeInput, styles.adminSubthemeInput]}
+                          placeholder={`Añadir subtema a ${parentTheme}...`}
+                          value={adminSubthemeInputs[parentTheme] || ''}
+                          onChangeText={text => setAdminSubthemeInputs(prev => ({ ...prev, [parentTheme]: text }))}
+                          onSubmitEditing={() => handleAdminAddSubtheme(parentTheme)}
+                        />
+                        <TouchableOpacity style={styles.addBtn} onPress={() => handleAdminAddSubtheme(parentTheme)}>
+                          <Ionicons name="save" size={20} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+
             <Text style={styles.sectionTitle}>Ordenar por</Text>
             <View style={styles.optionsContainer}>
               {sortOptions.map((option) => (
@@ -513,126 +628,50 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.sectionTitle}>Categoría</Text>
-            <View style={[styles.optionsContainer, {flexDirection: 'column'}]}>
-              <TouchableOpacity
-                style={[
-                  styles.optionBadge,
-                  selectedCategory === '' && styles.optionBadgeActive,
-                ]}
-                onPress={() => {
-                  setSelectedCategory('');
-                  setSelectedSubcategories([]);
-                  setManualSubcategories([]);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.optionText,
-                    selectedCategory === '' && styles.optionTextActive,
-                  ]}
-                >
-                  Todas
-                </Text>
-              </TouchableOpacity>
-              {categories.map((cat, index) => (
-                <DraggableCategory
-                  key={cat.id}
-                  cat={cat}
-                  index={index}
-                  categories={categories}
-                  setCategories={setCategories}
-                  selectedCategory={selectedCategory}
-                  setSelectedCategory={(name) => {
-                    setSelectedCategory(name);
-                    setSelectedSubcategories([]);
-                    setManualSubcategories([]);
-                  }}
-                  isSuper={isSuper}
-                  handleDeleteCat={handleDeleteCat}
-                  setScrollEnabled={setScrollEnabled}
-                  saveCategoriesOrder={saveCategoriesOrder}
-                />
-              ))}
-            </View>
-
-            {/* ⚡ BLOQUE INTELIGENTE DE SUBTEMAS */}
-            {selectedCategory !== '' && (
+            {isSuper ? (
               <>
-                {[selectedCategory, ...selectedSubcategories].map((theme, idx) => {
-                  const themeKey = theme.toLowerCase();
-                  const subs = subthemesTree[themeKey] || [];
-                  
-                  if (subs.length === 0 && !isSuper) return null;
+                <Text style={styles.sectionTitle}>Ordenar y administrar temas</Text>
+                <View style={[styles.optionsContainer, { flexDirection: 'column' }]}>
+                  {rootCategories.map((cat, index) => (
+                    <DraggableCategory
+                      key={cat.id}
+                      cat={cat}
+                      index={index}
+                      categories={rootCategories}
+                      setCategories={setCategories}
+                      selectedCategory={selectedCategory}
+                      setSelectedCategory={selectMainCategory}
+                      isSuper={isSuper}
+                      handleDeleteCat={handleDeleteCat}
+                      setScrollEnabled={setScrollEnabled}
+                      saveCategoriesOrder={saveCategoriesOrder}
+                    />
+                  ))}
+                </View>
+                {selectedCategory !== '' && [selectedCategory, ...selectedSubcategories].map((parentTheme, level) => {
+                  const subthemes = subthemesTree[parentTheme.toLowerCase()] || [];
+                  if (subthemes.length === 0) return null;
 
                   return (
-                    <View key={`sub-${themeKey}-${idx}`} style={styles.subthemesSection}>
-                      <Text style={styles.sectionTitle}>Subtemas de {theme}</Text>
-                      
-                      {subs.length > 0 && (
-                        <View style={styles.optionsContainer}>
-                          {subs.map((subcat, i) => (
-                            <TouchableOpacity
-                              key={i}
-                              style={[
-                                styles.optionBadge,
-                                selectedSubcategories.includes(subcat) && styles.optionBadgeActive,
-                              ]}
-                              onPress={() => toggleSubcategory(subcat)}
-                            >
-                              <Text style={[styles.optionText, selectedSubcategories.includes(subcat) && styles.optionTextActive]}>
-                                {subcat}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      )}
-
-                      {isSuper && (
-                        <View style={styles.addManualSubthemeContainer}>
-                          <TextInput
-                            style={[styles.manualSubthemeInput, { borderColor: '#4dabf7', borderWidth: 1 }]}
-                            placeholder={`Añadir subtema a ${theme} (Admin)...`}
-                            value={adminSubthemeInputs[theme] || ''}
-                            onChangeText={(txt) => setAdminSubthemeInputs(prev => ({...prev, [theme]: txt}))}
-                            onSubmitEditing={() => handleAdminAddSubtheme(theme)}
-                          />
-                          <TouchableOpacity style={styles.addBtn} onPress={() => handleAdminAddSubtheme(theme)}>
-                            <Ionicons name="save" size={20} color="#fff" />
-                          </TouchableOpacity>
-                        </View>
-                      )}
+                    <View key={`order-${parentTheme}-${level}`} style={styles.nestedOrderSection}>
+                      <Text style={styles.sectionTitle}>Ordenar subtemas de {parentTheme}</Text>
+                      {subthemes.map((subtheme, index) => (
+                        <DraggableSubtheme
+                          key={`${parentTheme}-${subtheme}`}
+                          name={subtheme}
+                          index={index}
+                          subthemes={subthemes}
+                          selected={selectedSubcategories[level] === subtheme}
+                          onSelect={() => selectSubcategoryAtLevel(subtheme, level)}
+                          onReorder={reordered => saveSubthemesOrder(parentTheme, reordered)}
+                          setScrollEnabled={setScrollEnabled}
+                        />
+                      ))}
                     </View>
                   );
                 })}
-
-                <View style={styles.subthemesSection}>
-                  <Text style={styles.sectionTitle}>Filtro de Subtemas Manuales</Text>
-                  <View style={styles.addManualSubthemeContainer}>
-                    <TextInput
-                      style={styles.manualSubthemeInput}
-                      placeholder="Agregar subtema manual..."
-                      value={manualSubthemeText}
-                      onChangeText={setManualSubthemeText}
-                      onSubmitEditing={handleAddManualSubtheme}
-                    />
-                    <TouchableOpacity style={styles.addBtn} onPress={handleAddManualSubtheme}>
-                      <Ionicons name="add" size={20} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-
-                  {manualSubcategories.length > 0 && (
-                    <View style={[styles.optionsContainer, { marginTop: 10 }]}>
-                      {manualSubcategories.map((subcat, idx) => (
-                        <TouchableOpacity key={idx} style={[styles.optionBadge, styles.optionBadgeActive]} onPress={() => removeManualSubcategory(subcat)}>
-                          <Text style={[styles.optionText, styles.optionTextActive]}>{subcat}  <Ionicons name="close" size={12} color="#fff" /></Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
               </>
-            )}
+            ) : null}
 
             {isSuper && (
               <View style={styles.adminSection}>
@@ -671,12 +710,19 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
 };
 
 const styles = StyleSheet.create({
-  subthemesSection: {
-    marginTop: 15,
-    paddingTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
+  hierarchyContainer: { marginBottom: 22 },
+  hierarchyLevel: { marginTop: 14 },
+  hierarchyTitle: { marginBottom: 8, fontSize: 14, fontWeight: '800', color: '#333' },
+  horizontalOptions: { gap: 8, paddingRight: 14 },
+  hierarchyBadge: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 18, backgroundColor: '#f0f2f5', borderWidth: 1, borderColor: '#e4e7eb' },
+  hierarchyBadgeActive: { backgroundColor: '#4dabf7', borderColor: '#4dabf7' },
+  hierarchyText: { color: '#555', fontSize: 13, fontWeight: '700' },
+  hierarchyTextActive: { color: '#fff' },
+  adminSubthemeInput: { borderColor: '#4dabf7' },
+  nestedOrderSection: { marginTop: 14, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: '#dceeff' },
+  draggableSubtheme: { position: 'relative', flexDirection: 'row', alignItems: 'center', height: ROW_HEIGHT, marginBottom: 8 },
+  draggableSubthemeButton: { flex: 1, marginRight: 0, marginBottom: 0, paddingRight: 44 },
+  dragHandle: { position: 'absolute', right: 4, padding: 10, zIndex: 10 },
   addManualSubthemeContainer: {
     flexDirection: 'row',
     marginTop: 10,

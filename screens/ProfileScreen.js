@@ -1,14 +1,16 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useContext } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
-import api, { clearAuthData } from '../api';
+import api from '../api';
 import { Image } from 'expo-image'; 
 import { getImageUrl } from '../api';
 import { useFocusEffect } from '@react-navigation/native';
+import { AuthContext } from '../App';
 
 const ProfileScreen = ({ route, navigation }) => {
+  const { refreshCurrentUser, signOut } = useContext(AuthContext);
   const userId = route?.params?.userId || 'me';
   const initialUserName = route?.params?.userName || '';
   const initialUserAvatar = route?.params?.userAvatar || null;
@@ -26,7 +28,9 @@ const ProfileScreen = ({ route, navigation }) => {
   const fetchUserData = async () => {
     try {
       const endpoint = isCurrentUser ? 'users/me/' : `massaging/users/`;
-      const response = await api.get(endpoint);
+      const response = isCurrentUser
+        ? { data: await refreshCurrentUser() }
+        : await api.get(endpoint);
       
       if (isCurrentUser) {
         setUser(response.data);
@@ -90,11 +94,7 @@ const ProfileScreen = ({ route, navigation }) => {
   };
 
   const handleLogout = async () => {
-    await clearAuthData();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Login' }],
-    });
+    await signOut();
   };
 
   const renderTask = ({ item }) => {
@@ -166,6 +166,14 @@ const ProfileScreen = ({ route, navigation }) => {
             {user?.first_name ? `${user.first_name} ${user.last_name || ''}` : user?.username || 'Usuario'}
           </Text>
           <Text style={styles.profileEmail}>{user?.email}</Text>
+          {isCurrentUser && (user?.is_staff || user?.is_superuser) ? (
+            <View style={styles.adminBadge}>
+              <Ionicons name="shield-checkmark" size={14} color="#fff" />
+              <Text style={styles.adminBadgeText}>
+                {user?.is_superuser ? 'Superadministrador' : 'Administrador'}
+              </Text>
+            </View>
+          ) : null}
         </View>
       </View>
       
@@ -233,6 +241,8 @@ const styles = StyleSheet.create({
   profileTextContainer: { flex: 1 },
   profileName: { fontSize: 22, fontWeight: 'bold', color: '#333' },
   profileEmail: { fontSize: 14, color: '#666', marginTop: 4 },
+  adminBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, backgroundColor: '#d9534f' },
+  adminBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   
   actionButtons: { flexDirection: 'row', justifyContent: 'flex-start' },
   actionBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 20, backgroundColor: '#ffe3e3' },

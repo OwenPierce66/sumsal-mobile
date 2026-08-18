@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo, createContext } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, createContext } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { clearAuthData } from './api'; // Importamos tu función de limpieza
+import api, { clearAuthData } from './api'; // Importamos tu función de limpieza
 
 // Tus pantallas
 import HomeScreen from './screens/HomeScreen';
@@ -175,6 +175,7 @@ const linking = {
 };
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(null);
   const [state, dispatch] = React.useReducer(
     (prevState, action) => {
       switch (action.type) {
@@ -186,23 +187,50 @@ export default function App() {
     { isLoading: true, userToken: null }
   );
 
+  const refreshCurrentUser = useCallback(async () => {
+    const response = await api.get('users/me/');
+    setCurrentUser(response.data);
+    await AsyncStorage.setItem('user', JSON.stringify(response.data));
+    return response.data;
+  }, []);
+
   useEffect(() => {
     const bootstrapAsync = async () => {
       const token = await AsyncStorage.getItem('accessToken');
+      if (token) {
+        const storedUser = await AsyncStorage.getItem('user');
+        if (storedUser) {
+          setCurrentUser(JSON.parse(storedUser));
+        }
+        try {
+          await refreshCurrentUser();
+        } catch (error) {
+          console.error('[App] No se pudo actualizar el usuario autenticado:', error.response?.data || error);
+        }
+      }
       dispatch({ type: 'RESTORE_TOKEN', token });
     };
     bootstrapAsync();
-  }, []);
+  }, [refreshCurrentUser]);
   // ⚡ 2. DEFINIMOS LAS FUNCIONES DEL CONTROL REMOTO
   const authContext = useMemo(() => ({
-    signIn: (token) => {
+    signIn: async (token) => {
       dispatch({ type: 'SIGN_IN', token });
+      try {
+        await refreshCurrentUser();
+      } catch (error) {
+        console.error('[App] No se pudo cargar el usuario después de iniciar sesión:', error.response?.data || error);
+      }
     },
     signOut: async () => {
       await clearAuthData(); // Borra los tokens físicamente
+      setCurrentUser(null);
       dispatch({ type: 'SIGN_OUT' });
     },
-  }), []);
+    refreshCurrentUser,
+    user: currentUser,
+    isAdmin: Boolean(currentUser?.is_staff || currentUser?.is_superuser),
+  }), [currentUser, refreshCurrentUser]);
 
   if (state.isLoading) {
     return (

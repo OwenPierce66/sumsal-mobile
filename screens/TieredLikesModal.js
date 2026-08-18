@@ -5,31 +5,27 @@ import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
 import TouchableUsername from '../components/TouchableUsername';
 
-const TIER_ORDER = ['all', 'verified', 'recommended', 'app', 'sub_red', 'sub_green', 'regular'];
+const TIER_ORDER = ['all', 'app', 'recommended', 'sub_red', 'verified', 'sub_green', 'regular'];
 const TIER_META = {
   verified: { label: 'Verificados', color: '#4dabf7' },
   recommended: { label: 'Recomendados', color: '#f59f00' },
   app: { label: 'App', color: '#000' },
-  sub_red: { label: 'Sub Rojo', color: '#ff6b6b' },
-  sub_green: { label: 'Sub Verde', color: '#51cf66' },
-  regular: { label: 'Regular', color: '#868e96' },
+  sub_red: { label: 'Suscripción +', color: '#ff6b6b' },
+  sub_green: { label: 'Suscripción', color: '#51cf66' },
+  regular: { label: 'Otros', color: '#868e96' },
   all: { label: 'Todos', color: '#333' },
 };
 
 // ✅ Lógica de tiers COMPLETA portada de ReelsPCH.js para consistencia
 const getTierKey = (user) => {
   const profile = user?.profile || user || {};
-  if (profile.is_verified) return 'verified';
+  const username = String(user?.username || user?.user?.username || '').toLowerCase();
+  const userId = user?.id || user?.user?.id;
+  if (user?.is_app || username === 'app-bot' || username === 'owen' || userId === 1) return 'app';
   if (profile.is_recommended) return 'recommended';
-  // El ID 1 corresponde al usuario 'owen' o la cuenta principal de la app
-  if (profile.id === 1) return 'app';
-  if (profile.subscriptionActive) {
-    // El umbral de 8 define si un suscriptor es "PLUS" (rojo)
-    if (parseFloat(profile.subscription_amount || 0) >= 8) {
-      return 'sub_red';
-    }
-    return 'sub_green';
-  }
+  if (profile.subscriptionActive && parseFloat(profile.subscription_amount || 0) >= 8) return 'sub_red';
+  if (profile.is_verified) return 'verified';
+  if (profile.subscriptionActive) return 'sub_green';
   return 'regular';
 };
 
@@ -37,6 +33,8 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState([]);
   const [activeTier, setActiveTier] = useState(initialTier);
+  const [storyActivityCounts, setStoryActivityCounts] = useState({ views: 0, likes: 0 });
+  const isViewersList = String(apiUrl || '').includes('/viewers/');
 
   useEffect(() => {
     if (visible) {
@@ -50,6 +48,7 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
     } else {
       console.log('[TieredLikesModal] MODAL CLOSED - Clearing users');
       setUsers([]); // Limpiar al cerrar
+      setStoryActivityCounts({ views: 0, likes: 0 });
     }
   }, [visible, apiUrl, initialTier]);
 
@@ -58,13 +57,21 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
     try {
       const response = await api.get(apiUrl);
       console.log(`[TieredLikesModal] FETCH SUCCESS - API Response Status: ${response.status}`);
-      const fetchedUsers = Array.isArray(response.data) ? response.data : (response.data.results || []);
+      const fetchedUsers = Array.isArray(response.data)
+        ? response.data
+        : (response.data.results || response.data.users || []);
       console.log('[TieredLikesModal] FETCH USERS', {
         apiUrl,
         count: fetchedUsers.length,
         userIds: fetchedUsers.map(user => user?.id),
       });
       setUsers(fetchedUsers); 
+      if (isViewersList) {
+        setStoryActivityCounts({
+          views: Number(response.data?.views_count ?? response.data?.count ?? 0),
+          likes: Number(response.data?.likes_count ?? 0),
+        });
+      }
     } catch (error) {
       console.error(`[TieredLikesModal] FETCH ERROR - API call to ${apiUrl} failed:`, error.response?.status, error.response?.data || error);
       console.error("Error fetching users for modal:", error);
@@ -94,9 +101,9 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
     const userObject = item.user || item;
     const tierKey = getTierKey(userObject);
     const tierColor = TIER_META[tierKey]?.color || '#868e96';
-    const userName = userObject.username || userObject.user?.username || 'Usuario';
+    const userName = userObject.username || userObject.name || userObject.user?.username || 'Usuario';
     const userId = userObject.id || userObject.user?.id;
-    const userImage = userObject.profile?.user_image || userObject.user_image || userObject.user?.user_image;
+    const userImage = userObject.profile?.user_image || userObject.user_image || userObject.image || userObject.user?.user_image;
 
     return (
       <View style={styles.userRow}>
@@ -109,7 +116,27 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
           style={styles.userNameCell}
           textStyle={styles.username}
         />
-        <Text style={[styles.likesCount, { color: tierColor }]}>{userObject.profile?.likes_count || 0} <Ionicons name="heart" size={12} /></Text>
+        {tierKey !== 'regular' ? (
+          <View style={[styles.tierBadge, { backgroundColor: tierColor }]}>
+            <Text style={styles.tierBadgeText}>{TIER_META[tierKey].label}</Text>
+          </View>
+        ) : null}
+        {isViewersList ? (
+          <View style={styles.storyActivityIcons}>
+            {userObject.viewed !== false ? (
+              <View style={styles.storyActivityIcon}>
+                <Ionicons name="eye" size={17} color="#4dabf7" />
+              </View>
+            ) : null}
+            {userObject.liked ? (
+              <View style={[styles.storyActivityIcon, styles.storyLikeIcon]}>
+                <Ionicons name="heart" size={16} color="#ff4d6d" />
+              </View>
+            ) : null}
+          </View>
+        ) : (
+          <Text style={[styles.likesCount, { color: tierColor }]}>{userObject.profile?.likes_count || 0} <Ionicons name="heart" size={12} /></Text>
+        )}
       </View>
     );
   };
@@ -152,6 +179,20 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
               <Ionicons name="close" size={24} color="#555" />
             </TouchableOpacity>
           </View>
+          {isViewersList ? (
+            <View style={styles.storyActivitySummary}>
+              <View style={styles.storyActivityStat}>
+                <Ionicons name="eye-outline" size={19} color="#4dabf7" />
+                <Text style={styles.storyActivityStatCount}>{storyActivityCounts.views}</Text>
+                <Text style={styles.storyActivityStatLabel}>vistas</Text>
+              </View>
+              <View style={styles.storyActivityStat}>
+                <Ionicons name="heart-outline" size={19} color="#ff4d6d" />
+                <Text style={styles.storyActivityStatCount}>{storyActivityCounts.likes}</Text>
+                <Text style={styles.storyActivityStatLabel}>me gusta</Text>
+              </View>
+            </View>
+          ) : null}
           {renderTabs()}
           {loading ? (
             <ActivityIndicator style={{ marginTop: 20 }} size="large" color="#4dabf7" />
@@ -160,7 +201,11 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
               data={filteredUsers}
               renderItem={renderUser}
               keyExtractor={(item) => item.id.toString()}
-              ListEmptyComponent={<Text style={styles.emptyText}>No hay usuarios en esta categoría.</Text>}
+              ListEmptyComponent={(
+                <Text style={styles.emptyText}>
+                  {isViewersList ? 'Nadie ha visto esta historia todavía.' : 'No hay usuarios en esta categoría.'}
+                </Text>
+              )}
             />
           )}
         </View>
@@ -174,6 +219,35 @@ const styles = StyleSheet.create({
   modalContainer: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '70%', padding: 16 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   title: { fontSize: 20, fontWeight: 'bold' },
+  storyActivitySummary: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  storyActivityStat: {
+    flex: 1,
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderRadius: 14,
+    backgroundColor: '#f5f7fa',
+    borderWidth: 1,
+    borderColor: '#e8ebef',
+  },
+  storyActivityStatCount: { fontSize: 17, fontWeight: '800', color: '#2f343a' },
+  storyActivityStatLabel: { fontSize: 12, color: '#7a828a' },
+  storyActivityIcons: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  storyActivityIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e7f4ff',
+  },
+  storyLikeIcon: { backgroundColor: '#ffe9ee' },
   tabContainer: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
   tab: { paddingVertical: 10, paddingHorizontal: 12, marginRight: 8, borderRadius: 8 },
   activeTab: { borderBottomWidth: 3, borderBottomColor: '#4dabf7' },
@@ -183,6 +257,14 @@ const styles = StyleSheet.create({
   avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, borderWidth: 2 },
   userNameCell: { flex: 1, marginRight: 8 },
   username: { fontSize: 16, fontWeight: '500', flex: 1 },
+  tierBadge: {
+    maxWidth: 92,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    marginRight: 8,
+    borderRadius: 10,
+  },
+  tierBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   likesCount: { fontSize: 14, fontWeight: 'bold' },
   emptyText: { textAlign: 'center', marginTop: 30, color: '#999' },
 });

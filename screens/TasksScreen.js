@@ -435,15 +435,13 @@ const TasksScreen = ({ navigation }) => {
       if (pageNumber === 1) setLoading(true);
       else setLoadingMore(true);
 
-      // ⚡ EXTRAEMOS SOLO LA CATEGORÍA PRINCIPAL PARA EL BACKEND
       const currentCatFilter = overrideFilters ? overrideFilters.category : selectedCategory;
-      const primaryCategory = currentCatFilter ? currentCatFilter.split(',')[0].trim() : '';
 
       const response = await api.get('tasks/', { 
         params: {
           pch: tema, 
           page: pageNumber,
-          category: primaryCategory,
+          category: currentCatFilter,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
           favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
@@ -478,18 +476,16 @@ const TasksScreen = ({ navigation }) => {
       setLoadingMore(false);
       setRefreshing(false);
     }
-  }, [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly]);
+  }, [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   const fetchSharedTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
     try {
-      // ⚡ EXTRAEMOS SOLO LA CATEGORÍA PRINCIPAL PARA EL BACKEND
       const currentCatFilter = overrideFilters ? overrideFilters.category : selectedCategory;
-      const primaryCategory = currentCatFilter ? currentCatFilter.split(',')[0].trim() : '';
 
       const response = await api.get('shared-tasks/', { 
         params: {
           page: pageNumber,
-          category: primaryCategory,
+          category: currentCatFilter,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
           favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
@@ -515,7 +511,7 @@ const TasksScreen = ({ navigation }) => {
       }
       console.error('Error fetching shared tasks:', error.response?.data || error.message);
     }
-  }, [selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly]);
+  }, [selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   // ✅ CORRECCIÓN: Usamos un useEffect que reacciona a los filtros, en lugar de a cada foco.
   // Esto reduce drásticamente las llamadas a la API.

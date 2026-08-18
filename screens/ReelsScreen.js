@@ -278,7 +278,8 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, se
 });
 
 const ReelsScreen = () => {
-  const { user } = useContext(AuthContext);
+  const { user, isAdmin: isAdminFromContext } = useContext(AuthContext);
+  const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
   const currentUserId = user?.id;
   const navigation = useNavigation();
   const [reels, setReels] = useState([]);
@@ -310,6 +311,25 @@ const ReelsScreen = () => {
   const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
 
+  useEffect(() => {
+    if (isAdminFromContext !== undefined && isAdminFromContext !== null) {
+      setIsAdmin(isAdminFromContext);
+      return;
+    }
+
+    const verifyAdminStatus = async () => {
+      try {
+        const response = await api.get('verify-admin/');
+        setIsAdmin(Boolean(response.data?.is_admin || response.data?.is_staff));
+      } catch (error) {
+        console.error('[ReelsScreen] Error verificando permisos de administrador:', error.response?.data || error);
+        setIsAdmin(false);
+      }
+    };
+
+    verifyAdminStatus();
+  }, [isAdminFromContext]);
+
   const [sharedOpenById, setSharedOpenById] = useState({});
   const flatListRef = useRef(null);
   const [isUIVisible, setIsUIVisible] = useState(true);
@@ -330,14 +350,14 @@ const ReelsScreen = () => {
       }
 
       const currentCatFilter = filters.category !== undefined ? filters.category : selectedCategory;
-      const primaryCategory = currentCatFilter ? currentCatFilter.split(',')[0].trim() : '';
       
       // ✅ REVERSIÓN: Volvemos a usar el endpoint de /api/tasks/ para obtener solo tareas originales.
       const response = await api.get('tasks/', {
         params: { 
           pch: filters.tema || tema, 
           page: pageNumber,
-          category: primaryCategory, 
+          category: currentCatFilter,
+          date_filter: filters.date_filter !== undefined ? filters.date_filter : selectedDateFilter,
           sort_by: filters.sort_by !== undefined ? filters.sort_by : selectedSortBy,
           favorites_only: filters.favorites_only !== undefined ? filters.favorites_only : selectedFavoritesOnly,
           favorite_users_only: filters.favorite_users_only !== undefined ? filters.favorite_users_only : selectedFavoriteUsersOnly,
@@ -698,6 +718,42 @@ const ReelsScreen = () => {
     });
   };
 
+  const updateReelUserProfile = (userId, profileChanges) => {
+    setReels(prev => prev.map(reel => (
+      reel.user?.id === userId
+        ? { ...reel, user: { ...reel.user, profile: { ...reel.user.profile, ...profileChanges } } }
+        : reel
+    )));
+  };
+
+  const handleToggleVerified = async () => {
+    const userObj = selectedActionTask?.user;
+    if (!userObj) return;
+
+    const is_verified = !userObj.profile?.is_verified;
+    try {
+      await api.post(`admin/users/${userObj.id}/verify/`, { is_verified });
+      updateReelUserProfile(userObj.id, { is_verified });
+      setActionModalVisible(false);
+    } catch (error) {
+      console.error('[ReelsScreen] Error actualizando verificación:', error.response?.data || error);
+    }
+  };
+
+  const handleToggleRecommended = async () => {
+    const userObj = selectedActionTask?.user;
+    if (!userObj) return;
+
+    const is_recommended = !userObj.profile?.is_recommended;
+    try {
+      await api.post(`admin/users/${userObj.id}/recommend/`, { is_recommended });
+      updateReelUserProfile(userObj.id, { is_recommended });
+      setActionModalVisible(false);
+    } catch (error) {
+      console.error('[ReelsScreen] Error actualizando recomendación:', error.response?.data || error);
+    }
+  };
+
   const handleToggleProfileFavoriteDirect = useCallback(async (task) => {
     if (!task || !task.user) return;
     try {
@@ -892,6 +948,7 @@ const ReelsScreen = () => {
           currentFavoriteUsers={selectedFavoriteUsersOnly}
           currentVerifiedUsers={selectedVerifiedUsersOnly}
           currentRecommendedUsers={selectedRecommendedUsersOnly}
+          isSuperAdmin={isAdmin}
           onApply={(newFilters) => {
             setSelectedCategory(newFilters.category);
             setSelectedDateFilter(newFilters.date_filter);
@@ -968,6 +1025,30 @@ const ReelsScreen = () => {
                       <Ionicons name='trash-outline' size={20} color='#ff6b6b' />
                       <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: 'bold' }]}>Eliminar</Text>
                     </TouchableOpacity>
+                  )}
+                  {isAdmin && selectedActionTask.user && (
+                    <>
+                      <TouchableOpacity style={styles.actionOption} onPress={handleToggleVerified}>
+                        <Ionicons
+                          name={selectedActionTask.user.profile?.is_verified ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                          size={20}
+                          color={selectedActionTask.user.profile?.is_verified ? '#4dabf7' : '#555'}
+                        />
+                        <Text style={styles.actionText}>
+                          {selectedActionTask.user.profile?.is_verified ? 'Quitar Verificación' : 'Verificar Perfil'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.actionOption} onPress={handleToggleRecommended}>
+                        <Ionicons
+                          name={selectedActionTask.user.profile?.is_recommended ? 'ribbon' : 'ribbon-outline'}
+                          size={20}
+                          color={selectedActionTask.user.profile?.is_recommended ? '#f59f00' : '#555'}
+                        />
+                        <Text style={styles.actionText}>
+                          {selectedActionTask.user.profile?.is_recommended ? 'Quitar Recomendación' : 'Recomendar Perfil'}
+                        </Text>
+                      </TouchableOpacity>
+                    </>
                   )}
                 </>
               )}
