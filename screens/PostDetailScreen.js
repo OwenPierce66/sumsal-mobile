@@ -11,7 +11,7 @@ import TouchableUsername from '../components/TouchableUsername';
 moment.locale('es');
 
 // COMPONENTE RECURSIVO PARA RENDERIZAR REPLIES ANIDADAS
-const ReplyItem = ({ reply, depth = 0, onLike, onReply, replyingToId, getAuthorName, expandedReplyIds, toggleExpand, navigation }) => {
+const ReplyItem = ({ reply, depth = 0, onLike, onReply, onEdit, onDelete, currentUserId, replyingToId, getAuthorName, expandedReplyIds, toggleExpand, navigation }) => {
   const hasChildren = reply.replies && reply.replies.length > 0;
   const isExpanded = expandedReplyIds.includes(reply.id);
   const marginLeft = depth > 0 ? 12 : 0;
@@ -52,6 +52,13 @@ const ReplyItem = ({ reply, depth = 0, onLike, onReply, replyingToId, getAuthorN
 
         <Text style={styles.replyContent}>{reply.content}</Text>
 
+        {currentUserId === reply.user?.id && (
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <TouchableOpacity onPress={() => onEdit(reply)}><Text style={styles.replyActionText}>Editar</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onDelete(reply.id)}><Text style={[styles.replyActionText, { color: '#ff6b6b' }]}>Eliminar</Text></TouchableOpacity>
+          </View>
+        )}
+
         <TouchableOpacity
           style={styles.replyActionBtn}
           onPress={() => onReply(reply)}
@@ -80,6 +87,9 @@ const ReplyItem = ({ reply, depth = 0, onLike, onReply, replyingToId, getAuthorN
                 depth={depth + 1}
                 onLike={onLike}
                 onReply={onReply}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                currentUserId={currentUserId}
                 replyingToId={replyingToId}
                 getAuthorName={getAuthorName}
                 expandedReplyIds={expandedReplyIds}
@@ -105,6 +115,9 @@ const PostDetailScreen = () => {
   const [liking, setLiking] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
   const [creatingReply, setCreatingReply] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [editingPost, setEditingPost] = useState(false);
+  const [editingReplyId, setEditingReplyId] = useState(null);
 
   const countReplies = (items) => {
     return items.reduce((total, item) => total + 1 + countReplies(item.replies || []), 0);
@@ -136,6 +149,7 @@ const PostDetailScreen = () => {
 
   useEffect(() => {
     fetchPost();
+    api.get('users/me/').then(response => setCurrentUserId(response.data.id)).catch(() => {});
   }, [postId]);
 
   const fetchPost = async () => {
@@ -196,11 +210,13 @@ const PostDetailScreen = () => {
 
     setCreatingReply(true);
     try {
-      await api.post('posts/', {
-        title: '',
-        content: newReply,
-        parent: replyingTo ? replyingTo.id : postId });
+      if (editingReplyId) {
+        await api.patch(`posts/${editingReplyId}/`, { content: newReply });
+      } else {
+        await api.post('posts/', { title: '', content: newReply, parent: replyingTo ? replyingTo.id : postId });
+      }
       setNewReply('');
+      setEditingReplyId(null);
       setExpandedReplyIds((prev) =>
         replyingTo ? [...new Set([...prev, replyingTo.id])] : prev
       );
@@ -212,6 +228,27 @@ const PostDetailScreen = () => {
     } finally {
       setCreatingReply(false);
     }
+  };
+
+  const deletePost = async (id) => {
+    try {
+      await api.delete(`posts/${id}/`);
+      navigation.goBack();
+    } catch (error) { Alert.alert('Error', 'No se pudo eliminar el contenido'); }
+  };
+
+  const editReply = (reply) => {
+    setEditingReplyId(reply.id);
+    setNewReply(reply.content || '');
+    setReplyingTo(null);
+  };
+
+  const savePost = async () => {
+    try {
+      const response = await api.patch(`posts/${postId}/`, { title: post.title, content: post.content });
+      setPost(response.data);
+      setEditingPost(false);
+    } catch (error) { Alert.alert('Error', 'No se pudo editar el post'); }
   };
 
   if (!post) {
@@ -272,7 +309,19 @@ const PostDetailScreen = () => {
               <Text style={styles.postLikeCount}>{post.likes_count || 0}</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.postContent}>{post.content}</Text>
+          {currentUserId === post.user?.id && (
+            <View style={{ flexDirection: 'row', gap: 14, marginBottom: 8 }}>
+              <TouchableOpacity onPress={() => setEditingPost(true)}><Ionicons name="pencil-outline" size={18} color="#4dabf7" /></TouchableOpacity>
+              <TouchableOpacity onPress={() => deletePost(post.id)}><Ionicons name="trash-outline" size={18} color="#ff6b6b" /></TouchableOpacity>
+            </View>
+          )}
+          {editingPost ? (
+            <>
+              <TextInput style={styles.input} value={post.title} onChangeText={title => setPost(prev => ({ ...prev, title }))} />
+              <TextInput style={[styles.input, { minHeight: 90 }]} value={post.content} onChangeText={content => setPost(prev => ({ ...prev, content }))} multiline />
+              <TouchableOpacity style={styles.sendBtn} onPress={savePost}><Ionicons name="checkmark" size={18} color="#fff" /></TouchableOpacity>
+            </>
+          ) : <Text style={styles.postContent}>{post.content}</Text>}
         </View>
 
         {/* SECCIÓN DE RESPUESTAS */}
@@ -288,6 +337,9 @@ const PostDetailScreen = () => {
                 reply={reply}
                 onLike={likeReply}
                 onReply={setReplyingTo}
+                onEdit={editReply}
+                onDelete={deletePost}
+                currentUserId={currentUserId}
                 replyingToId={replyingTo?.id}
                 getAuthorName={getPostAuthorName}
                 expandedReplyIds={expandedReplyIds}

@@ -185,7 +185,8 @@ const ReelItemComponent = ({
           )}
 
           <View style={styles.overlay} pointerEvents="box-none">
-            <View style={styles.bottomSection} pointerEvents="box-none">
+            <View style={styles.publicationRow} pointerEvents="box-none">
+              <View style={styles.bottomSection} pointerEvents="box-none">
               {sharedByInfo && (
                 <View style={styles.sharedByContainer}>
                   <TouchableOpacity
@@ -288,9 +289,9 @@ const ReelItemComponent = ({
                   ))}
                 </ScrollView>
               ) : null}
-            </View>
+              </View>
 
-            <View style={styles.rightSection}>
+              <View style={styles.rightSection}>
               <TouchableOpacity 
                 style={styles.iconButton} 
                 onPress={() => {
@@ -383,6 +384,7 @@ const ReelItemComponent = ({
               <TouchableOpacity style={styles.iconButton} onPress={() => openActionModal(item)}>
                 <Ionicons name="ellipsis-vertical" size={22} color="white" />
               </TouchableOpacity>
+              </View>
             </View>
           </View>
 
@@ -414,8 +416,9 @@ const styles = StyleSheet.create({
   sharedByDescription: { color: '#fff', fontSize: 13, marginTop: 4, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
   pausedSharedByLabel: { marginBottom: 6, alignSelf: 'flex-start', backgroundColor: 'rgba(0,0,0,0.35)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, pointerEvents: 'auto' },
   pausedSharedByText: { color: '#fff', fontSize: 12, fontWeight: '700', textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
-  overlay: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'none' },
-  bottomSection: { flex: 1, padding: 15, paddingRight: 80, justifyContent: 'flex-end' },
+  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'none' },
+  publicationRow: { flexDirection: 'row', alignItems: 'flex-end', width: '100%', paddingHorizontal: 10 },
+  bottomSection: { flex: 1, minWidth: 0, padding: 10, paddingRight: 16, justifyContent: 'flex-end' },
   userInfo: { marginBottom: 10, pointerEvents: 'auto' },
   username: { color: '#fff', fontSize: 16, fontWeight: 'bold', textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
   title: { color: '#fff', fontSize: 15, fontWeight: '600', marginBottom: 6, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
@@ -423,7 +426,7 @@ const styles = StyleSheet.create({
   categoriesScroll: { flexDirection: 'row', marginBottom: 5 },
   categoryBadge: { backgroundColor: 'rgba(0,0,0,0.4)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
   categoryText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  rightSection: { width: 60, paddingBottom: 0, alignItems: 'center', justifyContent: 'flex-end' },
+  rightSection: { width: 58, flexShrink: 0, paddingBottom: 0, alignItems: 'center', justifyContent: 'flex-end' },
   avatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#fff' },
   followBtn: { position: 'absolute', bottom: -5, backgroundColor: 'rgba(0,0,0,0.6)', width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   iconButton: { alignItems: 'center', marginBottom: 12, pointerEvents: 'auto' },

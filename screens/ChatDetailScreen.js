@@ -76,7 +76,7 @@ const getImageUrl = (path) => {
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
-const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigateToProfile, onOpenContent, navigation }) => {
+const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, onNavigateToProfile, onOpenContent, navigation }) => {
   const pan = useRef(new Animated.ValueXY()).current;
   const { contentContext, bodyText } = parseSharedContentFromMessage(item?.content || '');
   const panResponder = useRef(
@@ -136,6 +136,7 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onNavigat
                 }
               } else {
                 Alert.alert("Opciones", "¿Qué deseas hacer?", [
+                  ...(type === 'direct' && item.content ? [{ text: "Editar", onPress: () => onEdit(item) }] : []),
                   { text: "Eliminar", style: 'destructive', onPress: () => onDelete(item.id) },
                   { text: "Cancelar", style: 'cancel' }
                 ]);
@@ -220,6 +221,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
   } = route.params;
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   
@@ -404,6 +406,12 @@ const ChatDetailScreen = ({ route, navigation }) => {
     }
   };
 
+  const handleEditMessage = (message) => {
+    setEditingMessageId(message.id);
+    setNewMessage(message.content || '');
+    setReplyTo(null);
+  };
+
   const executeDelete = async (msgId) => {
     try {
       if (type === 'group') {
@@ -426,6 +434,14 @@ const ChatDetailScreen = ({ route, navigation }) => {
     if (!newMessage.trim() && !selectedImage && !storyReplyContext) return;
     
     try {
+      if (editingMessageId) {
+        const response = await api.patch(`massaging/messages/${editingMessageId}/`, { content: newMessage.trim() });
+        setMessages(prev => prev.map(message => message.id === editingMessageId ? response.data : message));
+        setEditingMessageId(null);
+        setNewMessage('');
+        return;
+      }
+
       const formData = new FormData();
       const hasSharedContentContext = !!storyReplyContext && !replyTo;
       const contextLine = hasSharedContentContext
@@ -552,6 +568,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
         msgAvatar={msgAvatar} 
         onReply={setReplyTo} 
         onDelete={handleDeleteMessage} 
+        onEdit={handleEditMessage}
         onNavigateToProfile={navigateToProfile}
         onOpenContent={handleOpenContentFromMessage}
         navigation={navigation}

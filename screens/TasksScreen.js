@@ -15,6 +15,7 @@ import ShareModal from '../components/ShareModal';
 import { AuthContext } from '../App';
 import ShareActionMenu from './ShareActionMenu'; // Importa el nuevo menú
 import TouchableUsername from '../components/TouchableUsername';
+import CategoryHierarchy from '../components/CategoryHierarchy';
 
 const TasksScreen = ({ navigation }) => {
   // ✅ OBTENEMOS EL USUARIO Y ADMIN STATUS DEL CONTEXTO GLOBAL
@@ -27,6 +28,7 @@ const TasksScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [searchExpanded, setSearchExpanded] = useState(false);
   const [tema, setTema] = useState('consejos');
   const [visibleSections, setVisibleSections] = useState({});
   const [filterModalVisible, setFilterModalVisible] = useState(false);
@@ -260,6 +262,26 @@ const TasksScreen = ({ navigation }) => {
     }
   };
 
+  const handleEditTask = () => {
+    if (!selectedActionTask) return;
+    setActionModalVisible(false);
+    if (selectedActionTask.isSharedTask) {
+      navigation.navigate('SharedTaskDetail', { sharedTaskId: selectedActionTask.id });
+    } else {
+      navigation.navigate('CreateTask', { task: selectedActionTask });
+    }
+  };
+
+  const selectedTaskOwnerId = selectedActionTask?.isSharedTask
+    ? selectedActionTask?.shared_by?.id
+    : selectedActionTask?.user?.id || selectedActionTask?.user_id || selectedActionTask?.user;
+  const canEditSelectedTask = Boolean(
+    selectedActionTask &&
+    currentUserId &&
+    selectedTaskOwnerId &&
+    String(currentUserId) === String(selectedTaskOwnerId)
+  );
+
   const handleDirectMessage = () => {
     if (!selectedActionTask) return;
     const userObj = selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user;
@@ -448,6 +470,7 @@ const TasksScreen = ({ navigation }) => {
           favorite_users_only: overrideFilters ? overrideFilters.favorite_users_only : selectedFavoriteUsersOnly,
           verified_users_only: overrideFilters ? overrideFilters.verified_users_only : selectedVerifiedUsersOnly,
           recommended_users_only: overrideFilters ? overrideFilters.recommended_users_only : selectedRecommendedUsersOnly,
+          _ts: Date.now(),
         }
       });
       const data = response.data.results ?? response.data ?? [];
@@ -1017,23 +1040,36 @@ const TasksScreen = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Éxito</Text>
-        <TouchableOpacity style={styles.createBtn} onPress={() => navigation.navigate('CreateTask')}>
-          <Ionicons name="add" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#999" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Buscar objetivos..."
-          value={searchText}
-          onChangeText={setSearchText}
-        />
-        <TouchableOpacity onPress={() => setFilterModalVisible(true)}>
-          <Ionicons name="options-outline" size={24} color="#4dabf7" />
-        </TouchableOpacity>
+        {searchExpanded ? (
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color="#999" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Buscar objetivos..."
+              value={searchText}
+              onChangeText={setSearchText}
+              autoFocus
+            />
+            <TouchableOpacity onPress={() => { setSearchText(''); setSearchExpanded(false); }}>
+              <Ionicons name="close-circle" size={20} color="#999" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <Text style={styles.headerTitle}>Éxito</Text>
+        )}
+        <View style={styles.headerActions}>
+          {!searchExpanded && (
+            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setSearchExpanded(true)}>
+              <Ionicons name="search-outline" size={24} color="#4dabf7" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.headerIconBtn} onPress={() => setFilterModalVisible(true)}>
+            <Ionicons name="options-outline" size={24} color="#4dabf7" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.createBtn} onPress={() => navigation.navigate('CreateTask')}>
+            <Ionicons name="add" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.temaSelector}>
@@ -1054,6 +1090,16 @@ const TasksScreen = ({ navigation }) => {
           </TouchableOpacity>
         ))}
       </View>
+
+      <CategoryHierarchy
+        availableCategories={availableCategories}
+        showDescendants
+        onSelect={(category) => {
+          setSelectedCategory(category);
+          setPage(1);
+          setHasMore(true);
+        }}
+      />
 
       <FlatList
         data={filteredTasks}
@@ -1147,11 +1193,19 @@ const TasksScreen = ({ navigation }) => {
                     </TouchableOpacity>
                   </>
                 )}
-                {(selectedActionTask && (currentUserId === (selectedActionTask.isSharedTask ? selectedActionTask.shared_by?.id : selectedActionTask.user?.id))) && (
-                  <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
-                    <Ionicons name='trash-outline' size={20} color='#ff6b6b' />
-                    <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: 'bold' }]}>Eliminar</Text>
-                  </TouchableOpacity>
+                {(selectedActionTask && currentUserId && selectedTaskOwnerId && String(currentUserId) === String(selectedTaskOwnerId)) && (
+                  <>
+                    {canEditSelectedTask && (
+                      <TouchableOpacity style={styles.actionOption} onPress={handleEditTask}>
+                        <Ionicons name='pencil-outline' size={20} color='#4dabf7' />
+                        <Text style={styles.actionText}>Editar</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
+                      <Ionicons name='trash-outline' size={20} color='#ff6b6b' />
+                      <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: 'bold' }]}>Eliminar</Text>
+                    </TouchableOpacity>
+                  </>
                 )}
                 {isAdmin && (
                   // 🪵 LOG DE DIAGNÓSTICO: Confirmamos que se intenta renderizar
@@ -1200,10 +1254,12 @@ const TasksScreen = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: '#fff' },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#333' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerIconBtn: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
   createBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', margin: 12, paddingHorizontal: 12, backgroundColor: '#fff', borderRadius: 12, elevation: 2 },
+  searchContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, backgroundColor: '#f8f9fa', borderRadius: 12, borderWidth: 1, borderColor: '#eee' },
   searchInput: { 
     flex: 1, 
     height: 45, 

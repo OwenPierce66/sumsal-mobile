@@ -28,6 +28,7 @@ const SharedCommentItem = ({
   onLike,
   onLikeLongPress,
   onDelete,
+  onEdit,
   currentUserId,
   expandedCommentIds,
   toggleExpand,
@@ -105,9 +106,14 @@ const SharedCommentItem = ({
         </TouchableOpacity>
 
         {currentUserId === comment.created_by?.id && (
-          <TouchableOpacity onPress={() => onDelete(comment.id)}>
-            <Text style={[styles.replyActionText, { color: '#ff6b6b' }]}>Eliminar</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <TouchableOpacity onPress={() => onEdit(comment)}>
+              <Text style={styles.replyActionText}>Editar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => onDelete(comment.id)}>
+              <Text style={[styles.replyActionText, { color: '#ff6b6b' }]}>Eliminar</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {/* BOTÓN PARA EXPANDIR/CONTRAER RESPUESTAS */}
@@ -135,6 +141,7 @@ const SharedCommentItem = ({
               onLike={onLike}
               onLikeLongPress={onLikeLongPress}
               onDelete={onDelete}
+              onEdit={onEdit}
               currentUserId={currentUserId}
               expandedCommentIds={expandedCommentIds}
               toggleExpand={toggleExpand}
@@ -157,6 +164,9 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
   const [loading, setLoading] = useState(true);
   const [newCommentText, setNewCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
+  const [editingCommentId, setEditingCommentId] = useState(null);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionText, setDescriptionText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   const [expandedCommentIds, setExpandedCommentIds] = useState([]);
   const [currentUserId, setCurrentUserId] = useState(null);
@@ -224,7 +234,11 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
       // ⚡ ACTUALIZACIÓN OPTIMISTA: Subimos el contador inmediatamente
       setSharedTask(prev => prev ? { ...prev, comments_count: (prev.comments_count || 0) + 1 } : prev);
 
-      const response = await api.post(`shared-tasks/${sharedTaskId}/comments/`, payload);
+      if (editingCommentId) {
+        await api.patch(`shared-tasks/${sharedTaskId}/comments/${editingCommentId}/`, { text: newCommentText });
+      } else {
+        await api.post(`shared-tasks/${sharedTaskId}/comments/`, payload);
+      }
 
       // Auto-expandir el comentario padre si se está respondiendo
       if (replyingTo) {
@@ -232,6 +246,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
       }
 
       setNewCommentText('');
+      setEditingCommentId(null);
       setReplyingTo(null);
 
       // Recargar comentarios (Silencioso)
@@ -241,6 +256,31 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
       setSharedTask(prev => prev ? { ...prev, comments_count: Math.max(0, (prev.comments_count || 0) - 1) } : prev);
     } finally {
       setSubmittingComment(false);
+    }
+  };
+
+  const handleEditComment = (comment) => {
+    setEditingCommentId(comment.id);
+    setNewCommentText(comment.text || '');
+    setReplyingTo(null);
+  };
+
+  const saveSharedDescription = async () => {
+    try {
+      const response = await api.patch(`shared-tasks/${sharedTaskId}/`, { description: descriptionText });
+      setSharedTask(prev => ({ ...prev, description: response.data.description }));
+      setEditingDescription(false);
+    } catch (error) {
+      console.error('Error updating shared task:', error.response?.data || error.message);
+    }
+  };
+
+  const handleDeleteSharedTask = async () => {
+    try {
+      await api.delete(`shared-tasks/${sharedTaskId}/`);
+      navigation.goBack();
+    } catch (error) {
+      console.error('Error deleting shared task:', error.response?.data || error.message);
     }
   };
 
@@ -378,7 +418,16 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Tarea Compartida</Text>
-        <View style={{ width: 24 }} />
+        {currentUserId === sharedTask?.shared_by?.id ? (
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <TouchableOpacity onPress={() => { setDescriptionText(sharedTask.description || ''); setEditingDescription(true); }}>
+              <Ionicons name="pencil-outline" size={22} color="#4dabf7" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleDeleteSharedTask}>
+              <Ionicons name="trash-outline" size={22} color="#ff6b6b" />
+            </TouchableOpacity>
+          </View>
+        ) : <View style={{ width: 24 }} />}
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -403,9 +452,16 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
               <Text style={styles.sharedByDate}>{moment(sharedTask.created_at).fromNow()}</Text>
             </View>
           </View>
-          {sharedTask.description && (
+          {editingDescription ? (
+            <View>
+              <TextInput style={styles.descriptionInput} value={descriptionText} onChangeText={setDescriptionText} multiline />
+              <TouchableOpacity style={styles.saveDescriptionBtn} onPress={saveSharedDescription}>
+                <Text style={styles.saveDescriptionText}>Guardar descripción</Text>
+              </TouchableOpacity>
+            </View>
+          ) : sharedTask.description ? (
             <Text style={styles.sharedByDescription}>{sharedTask.description}</Text>
-          )}
+          ) : null}
         </View>
 
         {/* TARJETA DE TAREA ORIGINAL */}
@@ -488,6 +544,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
                 onLike={handleLikeComment}
                 onLikeLongPress={handleShowCommentLikes}
                 onDelete={handleDeleteComment}
+                onEdit={handleEditComment}
                 currentUserId={currentUserId}
                 expandedCommentIds={expandedCommentIds}
                 toggleExpand={toggleCommentExpansion}
@@ -582,6 +639,9 @@ const styles = StyleSheet.create({
   sharedByText: { fontSize: 12, color: '#666' },
   sharedByDate: { fontSize: 11, color: '#999' },
   sharedByDescription: { fontSize: 14, color: '#555', fontStyle: 'italic', marginTop: 8 },
+  descriptionInput: { borderWidth: 1, borderColor: '#d9e6f2', borderRadius: 8, padding: 10, minHeight: 70, marginTop: 8, color: '#333' },
+  saveDescriptionBtn: { alignSelf: 'flex-end', backgroundColor: '#4dabf7', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginTop: 8 },
+  saveDescriptionText: { color: '#fff', fontWeight: '700' },
 
   taskCard: { backgroundColor: '#fff', margin: 12, borderRadius: 12, overflow: 'hidden' },
   taskAuthorHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, paddingBottom: 0, gap: 10 },

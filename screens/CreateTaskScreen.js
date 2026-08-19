@@ -34,7 +34,8 @@ const PREDEFINED_SUBTEMAS = {
   'deportes': ['Fútbol', 'Baloncesto', 'Tenis', 'Natación', 'Fitness'],
 };
 
-const CreateTaskScreen = ({ navigation }) => {
+const CreateTaskScreen = ({ navigation, route }) => {
+  const editTask = route?.params?.task || null;
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -45,6 +46,34 @@ const CreateTaskScreen = ({ navigation }) => {
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [manualSubcategories, setManualSubcategories] = useState('');
   const [subthemesTree, setSubthemesTree] = useState(PREDEFINED_SUBTEMAS);
+
+  useEffect(() => {
+    if (!editTask) return;
+    setTitle(editTask.title || '');
+    setDescription(editTask.description || '');
+    setTema(editTask.pch || 'consejos');
+    setSelectedCategories((editTask.categories || '').split(',').map(value => value.trim()).filter(Boolean));
+    setManualCategories('');
+    setSelectedSubcategories([]);
+    setManualSubcategories('');
+
+    const normalizeBlocks = (blocks) => {
+      if (!Array.isArray(blocks) || blocks.length === 0) {
+        return [{ title: '', description: '', image: null, mediaType: null }];
+      }
+      return blocks.map(block => ({
+        id: block.id,
+        title: block.title || '',
+        description: block.description || '',
+        image: block.image || block.video || null,
+        mediaType: block.video ? 'video' : block.image ? 'image' : null,
+      }));
+    };
+
+    setSubtasks(normalizeBlocks(editTask.subtasks));
+    setSubfactores(normalizeBlocks(editTask.subfactores));
+    setSubfuentes(normalizeBlocks(editTask.subfuentes));
+  }, [editTask]);
 
   useEffect(() => {
     const loadTree = async () => {
@@ -120,6 +149,8 @@ const CreateTaskScreen = ({ navigation }) => {
   const handleCreate = async () => {
     if (loading) return; 
 
+    console.log('[CreateTaskScreen] Guardar pulsado:', { editing: Boolean(editTask), taskId: editTask?.id });
+
     if (!title.trim()) {
       return Alert.alert("Falta información", "El título principal es obligatorio.");
     }
@@ -135,6 +166,78 @@ const CreateTaskScreen = ({ navigation }) => {
     
     // ⚡ COMBINAMOS CATEGORÍAS Y SUBTEMAS PARA QUE SE GUARDEN Y SE PUEDAN FILTRAR JUNTOS
     const finalCategories = [...new Set([...selectedCategories, ...manualArray, ...selectedSubcategories, ...manualSubArray])];
+
+    if (editTask) {
+      if (!editTask.id) {
+        console.error('[CreateTaskScreen] La tarea no tiene ID:', editTask);
+        Alert.alert('Error', 'No se encontró el identificador de la tarea.');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const updateFormData = new FormData();
+        updateFormData.append('title', title.trim());
+        updateFormData.append('description', description);
+        updateFormData.append('pch', tema);
+        updateFormData.append('categories', finalCategories.join(','));
+
+        const appendEditBlocks = async (blocks, prefix) => {
+          const activeBlocks = blocks.filter(block => block.title.trim() || block.description.trim() || block.image);
+          for (let index = 0; index < activeBlocks.length; index++) {
+            const block = activeBlocks[index];
+            if (block.id) updateFormData.append(`${prefix}[${index}][id]`, String(block.id));
+            updateFormData.append(`${prefix}[${index}][title]`, block.title.trim());
+            updateFormData.append(`${prefix}[${index}][description]`, block.description || '');
+
+            if (!block.image || block.image.startsWith('http')) continue;
+            let isVideo = block.mediaType === 'video';
+            if (Platform.OS === 'web') {
+              const fileResponse = await fetch(block.image);
+              const blob = await fileResponse.blob();
+              isVideo = isVideo || blob.type.startsWith('video/');
+              const extension = blob.type.split('/')[1] || (isVideo ? 'mp4' : 'jpg');
+              updateFormData.append(`${prefix}[${index}][${isVideo ? 'video' : 'image'}]`, blob, `${prefix}_${index}.${extension}`);
+            } else {
+              const uriParts = block.image.split('.');
+              const extension = uriParts[uriParts.length - 1] || (isVideo ? 'mp4' : 'jpg');
+              updateFormData.append(`${prefix}[${index}][${isVideo ? 'video' : 'image'}]`, {
+                uri: block.image,
+                name: `${prefix}_${index}.${extension}`,
+                type: isVideo ? `video/${extension}` : `image/${extension === 'jpg' ? 'jpeg' : extension}`,
+              });
+            }
+          }
+        };
+
+        await appendEditBlocks(subtasks, 'subtasks');
+        await appendEditBlocks(subfactores, 'subfactores');
+        await appendEditBlocks(subfuentes, 'subfuentes');
+
+        console.log('[CreateTaskScreen] Actualizando tarea con multipart:', editTask.id);
+        const response = await api.patch(`tasks/${editTask.id}/`, updateFormData);
+        console.log('[CreateTaskScreen] Tarea actualizada:', {
+          id: response.data?.id,
+          title: response.data?.title,
+          description: response.data?.description,
+          pch: response.data?.pch,
+          categories: response.data?.categories,
+          subtasks: response.data?.subtasks?.length,
+          subfactores: response.data?.subfactores?.length,
+          subfuentes: response.data?.subfuentes?.length,
+        });
+        Alert.alert("¡Éxito!", "Aportación actualizada correctamente.");
+        navigation.goBack();
+      } catch (error) {
+        console.error("Error actualizando tarea:", error.response?.data || error.message);
+        const detail = error.response?.data?.detail || error.response?.data?.error;
+        Alert.alert("Error", detail || "No se pudo actualizar la aportación.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     formData.append('categories', finalCategories.join(','));
     
     // Función asíncrona PRO: Respeta el await y convierte las imágenes
@@ -397,7 +500,7 @@ const CreateTaskScreen = ({ navigation }) => {
         ) : (
           <>
             <Ionicons name="send" size={20} color="#fff" />
-            <Text style={styles.submitBtnText}>PUBLICAR ÉXITO</Text>
+            <Text style={styles.submitBtnText}>{editTask ? 'GUARDAR CAMBIOS' : 'PUBLICAR ÉXITO'}</Text>
           </>
         )}
       </TouchableOpacity>

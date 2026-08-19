@@ -12,13 +12,14 @@ import { Image } from 'expo-image';
 import ShareModal from '../components/ShareModal';
 import TieredLikesModal from './TieredLikesModal';
 import TouchableUsername from '../components/TouchableUsername';
+import CategoryHierarchy from '../components/CategoryHierarchy';
 
 moment.locale('es');
 
 // =====================================================================
 // COMPONENTE RECURSIVO (COMENTARIOS)
 // =====================================================================
-const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onDelete, currentUserId, expandedCommentIds, toggleExpand, navigation }) => {
+const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onDelete, onEdit, currentUserId, expandedCommentIds, toggleExpand, navigation }) => {
   const hasChildren = comment.children && comment.children.length > 0;
   const isExpanded = expandedCommentIds.includes(comment.id);
 
@@ -75,9 +76,14 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
               
               {/* BOTÃ“N DE ELIMINAR */}
               {(currentUserId === comment.created_by?.id || currentUserId === comment.user?.id) && (
-                <TouchableOpacity onPress={() => onDelete(comment.id)} style={{ marginLeft: 10 }}>
-                  <Ionicons name="trash-outline" size={14} color="#ff6b6b" />
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', marginLeft: 10 }}>
+                  <TouchableOpacity onPress={() => onEdit(comment)} style={{ marginRight: 10 }}>
+                    <Ionicons name="pencil-outline" size={14} color="#4dabf7" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => onDelete(comment.id)}>
+                    <Ionicons name="trash-outline" size={14} color="#ff6b6b" />
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
           </View>
@@ -121,6 +127,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
               onLike={onLike}
               onLikeLongPress={onLikeLongPress}
               onDelete={onDelete}
+              onEdit={onEdit}
               currentUserId={currentUserId}
               expandedCommentIds={expandedCommentIds}
               toggleExpand={toggleExpand}
@@ -145,6 +152,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [commentText, setCommentText] = useState('');
   const [isCreatingComment, setIsCreatingComment] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
+  const [editingCommentId, setEditingCommentId] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [expandedCommentIds, setExpandedCommentIds] = useState([]);
 
@@ -251,7 +259,7 @@ const fetchComments = useCallback(async () => {
   const fetchTaskDetail = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await api.get(`tasks/${taskId}/`);
+      const response = await api.get(`tasks/${taskId}/`, { params: { _ts: Date.now() } });
       
       // âš¡ LOG DE DEBUGEO: Imprimimos toda la estructura de la tarea
       console.log("ðŸ› DATA DE LA TAREA:", JSON.stringify(response.data, null, 2));
@@ -289,9 +297,14 @@ const fetchComments = useCallback(async () => {
         ...(replyingTo && { parent: replyingTo.id })
       };
 
-      await api.post(`tasks/${taskId}/comments/`, payload);
+      if (editingCommentId) {
+        await api.patch(`comments/${editingCommentId}/`, { text: commentText });
+      } else {
+        await api.post(`tasks/${taskId}/comments/`, payload);
+      }
 
       setCommentText('');
+      setEditingCommentId(null);
       if (replyingTo) {
         setExpandedCommentIds((prev) => [...new Set([...prev, replyingTo.id])]);
       }
@@ -307,6 +320,12 @@ const fetchComments = useCallback(async () => {
     } finally {
       setIsCreatingComment(false);
     }
+  };
+
+  const handleEditComment = (comment) => {
+    setEditingCommentId(comment.id);
+    setCommentText(comment.text || comment.content || '');
+    setReplyingTo(null);
   };
 
   const handleLikeTask = async () => {
@@ -384,7 +403,7 @@ const fetchComments = useCallback(async () => {
       setTask(prev => prev ? { ...prev, comments_count: Math.max(0, (prev.comments_count || 0) - 1) } : prev);
 
       try {
-        await api.delete(`tasks/${taskId}/comments/${commentId}/`);
+        await api.delete(`comments/${commentId}/`);
         if (Platform.OS !== 'web') Alert.alert("Ã‰xito", "Comentario eliminado.");
       } catch (error) {
         console.error("Error eliminando comentario:", error.response?.data || error.message);
@@ -443,6 +462,9 @@ const fetchComments = useCallback(async () => {
     const uri = task.user?.user_image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image;
     return getImageUrl(uri) || 'https://ui-avatars.com/api/?name=' + getTaskAuthorName();
   };
+
+  const taskOwnerId = task?.user?.id || task?.user_id || task?.user;
+  const isTaskOwner = currentUserId && taskOwnerId && String(currentUserId) === String(taskOwnerId);
 
   // âš¡ HELPER PARA EXTRAER EL AVATAR DEL AUTOR DE LA TAREA PRINCIPAL
   // const getTaskAuthorAvatar = () => {
@@ -509,13 +531,7 @@ const fetchComments = useCallback(async () => {
             <Text style={styles.taskTitle}>{task.title}</Text>
             <Text style={styles.taskDescription}>{task.description}</Text>
 
-            {task.categories ? (
-              <View style={styles.categoriesList}>
-                {task.categories.split(',').map((cat, idx) => (
-                  <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
-                ))}
-              </View>
-            ) : null}
+            <CategoryHierarchy categories={task.categories} />
           </View>
 
           <View style={styles.actions}>
@@ -553,6 +569,7 @@ const fetchComments = useCallback(async () => {
                 onLike={handleLikeComment}
                 onLikeLongPress={handleShowCommentLikes}
                 onDelete={handleDeleteComment} 
+                onEdit={handleEditComment}
                 currentUserId={currentUserId}
                 expandedCommentIds={expandedCommentIds}
                 toggleExpand={toggleCommentExpansion}
@@ -574,12 +591,20 @@ const fetchComments = useCallback(async () => {
           </TouchableOpacity>
         </View>
       )}
+      {editingCommentId && (
+        <View style={styles.replyBanner}>
+          <Text style={styles.replyBannerText}>Editando comentario</Text>
+          <TouchableOpacity onPress={() => { setEditingCommentId(null); setCommentText(''); }}>
+            <Ionicons name="close-circle" size={20} color="#666" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* INPUT DE COMENTARIO FIJO ABAJO */}
       <View style={styles.commentInputContainer}>
         <TextInput
           style={styles.input}
-          placeholder={replyingTo ? "Escribe tu respuesta..." : "Escribe un comentario..."}
+          placeholder={editingCommentId ? "Edita tu comentario..." : replyingTo ? "Escribe tu respuesta..." : "Escribe un comentario..."}
           value={commentText}
           onChangeText={setCommentText}
           multiline
@@ -633,11 +658,17 @@ const fetchComments = useCallback(async () => {
                     </TouchableOpacity>
                   </>
                 )}
-                {(currentUserId === (task.user?.id || task.user)) && (
-                  <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
-                    <Ionicons name="trash-outline" size={20} color="#ff6b6b" />
-                    <Text style={[styles.actionText, { color: "#ff6b6b", fontWeight: "bold" }]}>Eliminar</Text>
-                  </TouchableOpacity>
+                {isTaskOwner && (
+                  <>
+                    <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); navigation.navigate('CreateTask', { task }); }}>
+                      <Ionicons name="pencil-outline" size={20} color="#4dabf7" />
+                      <Text style={styles.actionText}>Editar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
+                      <Ionicons name="trash-outline" size={20} color="#ff6b6b" />
+                      <Text style={[styles.actionText, { color: "#ff6b6b", fontWeight: "bold" }]}>Eliminar</Text>
+                    </TouchableOpacity>
+                  </>
                 )}
               </>
             )}

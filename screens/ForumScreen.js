@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   RefreshControl, TextInput, Platform, ActivityIndicator, Alert
@@ -22,6 +22,12 @@ const ForumScreen = ({ navigation }) => {
   const [newPostContent, setNewPostContent] = useState('');
   const [isCreatingPost, setIsCreatingPost] = useState(false);
   const [likingPostId, setLikingPostId] = useState(null);
+  const [editingPost, setEditingPost] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
+
+  useEffect(() => {
+    api.get('users/me/').then(response => setCurrentUserId(response.data.id)).catch(() => {});
+  }, []);
 
   const getPostAuthorName = (post) => {
     const userObj = post.user;
@@ -76,19 +82,44 @@ const ForumScreen = ({ navigation }) => {
 
     setIsCreatingPost(true);
     try {
-      await api.post('posts/', {
-        title: newPostTitle,
-        content: newPostContent });
+      if (editingPost) {
+        await api.patch(`posts/${editingPost.id}/`, { title: newPostTitle, content: newPostContent });
+      } else {
+        await api.post('posts/', { title: newPostTitle, content: newPostContent });
+      }
       setModalVisible(false);
+      setEditingPost(null);
       setNewPostTitle('');
       setNewPostContent('');
-      Alert.alert('Éxito', 'Post creado correctamente');
+      Alert.alert('Éxito', editingPost ? 'Post actualizado correctamente' : 'Post creado correctamente');
       fetchPosts();
     } catch (error) {
       console.error('Error creating post:', error.response?.data || error.message);
       Alert.alert('Error', 'No se pudo crear el post');
     } finally {
       setIsCreatingPost(false);
+    }
+  };
+
+  const openEditPost = (post) => {
+    setEditingPost(post);
+    setNewPostTitle(post.title || '');
+    setNewPostContent(post.content || '');
+    setModalVisible(true);
+  };
+
+  const deletePost = (postId) => {
+    const execute = async () => {
+      try {
+        await api.delete(`posts/${postId}/`);
+        setPosts(current => current.filter(post => post.id !== postId));
+      } catch (error) {
+        Alert.alert('Error', 'No se pudo eliminar el post');
+      }
+    };
+    if (Platform.OS === 'web' ? window.confirm('¿Eliminar este post?') : true) {
+      if (Platform.OS === 'web') execute();
+      else Alert.alert('Eliminar post', '¿Deseas eliminarlo?', [{ text: 'Cancelar', style: 'cancel' }, { text: 'Eliminar', style: 'destructive', onPress: execute }]);
     }
   };
 
@@ -138,6 +169,12 @@ const ForumScreen = ({ navigation }) => {
         </View>
       </View>
       <Text style={styles.postContent} numberOfLines={2}>{item.content}</Text>
+      {currentUserId === item.user?.id && (
+        <View style={{ flexDirection: 'row', gap: 16, marginBottom: 8 }}>
+          <TouchableOpacity onPress={() => openEditPost(item)}><Ionicons name="pencil-outline" size={17} color="#4dabf7" /></TouchableOpacity>
+          <TouchableOpacity onPress={() => deletePost(item.id)}><Ionicons name="trash-outline" size={17} color="#ff6b6b" /></TouchableOpacity>
+        </View>
+      )}
       <View style={styles.postFooter}>
         <TouchableOpacity
           style={styles.likeButton}
@@ -202,7 +239,7 @@ const ForumScreen = ({ navigation }) => {
         <View style={styles.modal}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Crear Nuevo Post</Text>
+              <Text style={styles.modalTitle}>{editingPost ? 'Editar Post' : 'Crear Nuevo Post'}</Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
@@ -233,7 +270,7 @@ const ForumScreen = ({ navigation }) => {
               {isCreatingPost ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.submitBtnText}>Crear Post</Text>
+                <Text style={styles.submitBtnText}>{editingPost ? 'Guardar cambios' : 'Crear Post'}</Text>
               )}
             </TouchableOpacity>
           </View>

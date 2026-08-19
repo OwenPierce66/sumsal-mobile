@@ -15,7 +15,7 @@ const ProfileScreen = ({ route, navigation }) => {
   const initialUserName = route?.params?.userName || '';
   const initialUserAvatar = route?.params?.userAvatar || null;
 
-  const [user, setUser] = useState({ username: initialUserName, profile: { user_image: initialUserAvatar } });
+  const [user, setUser] = useState({ username: initialUserName, user_image: initialUserAvatar });
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -108,7 +108,7 @@ const ProfileScreen = ({ route, navigation }) => {
       >
         <View style={styles.taskHeader}>
           <Image 
-            source={{ uri: getImageUrl(user?.profile?.user_image) }} 
+            source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }} 
             style={styles.avatar} 
           />
           <View style={{ flex: 1 }}>
@@ -158,7 +158,7 @@ const ProfileScreen = ({ route, navigation }) => {
     <View style={styles.profileHeader}>
       <View style={styles.profileInfoContainer}>
         <Image 
-          source={{ uri: getImageUrl(user?.profile?.user_image) }} 
+          source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }} 
           style={styles.profileAvatar} 
         />
         <View style={styles.profileTextContainer}>
@@ -178,8 +178,12 @@ const ProfileScreen = ({ route, navigation }) => {
       </View>
       
       {isCurrentUser && (
-        <View style={styles.actionButtons}>
-          <TouchableOpacity style={styles.actionBtn} onPress={handleLogout}>
+        <View style={styles.actionButtonsContainer}>
+          <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('EditProfile', { user })}>
+            <Ionicons name="pencil" size={18} color="#4dabf7" />
+            <Text style={styles.actionBtnText}>Editar Perfil</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionBtn, styles.logoutBtn]} onPress={handleLogout}>
             <Ionicons name="log-out-outline" size={18} color="#ff6b6b" />
             <Text style={styles.actionBtnTextLogout}>Cerrar Sesión</Text>
           </TouchableOpacity>
@@ -244,8 +248,19 @@ const styles = StyleSheet.create({
   adminBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, backgroundColor: '#d9534f' },
   adminBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   
-  actionButtons: { flexDirection: 'row', justifyContent: 'flex-start' },
-  actionBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 20, backgroundColor: '#ffe3e3' },
+  actionButtonsContainer: { flexDirection: 'row', justifyContent: 'flex-start', gap: 10 },
+  actionBtn: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingVertical: 8, 
+    paddingHorizontal: 15, 
+    borderRadius: 20, 
+    backgroundColor: '#e7f5ff',
+    borderWidth: 1,
+    borderColor: '#d0ebff'
+  },
+  logoutBtn: { backgroundColor: '#ffe3e3', borderColor: '#ffc9c9' },
+  actionBtnText: { color: '#4dabf7', fontWeight: 'bold', marginLeft: 5, fontSize: 14 },
   actionBtnTextLogout: { color: '#ff6b6b', fontWeight: 'bold', marginLeft: 5, fontSize: 14 },
   
   divider: { height: 1, backgroundColor: '#eee', marginVertical: 20 },
