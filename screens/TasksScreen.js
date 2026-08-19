@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useContext } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, TouchableOpacity,
-  RefreshControl, TextInput, Platform, ActivityIndicator, Modal, Alert, Button, SafeAreaView
+  View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity,
+  RefreshControl, TextInput, Platform, ActivityIndicator, Modal, Alert, Button, SafeAreaView, useWindowDimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -18,6 +18,9 @@ import TouchableUsername from '../components/TouchableUsername';
 import CategoryHierarchy from '../components/CategoryHierarchy';
 
 const TasksScreen = ({ navigation }) => {
+  const { width: screenWidth } = useWindowDimensions();
+  const carouselWidth = Math.max(280, screenWidth - 56);
+
   // ✅ OBTENEMOS EL USUARIO Y ADMIN STATUS DEL CONTEXTO GLOBAL
   const { user, isAdmin: isAdminFromContext } = useContext(AuthContext);
   const currentUserId = user?.id;
@@ -771,49 +774,81 @@ const TasksScreen = ({ navigation }) => {
   }, [navigation]);
 
   const renderSubContent = (task, section) => {
-    const content = task[section] || []; 
+    const content = Array.isArray(task[section]) ? task[section] : [];
     if (content.length === 0) return <Text style={styles.noContent}>Sin datos en esta sección</Text>;
 
-    return content.map((sub, idx) => {
-      const finalUri = getImageUrl(sub.image);
-      const videoUri = getImageUrl(sub.video);
+    return (
+      <View style={styles.carouselContainer}>
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          style={{ width: carouselWidth }}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ width: carouselWidth * content.length }}
+          snapToInterval={carouselWidth}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          directionalLockEnabled
+          disableIntervalMomentum
+          alwaysBounceHorizontal={content.length > 1}
+          scrollEventThrottle={16}
+        >
+          {content.map((sub, idx) => {
+            const finalUri = getImageUrl(sub.image);
+            const videoUri = getImageUrl(sub.video);
 
-      return (
-        <View key={idx} style={styles.subItem}>
-          <View style={styles.subItemHeaderRow}>
-            <Text style={styles.subItemTitle}>• {sub.title}</Text>
-            <TouchableOpacity
-              style={styles.subShareButton}
-              onPress={() => handleShareSubItemToStory(task, section, sub)}
-            >
-              <Ionicons name="share-social-outline" size={15} color="#51cf66" />
-              <Text style={styles.subShareText}>Historia</Text>
-            </TouchableOpacity>
+            return (
+              <View key={sub.id || `${section}-${idx}`} style={[styles.subItem, { width: carouselWidth }]}>
+                <View style={styles.subItemHeaderRow}>
+                  <View style={styles.subItemHeading}>
+                    <Text style={styles.subItemEyebrow}>
+                      {section === 'subtasks' ? 'PUBLICACIÓN' : section === 'subfactores' ? 'FACTOR' : 'FUENTE'} {idx + 1}
+                    </Text>
+                    <Text style={styles.subItemTitle}>{sub.title || 'Sin título'}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.subShareButton}
+                    onPress={() => handleShareSubItemToStory(task, section, sub)}
+                  >
+                    <Ionicons name="share-social-outline" size={15} color="#51cf66" />
+                    <Text style={styles.subShareText}>Historia</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {sub.description ? (
+                  <Text style={styles.subItemDesc}>{sub.description}</Text>
+                ) : null}
+
+                {finalUri && (
+                  <Image
+                    source={{ uri: finalUri }}
+                    style={styles.subMedia}
+                    contentFit="cover"
+                  />
+                )}
+
+                {videoUri && (
+                  <Video
+                    source={{ uri: videoUri }}
+                    style={styles.subMedia}
+                    useNativeControls
+                    resizeMode="contain"
+                  />
+                )}
+              </View>
+            );
+          })}
+        </ScrollView>
+        {content.length > 1 && (
+          <View style={styles.carouselMeta}>
+            <Text style={styles.carouselHint}>Desliza para ver más</Text>
+            <View style={styles.carouselDots}>
+              {content.map((sub, idx) => <View key={sub.id || idx} style={styles.carouselDot} />)}
+            </View>
           </View>
-          
-          {sub.description ? (
-            <Text style={styles.subItemDesc}>{sub.description}</Text>
-          ) : null}
-
-          {finalUri && (
-            <Image 
-              source={{ uri: finalUri }} 
-              style={styles.subImage} 
-              contentFit="cover" 
-            />
-          )}
-
-          {videoUri && (
-            <Video
-              source={{ uri: videoUri }}
-              style={styles.subImage}
-              useNativeControls
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      );
-    });
+        )}
+      </View>
+    );
   };
 
   const renderSharedItemCard = (shared) => {
@@ -1296,13 +1331,21 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 11, color: '#999', fontWeight: 'bold' },
   tabTextActive: { color: '#4dabf7' },
   dynamicContent: { minHeight: 40 },
-  subItem: { marginBottom: 10, paddingLeft: 5 },
+  carouselContainer: { width: '100%', overflow: 'hidden' },
+  subItem: { marginBottom: 10, paddingHorizontal: 5 },
   subItemHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  subItemTitle: { fontSize: 14, color: '#333', fontWeight: '500', flex: 1 },
-  subItemDesc: { fontSize: 14, color: '#666', marginTop: 4, paddingLeft: 10 },
+  subItemHeading: { flex: 1, paddingRight: 8 },
+  subItemEyebrow: { fontSize: 10, color: '#4dabf7', fontWeight: '800', letterSpacing: 0.5, marginBottom: 2 },
+  subItemTitle: { fontSize: 16, color: '#222', fontWeight: '700' },
+  subItemDesc: { fontSize: 14, color: '#666', lineHeight: 20, marginTop: 8 },
   subShareButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, gap: 4 },
   subShareText: { fontSize: 11, color: '#1f9d5a', fontWeight: '700' },
-  subImage: { width: '100%', height: 150, borderRadius: 12, marginTop: 8 },
+  subMedia: { width: '100%', height: 240, borderRadius: 14, marginTop: 12, backgroundColor: '#f1f3f5' },
+  carouselEndSpacer: { width: 1 },
+  carouselMeta: { alignItems: 'center', marginTop: 2 },
+  carouselHint: { fontSize: 10, color: '#adb5bd', marginBottom: 5 },
+  carouselDots: { flexDirection: 'row', justifyContent: 'center', gap: 4 },
+  carouselDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#cbd5e1' },
   noContent: { fontSize: 12, color: '#bbb', fontStyle: 'italic', textAlign: 'center' },
   taskFooter: { marginTop: 15, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
   statsContainer: { flexDirection: 'row', gap: 20 },

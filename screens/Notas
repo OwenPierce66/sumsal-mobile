@@ -24,5 +24,7 @@ cosas por hacer:
 -mejorar el reelitem para que se vean mejor las publicaciones
 -rellenar perfil*
 -agregar funciones de editar a todo*
+-acompletar mensajes directos
 
 -ver como voy a renderizar imagenes con videos
+npx expo start --offline -c
