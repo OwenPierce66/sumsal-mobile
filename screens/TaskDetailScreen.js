@@ -9,12 +9,46 @@ import moment from 'moment';
 import 'moment/locale/es'; 
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
+import { Video } from 'expo-av';
 import ShareModal from '../components/ShareModal';
 import TieredLikesModal from './TieredLikesModal';
 import TouchableUsername from '../components/TouchableUsername';
 import CategoryHierarchy from '../components/CategoryHierarchy';
 
 moment.locale('es');
+
+const isVideoMedia = (path) => {
+  const value = String(path || '').toLowerCase();
+  return value.startsWith('data:video/') || /\.(mp4|mov|avi|mkv|webm|m4v)(\?|$)/i.test(value);
+};
+
+const MediaPreview = ({ uri, label }) => {
+  if (!uri) return null;
+  const mediaUri = getImageUrl(uri);
+
+  if (isVideoMedia(uri)) {
+    return (
+      <View style={styles.mediaBlock}>
+        <Video
+          source={{ uri: mediaUri }}
+          style={styles.detailVideo}
+          useNativeControls
+          resizeMode="contain"
+          shouldPlay={false}
+          onError={(error) => console.error('[TaskDetail] Error reproduciendo video:', { label, uri: mediaUri, error })}
+        />
+        <Text style={styles.mediaLabel}>{label}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.mediaBlock}>
+      <Image source={{ uri: mediaUri }} style={styles.detailImage} contentFit="cover" />
+      <Text style={styles.mediaLabel}>{label}</Text>
+    </View>
+  );
+};
 
 // =====================================================================
 // COMPONENTE RECURSIVO (COMENTARIOS)
@@ -532,6 +566,21 @@ const fetchComments = useCallback(async () => {
             <Text style={styles.taskDescription}>{task.description}</Text>
 
             <CategoryHierarchy categories={task.categories} />
+
+            <MediaPreview uri={task.video || task.image} label="Publicación" />
+
+            {[
+              ...(Array.isArray(task.subtasks) ? task.subtasks.map((item) => ({ ...item, section: 'Consejo' })) : []),
+              ...(Array.isArray(task.subfactores) ? task.subfactores.map((item) => ({ ...item, section: 'Factor' })) : []),
+              ...(Array.isArray(task.subfuentes) ? task.subfuentes.map((item) => ({ ...item, section: 'Fuente' })) : []),
+            ].map((item, index) => (
+              <View key={item.id || `${item.section}-${index}`} style={styles.subtaskDetail}>
+                <Text style={styles.subtaskDetailSection}>{item.section}</Text>
+                {item.title ? <Text style={styles.subtaskDetailTitle}>{item.title}</Text> : null}
+                {item.description ? <Text style={styles.subtaskDetailDescription}>{item.description}</Text> : null}
+                <MediaPreview uri={item.video || item.image} label={item.section} />
+              </View>
+            ))}
           </View>
 
           <View style={styles.actions}>
@@ -716,6 +765,14 @@ const styles = StyleSheet.create({
   taskInfo: { padding: 16 },
   taskTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8 },
   taskDescription: { fontSize: 15, color: '#555', lineHeight: 22 },
+  mediaBlock: { marginTop: 14 },
+  detailImage: { width: '100%', height: 240, borderRadius: 12, backgroundColor: '#eef0f2' },
+  detailVideo: { width: '100%', height: 240, borderRadius: 12, backgroundColor: '#171717' },
+  mediaLabel: { fontSize: 10, color: '#8b949e', fontWeight: '700', marginTop: 5, textTransform: 'uppercase' },
+  subtaskDetail: { marginTop: 18, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#edf0f2' },
+  subtaskDetailSection: { fontSize: 10, color: '#4dabf7', fontWeight: '800', textTransform: 'uppercase', marginBottom: 4 },
+  subtaskDetailTitle: { fontSize: 16, color: '#333', fontWeight: '700' },
+  subtaskDetailDescription: { fontSize: 14, color: '#666', lineHeight: 20, marginTop: 5 },
   categoriesList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
   categoryBadge: { backgroundColor: '#e3f2fd', color: '#4dabf7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, fontSize: 12, fontWeight: 'bold' },
   actions: { flexDirection: 'row', borderTopWidth: 1, borderColor: '#eee', padding: 12, gap: 12 },

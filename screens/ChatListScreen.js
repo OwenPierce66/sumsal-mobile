@@ -486,6 +486,16 @@ const ChatListScreen = ({ navigation }) => {
               <Text style={styles.selectedCount}>{selectedMemberIds.length} seleccionados</Text>
             </View>
 
+            <View style={styles.modalSearch}>
+              <Ionicons name="search" size={18} color="#8b949e" />
+              <TextInput
+                style={styles.modalSearchInput}
+                placeholder="Buscar miembros"
+                value={userSearchText}
+                onChangeText={setUserSearchText}
+              />
+            </View>
+
             {loadingUsers ? (
               <ActivityIndicator size="large" color="#845ef7" style={styles.modalLoader} />
             ) : (

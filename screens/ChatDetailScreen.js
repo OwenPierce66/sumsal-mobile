@@ -10,10 +10,41 @@ import api from '../api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
+import { Video } from 'expo-av';
 import TouchableUsername from '../components/TouchableUsername';
 
 const STORY_REPLY_PREFIX = '↪ Respuesta a tu historia:';
 const TASK_SHARE_PREFIX = '↪ Publicación compartida:';
+
+const getMediaExtension = (mimeType, fallback = 'bin') => {
+  const mime = String(mimeType || '').toLowerCase();
+  if (mime.includes('mp4')) return 'mp4';
+  if (mime.includes('quicktime')) return 'mov';
+  if (mime.includes('webm')) return 'webm';
+  if (mime.includes('jpeg')) return 'jpg';
+  if (mime.includes('png')) return 'png';
+  return fallback;
+};
+
+const getAssetMimeType = (asset) => {
+  const declaredMime = String(asset?.mimeType || '').toLowerCase();
+  if (declaredMime) return declaredMime;
+
+  const uriMimeMatch = String(asset?.uri || '').match(/^data:([^;,]+)/i);
+  return uriMimeMatch?.[1]?.toLowerCase() || '';
+};
+
+const isVideoAsset = (asset) => {
+  const uri = String(asset?.uri || '').toLowerCase();
+  const name = String(asset?.fileName || asset?.name || '').toLowerCase();
+  const mimeType = getAssetMimeType(asset);
+  return asset?.type === 'video'
+    || mimeType.startsWith('video/')
+    || /^video\//.test(String(asset?.type || '').toLowerCase())
+    || uri.startsWith('data:video/')
+    || /\.(mp4|mov|avi|mkv|webm|m4v)(\?|$)/i.test(name)
+    || /\.(mp4|mov|avi|mkv|webm|m4v)(\?|$)/i.test(uri);
+};
 
 const buildSharedContentContextLine = (context) => {
   if (!context) return '';
@@ -76,7 +107,7 @@ const getImageUrl = (path) => {
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
-const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, onNavigateToProfile, onOpenContent, navigation }) => {
+const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, onOpenMessageMenu, onNavigateToProfile, onOpenContent, navigation }) => {
   const pan = useRef(new Animated.ValueXY()).current;
   const { contentContext, bodyText } = parseSharedContentFromMessage(item?.content || '');
   const panResponder = useRef(
@@ -130,17 +161,7 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, o
           ]}
           onLongPress={() => {
             if (isMe) {
-              if (Platform.OS === 'web') {
-                if (window.confirm("¿Deseas eliminar este mensaje?")) {
-                  onDelete(item.id);
-                }
-              } else {
-                Alert.alert("Opciones", "¿Qué deseas hacer?", [
-                  ...(type === 'direct' && item.content ? [{ text: "Editar", onPress: () => onEdit(item) }] : []),
-                  { text: "Eliminar", style: 'destructive', onPress: () => onDelete(item.id) },
-                  { text: "Cancelar", style: 'cancel' }
-                ]);
-              }
+              onOpenMessageMenu(item);
             }
           }}
           activeOpacity={0.9}
@@ -195,10 +216,19 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, o
              <RNImage source={{ uri: getImageUrl(item.image) }} style={styles.messageImage} resizeMode="cover" />
           )}
           {item.video && (
-            <View style={styles.videoPlaceholder}>
-               <Ionicons name="play-circle" size={40} color="#fff" />
-               <Text style={styles.videoText}>Video (Tap to play)</Text>
-            </View>
+            <Video
+              source={{ uri: getImageUrl(item.video) }}
+              style={styles.messageVideo}
+              useNativeControls
+              resizeMode="contain"
+              shouldPlay={false}
+              onError={(error) => console.error('[ChatDetail] Error reproduciendo video:', {
+                messageId: item.id,
+                rawVideo: item.video,
+                videoUrl: getImageUrl(item.video),
+                error,
+              })}
+            />
           )}
 
           <Text style={[styles.messageTime, isMe ? styles.messageTimeMe : styles.messageTimeThem]}>
@@ -222,6 +252,8 @@ const ChatDetailScreen = ({ route, navigation }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [editingMessageId, setEditingMessageId] = useState(null);
+  const [selectedMessageForMenu, setSelectedMessageForMenu] = useState(null);
+  const [isMessageMenuVisible, setIsMessageMenuVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   
@@ -376,12 +408,21 @@ const ChatDetailScreen = ({ route, navigation }) => {
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsEditing: true,
+      allowsEditing: false,
       quality: 0.8,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      setSelectedImage(result.assets[0]);
+      const asset = result.assets[0];
+      console.log('[ChatDetail] Multimedia seleccionada:', {
+        type: asset.type,
+        mimeType: asset.mimeType,
+        fileName: asset.fileName,
+        name: asset.name,
+        uri: asset.uri,
+        isVideo: isVideoAsset(asset),
+      });
+      setSelectedImage(asset);
     }
   };
 
@@ -404,6 +445,30 @@ const ChatDetailScreen = ({ route, navigation }) => {
         ]
       );
     }
+  };
+
+  const openMessageMenu = useCallback((message) => {
+    setSelectedMessageForMenu(message);
+    setIsMessageMenuVisible(true);
+  }, []);
+
+  const closeMessageMenu = useCallback(() => {
+    setIsMessageMenuVisible(false);
+    setSelectedMessageForMenu(null);
+  }, []);
+
+  const handleMenuEdit = () => {
+    if (!selectedMessageForMenu) return;
+    const message = selectedMessageForMenu;
+    closeMessageMenu();
+    handleEditMessage(message);
+  };
+
+  const handleMenuDelete = () => {
+    if (!selectedMessageForMenu) return;
+    const messageId = selectedMessageForMenu.id;
+    closeMessageMenu();
+    handleDeleteMessage(messageId);
   };
 
   const handleEditMessage = (message) => {
@@ -435,7 +500,10 @@ const ChatDetailScreen = ({ route, navigation }) => {
     
     try {
       if (editingMessageId) {
-        const response = await api.patch(`massaging/messages/${editingMessageId}/`, { content: newMessage.trim() });
+        const updatePath = type === 'group'
+          ? `massaging/group_messages/${editingMessageId}/`
+          : `massaging/messages/${editingMessageId}/`;
+        const response = await api.patch(updatePath, { content: newMessage.trim() });
         setMessages(prev => prev.map(message => message.id === editingMessageId ? response.data : message));
         setEditingMessageId(null);
         setNewMessage('');
@@ -454,27 +522,27 @@ const ChatDetailScreen = ({ route, navigation }) => {
       if (finalMessageContent) formData.append("content", finalMessageContent);
 
       if (selectedImage) {
-        let fileType = 'jpg';
-        let isVideo = selectedImage.type === 'video';
-
-        if (selectedImage.fileName) {
-          const nameParts = selectedImage.fileName.split('.');
-          fileType = nameParts[nameParts.length - 1];
-        } else {
-          const uriParts = selectedImage.uri.split('.');
-          const possibleExt = uriParts[uriParts.length - 1];
-          if (possibleExt && possibleExt.length <= 5) {
-            fileType = possibleExt;
-          }
-        }
-
-        if (fileType === 'mp4') isVideo = true;
-        const finalType = isVideo ? `video/${fileType}` : `image/${fileType}`;
+        const isVideo = isVideoAsset(selectedImage);
+        const sourceMimeType = getAssetMimeType(selectedImage);
+        const fileName = selectedImage.fileName || selectedImage.name || '';
+        const nameExtension = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : '';
+        const fileType = getMediaExtension(sourceMimeType, nameExtension || (isVideo ? 'mp4' : 'jpg'));
+        const finalType = sourceMimeType.startsWith(isVideo ? 'video/' : 'image/')
+          ? sourceMimeType
+          : (isVideo ? 'video/mp4' : 'image/jpeg');
+        console.log('[ChatDetail] Preparando multimedia:', {
+          isVideo,
+          sourceMimeType,
+          fileType,
+          finalType,
+          uri: selectedImage.uri,
+        });
         
         if (Platform.OS === 'web') {
           const response = await fetch(selectedImage.uri);
           const blob = await response.blob();
-          const ext = blob.type.split('/')[1] || fileType;
+          const blobMimeType = blob.type || finalType;
+          const ext = getMediaExtension(blobMimeType, fileType);
           formData.append(isVideo ? 'video' : 'image', blob, `media.${ext}`);
         } else {
           formData.append(isVideo ? 'video' : 'image', {
@@ -495,11 +563,23 @@ const ChatDetailScreen = ({ route, navigation }) => {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         setMessages(prev => [res.data, ...prev]);
+        console.log('[ChatDetail] Mensaje multimedia enviado:', {
+          id: res.data?.id,
+          image: res.data?.image,
+          video: res.data?.video,
+          attachments: res.data?.attachments,
+        });
       } else {
         const res = await api.post(`massaging/groupss/${chatId}/send_message/`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         setMessages(prev => [res.data, ...prev]);
+        console.log('[ChatDetail] Mensaje grupal multimedia enviado:', {
+          id: res.data?.id,
+          image: res.data?.image,
+          video: res.data?.video,
+          attachments: res.data?.attachments,
+        });
       }
 
       setNewMessage('');
@@ -508,6 +588,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
       setStoryReplyContext(null);
     } catch (error) {
       console.error('Error sending message:', error.response?.data || error.message);
+      Alert.alert('Error', error.response?.data?.error || 'No se pudo enviar el archivo.');
     }
   };
 
@@ -569,6 +650,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
         onReply={setReplyTo} 
         onDelete={handleDeleteMessage} 
         onEdit={handleEditMessage}
+        onOpenMessageMenu={openMessageMenu}
         onNavigateToProfile={navigateToProfile}
         onOpenContent={handleOpenContentFromMessage}
         navigation={navigation}
@@ -645,7 +727,23 @@ const ChatDetailScreen = ({ route, navigation }) => {
       {/* Selected Image Indicator */}
       {selectedImage && (
         <View style={styles.selectedImageContainer}>
-          <RNImage source={{ uri: selectedImage.uri }} style={styles.selectedImagePreview} />
+          {isVideoAsset(selectedImage) ? (
+            <Video
+              source={{ uri: selectedImage.uri }}
+              style={styles.selectedVideoPreview}
+              useNativeControls
+              resizeMode="contain"
+              shouldPlay={false}
+              onError={(error) => console.error('[ChatDetail] Error en preview de video:', {
+                uri: selectedImage.uri,
+                mimeType: selectedImage.mimeType,
+                type: selectedImage.type,
+                error,
+              })}
+            />
+          ) : (
+            <RNImage source={{ uri: selectedImage.uri }} style={styles.selectedImagePreview} />
+          )}
           <TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}>
             <Ionicons name="close-circle" size={24} color="#ff4444" />
           </TouchableOpacity>
@@ -670,6 +768,38 @@ const ChatDetailScreen = ({ route, navigation }) => {
           disabled={!newMessage.trim() && !selectedImage && !storyReplyContext}
         >
           <Ionicons name="send" size={18} color="#fff" />
+
+      <Modal
+        visible={isMessageMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeMessageMenu}
+      >
+        <TouchableOpacity style={styles.messageMenuOverlay} activeOpacity={1} onPress={closeMessageMenu}>
+          <View style={styles.messageMenu}>
+            <View style={styles.messageMenuHandle} />
+            <Text style={styles.messageMenuTitle}>Opciones del mensaje</Text>
+            {selectedMessageForMenu?.content ? (
+              <Text style={styles.messageMenuPreview} numberOfLines={2}>
+                {selectedMessageForMenu.content}
+              </Text>
+            ) : null}
+            {selectedMessageForMenu?.content ? (
+              <TouchableOpacity style={styles.messageMenuOption} onPress={handleMenuEdit}>
+                <Ionicons name="pencil-outline" size={21} color="#228be6" />
+                <Text style={styles.messageMenuOptionText}>Editar mensaje</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity style={styles.messageMenuOption} onPress={handleMenuDelete}>
+              <Ionicons name="trash-outline" size={21} color="#e03131" />
+              <Text style={[styles.messageMenuOptionText, styles.messageMenuDeleteText]}>Eliminar mensaje</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.messageMenuCancel} onPress={closeMessageMenu}>
+              <Text style={styles.messageMenuCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
         </TouchableOpacity>
       </View>
 
@@ -855,9 +985,7 @@ const styles = StyleSheet.create({
   messageTime: { fontSize: 10, alignSelf: 'flex-end', marginTop: 4 },
   messageTimeMe: { color: 'rgba(255,255,255,0.7)' },
   messageTimeThem: { color: '#999' },
-  
-  videoPlaceholder: { width: 180, height: 100, backgroundColor: '#333', borderRadius: 10, marginTop: 8, justifyContent: 'center', alignItems: 'center' },
-  videoText: { color: '#fff', fontSize: 12, marginTop: 5 },
+  messageVideo: { width: 220, height: 150, borderRadius: 10, marginTop: 8, backgroundColor: '#222' },
 
   repliedToContainer: { padding: 8, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3 },
   repliedToMe: { backgroundColor: 'rgba(255,255,255,0.2)', borderLeftColor: '#fff' },
@@ -874,12 +1002,24 @@ const styles = StyleSheet.create({
 
   selectedImageContainer: { padding: 10, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'flex-start', borderTopWidth: 1, borderTopColor: '#eee' },
   selectedImagePreview: { width: 80, height: 80, borderRadius: 8 },
+  selectedVideoPreview: { width: 140, height: 80, borderRadius: 8, backgroundColor: '#222' },
   removeImageBtn: { position: 'absolute', top: 5, left: 75, backgroundColor: '#fff', borderRadius: 12 },
 
   inputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', alignItems: 'flex-end', gap: 10 },
   attachBtn: { width: 40, height: 45, justifyContent: 'center', alignItems: 'center' },
   input: { flex: 1, backgroundColor: '#f0f0f0', borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, minHeight: 45, maxHeight: 100, fontSize: 15 },
   sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
+
+  messageMenuOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.42)' },
+  messageMenu: { backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 34 : 20 },
+  messageMenuHandle: { width: 42, height: 4, borderRadius: 2, backgroundColor: '#d9dde1', alignSelf: 'center', marginBottom: 16 },
+  messageMenuTitle: { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 6 },
+  messageMenuPreview: { fontSize: 13, color: '#777', lineHeight: 18, marginBottom: 12 },
+  messageMenuOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderTopWidth: 1, borderTopColor: '#f1f3f5', gap: 12 },
+  messageMenuOptionText: { fontSize: 16, color: '#228be6', fontWeight: '700' },
+  messageMenuDeleteText: { color: '#e03131' },
+  messageMenuCancel: { alignItems: 'center', marginTop: 5, paddingVertical: 13, borderRadius: 12, backgroundColor: '#f1f3f5' },
+  messageMenuCancelText: { fontSize: 15, color: '#495057', fontWeight: '700' },
 
   // Modals
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
