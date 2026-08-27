@@ -32,6 +32,9 @@ const ProfileScreen = ({ route, navigation }) => {
         ? { data: await refreshCurrentUser() }
         : await api.get(endpoint);
       
+      // ✅ DEBUG: Muestra en la consola de la app los datos que llegan del backend
+      console.log('[ProfileScreen] Datos recibidos en fetchUserData:', JSON.stringify(response.data, null, 2));
+
       if (isCurrentUser) {
         setUser(response.data);
         await AsyncStorage.setItem('user', JSON.stringify(response.data));
@@ -155,6 +158,9 @@ const ProfileScreen = ({ route, navigation }) => {
   };
 
   const renderHeader = () => (
+    // ✅ DEBUG: Muestra en la consola el estado del usuario justo antes de renderizar
+    console.log('[ProfileScreen] Renderizando header con usuario:', JSON.stringify(user, null, 2)),
+
     <View style={styles.profileHeader}>
       <View style={styles.profileInfoContainer}>
         <Image 
@@ -166,6 +172,7 @@ const ProfileScreen = ({ route, navigation }) => {
             {user?.first_name ? `${user.first_name} ${user.last_name || ''}` : user?.username || 'Usuario'}
           </Text>
           <Text style={styles.profileEmail}>{user?.email}</Text>
+          {/* ✅ AÑADIDO: Mostrar la insignia de admin si el usuario actual es staff o superuser */}
           {isCurrentUser && (user?.is_staff || user?.is_superuser) ? (
             <View style={styles.adminBadge}>
               <Ionicons name="shield-checkmark" size={14} color="#fff" />

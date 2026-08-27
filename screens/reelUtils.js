@@ -13,29 +13,42 @@ const uniq = (arr) => {
   return out;
 };
 
-const extractVideos = (obj) => {
-  if (!obj) return [];
-  const bag = [];
-  bag.push(obj?.primary_video);
-  bag.push(obj?.video);
-  bag.push(obj?.task?.video);
-  bag.push(obj?.video_url);
-  bag.push(obj?.media_url);
-  bag.push(obj?.file);
-  bag.push(obj?.video2);
-  bag.push(obj?.video_2);
-  bag.push(obj?.video3);
-  bag.push(obj?.video_3);
-  if (Array.isArray(obj?.videos)) bag.push(...obj.videos);
-  if (Array.isArray(obj?.video_list)) bag.push(...obj.video_list);
-  if (Array.isArray(obj?.media_videos)) bag.push(...obj.media_videos);
-  return uniq(bag);
+const getMediaEntry = (value, type) => {
+  if (!value) return null;
+  if (typeof value === 'object') {
+    const src = value.src || value.url || value.uri || value.path;
+    if (src) return { src, type: value.type || type };
+  }
+  return { src: value, type };
 };
 
-const dedupeMainPreferContribution = (entries) => {
+const extractMedia = (obj) => {
+  if (!obj) return [];
+  const bag = [];
+  const add = (value, type) => {
+    const entry = getMediaEntry(value, type);
+    if (entry) bag.push(entry);
+  };
+
+  add(obj?.image, 'image');
+  add(obj?.video, 'video');
+  add(obj?.primary_image, 'image');
+  add(obj?.primary_video, 'video');
+  add(obj?.image_url, 'image');
+  add(obj?.video_url, 'video');
+  add(obj?.media_url, obj?.media_type);
+  add(obj?.file, obj?.media_type || 'video');
+  if (Array.isArray(obj?.images)) obj.images.forEach((value) => add(value, 'image'));
+  if (Array.isArray(obj?.videos)) obj.videos.forEach((value) => add(value, 'video'));
+  if (Array.isArray(obj?.media)) obj.media.forEach((value) => add(value, value?.type));
+  if (Array.isArray(obj?.media_list)) obj.media_list.forEach((value) => add(value, value?.type));
+
+  return bag;
+};
+
+const dedupeEntries = (entries) => {
   const out = [];
   const idxBySrc = new Map();
-  const isSub = (e) => e?.groupIndex != null;
   for (const e of entries) {
     const src = cleanVal(e?.src);
     if (!src) continue;
@@ -46,12 +59,22 @@ const dedupeMainPreferContribution = (entries) => {
       out.push(next);
       continue;
     }
-    const prev = out[existingIndex];
-    if (!isSub(prev) && isSub(next)) {
-      out[existingIndex] = next;
-    }
   }
   return out;
+};
+
+const addEntries = (target, values, kind, item, groupIndex, groupTotal) => {
+  values.forEach((entry, localIndex) => {
+    target.push({
+      ...entry,
+      kind,
+      item,
+      groupIndex,
+      groupTotal,
+      localIndex,
+      localTotal: values.length,
+    });
+  });
 };
 
 export const buildPlaylists = (task) => {
@@ -60,38 +83,36 @@ export const buildPlaylists = (task) => {
   const fuentes = Array.isArray(task?.subfuentes) ? task.subfuentes : [];
 
   const mainEntriesRaw = [];
-  const taskVids = extractVideos(task);
-  taskVids.forEach((src, li) => {
-    mainEntriesRaw.push({ src, kind: "main", item: task, groupIndex: null, groupTotal: null, localIndex: li, localTotal: taskVids.length });
-  });
+  addEntries(mainEntriesRaw, extractMedia(task), 'main', task, null, null);
 
   subtasks.forEach((st, gi) => {
-    const vids = extractVideos(st);
-    vids.forEach((src, li) => {
-      mainEntriesRaw.push({ src, kind: "main", item: st, groupIndex: gi, groupTotal: subtasks.length, localIndex: li, localTotal: vids.length });
-    });
+    addEntries(mainEntriesRaw, extractMedia(st), 'main', st, gi, subtasks.length);
   });
 
-  const mainVideos = dedupeMainPreferContribution(mainEntriesRaw);
+  factores.forEach((factor, gi) => {
+    addEntries(mainEntriesRaw, extractMedia(factor), 'factores', factor, gi, factores.length);
+  });
 
-  const factoresVideos = [];
+  fuentes.forEach((fuente, gi) => {
+    addEntries(mainEntriesRaw, extractMedia(fuente), 'fuentes', fuente, gi, fuentes.length);
+  });
+
+  const mainMedia = dedupeEntries(mainEntriesRaw);
+
+  const factoresMedia = [];
   factores.forEach((f, gi) => {
-    const vids = extractVideos(f);
-    vids.forEach((src, li) => {
-      factoresVideos.push({ src, kind: "factores", item: f, groupIndex: gi, groupTotal: factores.length, localIndex: li, localTotal: vids.length });
-    });
+    addEntries(factoresMedia, extractMedia(f), 'factores', f, gi, factores.length);
   });
 
-  const fuentesVideos = [];
+  const fuentesMedia = [];
   fuentes.forEach((fu, gi) => {
-    const vids = extractVideos(fu);
-    vids.forEach((src, li) => {
-      fuentesVideos.push({ src, kind: "fuentes", item: fu, groupIndex: gi, groupTotal: fuentes.length, localIndex: li, localTotal: vids.length });
-    });
+    addEntries(fuentesMedia, extractMedia(fu), 'fuentes', fu, gi, fuentes.length);
   });
 
-  return { main: mainVideos, factores: factoresVideos, fuentes: fuentesVideos };
+  return { main: mainMedia, factores: factoresMedia, fuentes: fuentesMedia };
 };
+
+export const getFirstMediaAnywhere = (task) => buildPlaylists(task).main[0]?.src || null;
 
 export const getUserIdFromTask = (task) => {
   return task?.user?.profile?.id || task?.user?.profile_id || task?.user?.id || task?.user_id || null;

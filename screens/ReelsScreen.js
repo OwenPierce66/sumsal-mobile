@@ -29,93 +29,7 @@ const uniq = (arr) => {
   return out;
 };
 
-const extractVideos = (obj) => {
-  if (!obj) return [];
-  const bag = [];
-  bag.push(obj?.primary_video);
-  bag.push(obj?.video);
-  bag.push(obj?.task?.video);
-  bag.push(obj?.video_url);
-  bag.push(obj?.media_url);
-  bag.push(obj?.file);
-  bag.push(obj?.video2);
-  bag.push(obj?.video_2);
-  bag.push(obj?.video3);
-  bag.push(obj?.video_3);
-  if (Array.isArray(obj?.videos)) bag.push(...obj.videos);
-  if (Array.isArray(obj?.video_list)) bag.push(...obj.video_list);
-  if (Array.isArray(obj?.media_videos)) bag.push(...obj.media_videos);
-  return uniq(bag);
-};
-
-const getFirstVideoAnywhere = (task) => {
-  const subs = (task?.subtasks || []).flatMap((s) => extractVideos(s));
-  const facs = (task?.subfactores || []).flatMap((s) => extractVideos(s));
-  const fues = (task?.subfuentes || []).flatMap((s) => extractVideos(s));
-  const main = extractVideos(task);
-  return main[0] || subs[0] || facs[0] || fues[0] || null;
-};
-
-const dedupeMainPreferContribution = (entries) => {
-  const out = [];
-  const idxBySrc = new Map();
-  const isSub = (e) => e?.groupIndex != null;
-  for (const e of entries) {
-    const src = cleanVal(e?.src);
-    if (!src) continue;
-    const next = { ...e, src };
-    const existingIndex = idxBySrc.get(src);
-    if (existingIndex == null) {
-      idxBySrc.set(src, out.length);
-      out.push(next);
-      continue;
-    }
-    const prev = out[existingIndex];
-    if (!isSub(prev) && isSub(next)) {
-      out[existingIndex] = next;
-    }
-  }
-  return out;
-};
-
-const buildPlaylists = (task) => {
-  const subtasks = Array.isArray(task?.subtasks) ? task.subtasks : [];
-  const factores = Array.isArray(task?.subfactores) ? task.subfactores : [];
-  const fuentes = Array.isArray(task?.subfuentes) ? task.subfuentes : [];
-
-  const mainEntriesRaw = [];
-  const taskVids = extractVideos(task);
-  taskVids.forEach((src, li) => {
-    mainEntriesRaw.push({ src, kind: "main", item: task, groupIndex: null, groupTotal: null, localIndex: li, localTotal: taskVids.length });
-  });
-
-  subtasks.forEach((st, gi) => {
-    const vids = extractVideos(st);
-    vids.forEach((src, li) => {
-      mainEntriesRaw.push({ src, kind: "main", item: st, groupIndex: gi, groupTotal: subtasks.length, localIndex: li, localTotal: vids.length });
-    });
-  });
-
-  const mainVideos = dedupeMainPreferContribution(mainEntriesRaw);
-
-  const factoresVideos = [];
-  factores.forEach((f, gi) => {
-    const vids = extractVideos(f);
-    vids.forEach((src, li) => {
-      factoresVideos.push({ src, kind: "factores", item: f, groupIndex: gi, groupTotal: factores.length, localIndex: li, localTotal: vids.length });
-    });
-  });
-
-  const fuentesVideos = [];
-  fuentes.forEach((fu, gi) => {
-    const vids = extractVideos(fu);
-    vids.forEach((src, li) => {
-      fuentesVideos.push({ src, kind: "fuentes", item: fu, groupIndex: gi, groupTotal: fuentes.length, localIndex: li, localTotal: vids.length });
-    });
-  });
-
-  return { main: mainVideos, factores: factoresVideos, fuentes: fuentesVideos };
-};
+const { buildPlaylists, getFirstMediaAnywhere } = require('./reelUtils');
 
 const getUserIdFromTask = (task) => {
   return task?.user?.profile?.id || task?.user?.profile_id || task?.user?.id || task?.user_id || null;
@@ -277,7 +191,7 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, se
   );
 });
 
-const ReelsScreen = () => {
+const ReelsScreen = ({ route }) => {
   const { user, isAdmin: isAdminFromContext } = useContext(AuthContext);
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
   const currentUserId = user?.id;
@@ -340,7 +254,36 @@ const ReelsScreen = () => {
   const taskSharesCacheRef = useRef({});
   const [profileLikesById, setProfileLikesById] = useState({});
   const profileLikesCacheRef = useRef({});
+  const handledMediaRequestRef = useRef(null);
   const getReelTaskId = useCallback((reel) => reel?.task?.id || reel?.id || null, []);
+
+  useEffect(() => {
+    const targetTaskId = route?.params?.openTaskId;
+    const targetMediaSrc = route?.params?.openMediaSrc;
+    const requestId = route?.params?.openMediaRequestId;
+    if (!targetTaskId || !targetMediaSrc || !requestId || reels.length === 0) return;
+    if (handledMediaRequestRef.current === requestId) return;
+
+    const targetIndex = reels.findIndex((reel) => String(getReelTaskId(reel)) === String(targetTaskId));
+    if (targetIndex < 0) return;
+
+    const targetContent = reels[targetIndex].is_original ? reels[targetIndex] : reels[targetIndex].task;
+    const targetPlaylist = buildPlaylists(targetContent).main;
+    const targetPosition = targetPlaylist.findIndex((entry) => (
+      String(getImageUrl(entry.src)) === String(getImageUrl(targetMediaSrc))
+    ));
+    if (targetPosition < 0) return;
+
+    setActiveIndex(targetIndex);
+    setViewStateById((previous) => ({
+      ...previous,
+      [reels[targetIndex].id]: { mode: 'main', pos: targetPosition },
+    }));
+    handledMediaRequestRef.current = requestId;
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToIndex({ index: targetIndex, animated: false });
+    });
+  }, [route?.params?.openTaskId, route?.params?.openMediaSrc, route?.params?.openMediaRequestId, reels, getReelTaskId]);
 
   const fetchReels = async (pageNumber = 1, filters = {}) => {
     try {
@@ -373,9 +316,9 @@ const ReelsScreen = () => {
         const content = item.is_original ? item : item.task;
         if (!content) return null;
 
-        const anyVideo = getFirstVideoAnywhere(content);
-        if (anyVideo) {
-            return { ...item, _anyVideo: anyVideo };
+        const anyMedia = getFirstMediaAnywhere(content);
+        if (anyMedia) {
+          return { ...item, _anyMedia: anyMedia };
         }
         return null;
       }).filter(Boolean);

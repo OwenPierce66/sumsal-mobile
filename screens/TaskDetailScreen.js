@@ -1,7 +1,7 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useCallback } from 'react';
+﻿﻿import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Modal,
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView
+  ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView, Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -12,6 +12,7 @@ import { Image } from 'expo-image';
 import { Video } from 'expo-av';
 import ShareModal from '../components/ShareModal';
 import TieredLikesModal from './TieredLikesModal';
+import Slider from '@react-native-community/slider';
 import TouchableUsername from '../components/TouchableUsername';
 import CategoryHierarchy from '../components/CategoryHierarchy';
 
@@ -22,21 +23,109 @@ const isVideoMedia = (path) => {
   return value.startsWith('data:video/') || /\.(mp4|mov|avi|mkv|webm|m4v)(\?|$)/i.test(value);
 };
 
-const MediaPreview = ({ uri, label }) => {
+const DETAIL_VIDEO_AUTOPLAY_DELAY_MS = 500;
+
+const DetailVideoPreview = ({ uri, onOpenReel }) => {
+  const containerRef = useRef(null);
+  const playerRef = useRef(null);
+  const visibleSinceRef = useRef(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const [isReadyToPlay, setIsReadyToPlay] = useState(false);
+  const [isPausedByUser, setIsPausedByUser] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const [playbackStatus, setPlaybackStatus] = useState({});
+
+  useEffect(() => {
+    setIsReadyToPlay(false);
+    if (isVisible) {
+      visibleSinceRef.current = Date.now();
+    } else {
+      visibleSinceRef.current = null;
+      setIsPausedByUser(false);
+    }
+  }, [isVisible]);
+
+  useEffect(() => {
+    if (!isReadyToPlay || !isVisible || isPausedByUser) return undefined;
+    playerRef.current?.playAsync().catch(() => {});
+    return undefined;
+  }, [isReadyToPlay, isVisible, isPausedByUser]);
+
+  useEffect(() => {
+    const checkVisibility = () => {
+      containerRef.current?.measureInWindow((x, y, width, height) => {
+        const viewport = Dimensions.get('window');
+        const visible = x + width > 0 && x < viewport.width && y + height > 0 && y < viewport.height;
+        setIsVisible(visible);
+        if (visible && visibleSinceRef.current && Date.now() - visibleSinceRef.current >= DETAIL_VIDEO_AUTOPLAY_DELAY_MS) {
+          setIsReadyToPlay(true);
+        }
+      });
+    };
+    const interval = setInterval(checkVisibility, 250);
+    checkVisibility();
+    return () => clearInterval(interval);
+  }, []);
+
+  const togglePlayback = () => {
+    if (playbackStatus.isPlaying) {
+      setIsPausedByUser(true);
+      playerRef.current?.pauseAsync();
+    } else {
+      setIsPausedByUser(false);
+      playerRef.current?.playAsync();
+    }
+    setControlsVisible(true);
+  };
+
+  return (
+    <View ref={containerRef} collapsable={false} style={styles.detailVideoWrapper}>
+      <Video
+        ref={playerRef}
+        source={{ uri: getImageUrl(uri) }}
+        style={styles.detailVideo}
+        resizeMode="contain"
+        shouldPlay={isReadyToPlay && isVisible && !isPausedByUser}
+        isLooping
+        onPlaybackStatusUpdate={setPlaybackStatus}
+      />
+      <TouchableOpacity style={styles.detailVideoTouchSurface} activeOpacity={1} onPress={() => setControlsVisible((visible) => !visible)} />
+      {controlsVisible && (
+        <View style={styles.detailVideoControls} pointerEvents="box-none">
+          <TouchableOpacity style={styles.detailVideoControlButton} onPress={togglePlayback}>
+            <Ionicons name={playbackStatus.isPlaying ? 'pause' : 'play'} size={20} color="#fff" />
+          </TouchableOpacity>
+          <Slider
+            style={styles.detailVideoProgress}
+            minimumValue={0}
+            maximumValue={playbackStatus.durationMillis || 1}
+            value={playbackStatus.positionMillis || 0}
+            onSlidingStart={() => setIsPausedByUser(true)}
+            onSlidingComplete={(value) => {
+              playerRef.current?.setPositionAsync(value);
+              setIsPausedByUser(false);
+            }}
+            minimumTrackTintColor="#fff"
+            maximumTrackTintColor="rgba(255,255,255,0.45)"
+            thumbTintColor="#fff"
+          />
+          <TouchableOpacity accessibilityLabel="Abrir video en reels" style={styles.detailExpandButton} onPress={onOpenReel}>
+            <Ionicons name="expand-outline" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+};
+
+const MediaPreview = ({ uri, label, onOpenReel }) => {
   if (!uri) return null;
   const mediaUri = getImageUrl(uri);
 
   if (isVideoMedia(uri)) {
     return (
       <View style={styles.mediaBlock}>
-        <Video
-          source={{ uri: mediaUri }}
-          style={styles.detailVideo}
-          useNativeControls
-          resizeMode="contain"
-          shouldPlay={false}
-          onError={(error) => console.error('[TaskDetail] Error reproduciendo video:', { label, uri: mediaUri, error })}
-        />
+        <DetailVideoPreview uri={uri} onOpenReel={onOpenReel} />
         <Text style={styles.mediaLabel}>{label}</Text>
       </View>
     );
@@ -200,6 +289,16 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [taskToShare, setTaskToShare] = useState(null);
   // Modal de acciones
   const [actionModalVisible, setActionModalVisible] = useState(false);
+
+  const openMediaInReels = useCallback((mediaUri) => {
+    if (!task?.id || !mediaUri) return;
+    navigation.navigate('Reels', {
+      openTaskId: task.id,
+      openMediaSrc: mediaUri,
+      openMediaType: 'video',
+      openMediaRequestId: Date.now(),
+    });
+  }, [navigation, task?.id]);
 
   const handleDeleteTask = async () => {
     const executeDelete = async () => {
@@ -541,6 +640,10 @@ const fetchComments = useCallback(async () => {
                 textStyle={styles.taskAuthorName}
                 numberOfLines={1}
               />
+              {/* ✅ AÑADIDO: Mostrar el ícono de admin si corresponde */}
+              {(task.user?.is_staff || task.user?.is_superuser) && (
+                <Ionicons name="shield-checkmark" size={16} color="#4dabf7" style={{ marginLeft: 6 }} />
+              )}
               <Text style={styles.taskDate}>{moment(task.created_at).format('LL')}</Text>
             </View>
             
@@ -567,7 +670,7 @@ const fetchComments = useCallback(async () => {
 
             <CategoryHierarchy categories={task.categories} />
 
-            <MediaPreview uri={task.video || task.image} label="Publicación" />
+            <MediaPreview uri={task.video || task.image} label="Publicación" onOpenReel={() => openMediaInReels(task.video)} />
 
             {[
               ...(Array.isArray(task.subtasks) ? task.subtasks.map((item) => ({ ...item, section: 'Consejo' })) : []),
@@ -578,7 +681,7 @@ const fetchComments = useCallback(async () => {
                 <Text style={styles.subtaskDetailSection}>{item.section}</Text>
                 {item.title ? <Text style={styles.subtaskDetailTitle}>{item.title}</Text> : null}
                 {item.description ? <Text style={styles.subtaskDetailDescription}>{item.description}</Text> : null}
-                <MediaPreview uri={item.video || item.image} label={item.section} />
+                <MediaPreview uri={item.video || item.image} label={item.section} onOpenReel={() => openMediaInReels(item.video)} />
               </View>
             ))}
           </View>
@@ -766,8 +869,14 @@ const styles = StyleSheet.create({
   taskTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8 },
   taskDescription: { fontSize: 15, color: '#555', lineHeight: 22 },
   mediaBlock: { marginTop: 14 },
+  detailVideoWrapper: { width: '100%', height: 240, borderRadius: 12, overflow: 'hidden', backgroundColor: '#171717' },
+  detailVideoTouchSurface: { ...StyleSheet.absoluteFillObject },
+  detailVideoControls: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 58, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, backgroundColor: 'rgba(0,0,0,0.62)' },
+  detailVideoControlButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  detailVideoProgress: { flex: 1, height: 40, marginHorizontal: 4 },
+  detailExpandButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   detailImage: { width: '100%', height: 240, borderRadius: 12, backgroundColor: '#eef0f2' },
-  detailVideo: { width: '100%', height: 240, borderRadius: 12, backgroundColor: '#171717' },
+  detailVideo: { width: '100%', height: '100%', backgroundColor: '#171717' },
   mediaLabel: { fontSize: 10, color: '#8b949e', fontWeight: '700', marginTop: 5, textTransform: 'uppercase' },
   subtaskDetail: { marginTop: 18, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#edf0f2' },
   subtaskDetailSection: { fontSize: 10, color: '#4dabf7', fontWeight: '800', textTransform: 'uppercase', marginBottom: 4 },

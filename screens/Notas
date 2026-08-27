@@ -6,25 +6,28 @@ Las aplicaciones modernas (como Facebook, Instagram o X) usan una técnica llama
 
 
 
- te vuelvo a repetir todo ya que te trabaste, estamos actualizando de respaldo a sumsal, osea la app de exito la estamos mejorando con la estructura de sumsal, principalmente respaldo.js y sus alrededores y ahorita estamos con los mensajes directos, recuerda ya te estor pasano toda una estructura pero si tu sabes como hacerlo mejor hazlo
-
- ¿Podemos hacer que al presionar los contadores de tier se abra el modal de usuarios filtrado?
-
-
-
-
- bien ahora con todo resuelto, almenos lo mas dificil podemos pasar ahora si a lo siguiente a las Historias de 24 horas
-al igual que todo ya lo eh hecho pero lo estamos migrando osea que ya te explique lo de checa la version antigua para simplemente actualizar la versino web a la version mobile, ai que entra a historias24h.js de respaldo y su backend repaldo-backend para que simplemente veas todo lo que ya esta hecho y lo acomodes y mejores si tienes alguna sugerencia a la version moderna,
+ 
 
 
 
 cosas por hacer:
 -notificaciones *
 -mejorar aun mas elfiltro de temas*
--mejorar el reelitem para que se vean mejor las publicaciones
+-mejorar el reelitem para que se vean mejor las publicaciones**
 -rellenar perfil*
 -agregar funciones de editar a todo*
--acompletar mensajes directos
+-acompletar mensajes directos*
+-ver como voy a renderizar imagenes con videos*
+-que al abrir un video te aparezca el reeldetail con cambios de dezlizamiento con videos de la  misma publicacion*
 
--ver como voy a renderizar imagenes con videos
+-que el foro tambien pueda compartise en las historias
+-mejorar el filtro en la createtask
+-si no tengo seleccionado ninguna tema que em aparezcan todas las tareas
+-quitar que se compartan historias de 24hrs en historias de aportaciones
+-categoria de podcast
+-recuperar las funcinoes de admin y mostrarlo en el perfil 
+-regresr la funciona de comentar una tarea de tus favoritas por que te parece que ya hay una tarea que ya existe pero mejor explicada(referencias)
+
+
+
 npx expo start --offline -c

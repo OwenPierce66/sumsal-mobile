@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useEffect, useContext } from 'react';
+import React, { useState, useCallback, useEffect, useContext, useRef } from 'react';
 import {
-  View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity,
+  View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions,
   RefreshControl, TextInput, Platform, ActivityIndicator, Modal, Alert, Button, SafeAreaView, useWindowDimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +16,125 @@ import { AuthContext } from '../App';
 import ShareActionMenu from './ShareActionMenu'; // Importa el nuevo menú
 import TouchableUsername from '../components/TouchableUsername';
 import CategoryHierarchy from '../components/CategoryHierarchy';
+import Slider from '@react-native-community/slider';
+
+const TASK_VIDEO_AUTOPLAY_DELAY_MS = 500;
+
+const TaskVideoPreview = ({ uri, onOpenReel }) => {
+  const videoRef = useRef(null);
+  const playerRef = useRef(null);
+  const visibleSinceRef = useRef(null);
+  const lastVisibilityLogRef = useRef(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const [isReadyToPlay, setIsReadyToPlay] = useState(false);
+  const [isPausedByUser, setIsPausedByUser] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const [playbackStatus, setPlaybackStatus] = useState({});
+
+  useEffect(() => {
+    setIsReadyToPlay(false);
+    if (isVisible) {
+      visibleSinceRef.current = Date.now();
+      console.log('[TasksScreen][TaskVideoPreview] Video visible, iniciando contador:', uri);
+    } else {
+      visibleSinceRef.current = null;
+      lastVisibilityLogRef.current = null;
+      setIsPausedByUser(false);
+      console.log('[TasksScreen][TaskVideoPreview] Video fuera de pantalla, contador reiniciado:', uri);
+    }
+  }, [isVisible]);
+
+  useEffect(() => {
+    if (!isReadyToPlay || !isVisible) return undefined;
+
+    console.log('[TasksScreen][TaskVideoPreview] Autoplay despues de', TASK_VIDEO_AUTOPLAY_DELAY_MS, 'ms:', uri);
+    playerRef.current?.playAsync().catch((error) => {
+      console.warn('[TasksScreen][TaskVideoPreview] No se pudo iniciar autoplay:', error);
+    });
+    return undefined;
+  }, [isReadyToPlay, isVisible, uri]);
+
+  const togglePlayback = () => {
+    if (playbackStatus.isPlaying) {
+      setIsPausedByUser(true);
+      playerRef.current?.pauseAsync();
+    } else {
+      setIsPausedByUser(false);
+      playerRef.current?.playAsync();
+    }
+    setControlsVisible(true);
+  };
+
+  const toggleControls = () => setControlsVisible((visible) => !visible);
+
+  useEffect(() => {
+    const checkVisibility = () => {
+      videoRef.current?.measureInWindow((x, y, width, height) => {
+        const viewport = Dimensions.get('window');
+        const visible = x + width > 0 && x < viewport.width && y + height > 0 && y < viewport.height;
+        setIsVisible((previous) => {
+          if (previous !== visible) {
+            console.log('[TasksScreen][TaskVideoPreview] Cambio de visibilidad:', { visible, uri });
+          }
+          return visible;
+        });
+
+        if (visible && visibleSinceRef.current) {
+          const elapsed = Date.now() - visibleSinceRef.current;
+          if (elapsed - (lastVisibilityLogRef.current || 0) >= 350) {
+            lastVisibilityLogRef.current = elapsed;
+            console.log('[TasksScreen][TaskVideoPreview] Tiempo visible:', `${elapsed} ms`, uri);
+          }
+          if (elapsed >= TASK_VIDEO_AUTOPLAY_DELAY_MS) {
+            setIsReadyToPlay(true);
+          }
+        }
+      });
+    };
+    const interval = setInterval(checkVisibility, 350);
+    checkVisibility();
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <View ref={videoRef} collapsable={false} style={styles.subMediaWrapper}>
+      <Video
+        ref={playerRef}
+        source={{ uri }}
+        style={styles.subMedia}
+        resizeMode="contain"
+        shouldPlay={isReadyToPlay && isVisible && !isPausedByUser}
+        isLooping
+        onPlaybackStatusUpdate={setPlaybackStatus}
+      />
+      <TouchableOpacity style={styles.videoTouchSurface} activeOpacity={1} onPress={toggleControls} />
+      {controlsVisible && (
+        <View style={styles.videoControls} pointerEvents="box-none">
+          <TouchableOpacity accessibilityLabel={playbackStatus.isPlaying ? 'Pausar video' : 'Reproducir video'} style={styles.videoControlButton} onPress={togglePlayback}>
+            <Ionicons name={playbackStatus.isPlaying ? 'pause' : 'play'} size={20} color="#fff" />
+          </TouchableOpacity>
+          <Slider
+            style={styles.videoProgress}
+            minimumValue={0}
+            maximumValue={playbackStatus.durationMillis || 1}
+            value={playbackStatus.positionMillis || 0}
+            onSlidingStart={() => setIsPausedByUser(true)}
+            onSlidingComplete={(value) => {
+              playerRef.current?.setPositionAsync(value);
+              setIsPausedByUser(false);
+            }}
+            minimumTrackTintColor="#fff"
+            maximumTrackTintColor="rgba(255,255,255,0.45)"
+            thumbTintColor="#fff"
+          />
+          <TouchableOpacity accessibilityLabel="Abrir video en reels" style={styles.expandVideoButton} onPress={onOpenReel}>
+            <Ionicons name="expand-outline" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+};
 
 const TasksScreen = ({ navigation }) => {
   const { width: screenWidth } = useWindowDimensions();
@@ -24,6 +143,9 @@ const TasksScreen = ({ navigation }) => {
   // ✅ OBTENEMOS EL USUARIO Y ADMIN STATUS DEL CONTEXTO GLOBAL
   const { user, isAdmin: isAdminFromContext } = useContext(AuthContext);
   const currentUserId = user?.id;
+  // ✅ DEBUG: Muestra en la consola el estado de admin que viene del contexto global
+  console.log(`[TasksScreen] isAdmin del Contexto: ${isAdminFromContext}`);
+
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
 
   const [tasks, setTasks] = useState([]);
@@ -77,6 +199,8 @@ const TasksScreen = ({ navigation }) => {
           const response = await api.get("verify-admin/");
           const isAdminResponse = response.data?.is_admin || response.data?.is_staff;
           setIsAdmin(isAdminResponse);
+          // ✅ DEBUG: Muestra el resultado de la verificación manual
+          console.log(`[TasksScreen] Resultado de la verificación manual de admin: ${isAdminResponse}`);
         } catch (error) {
           console.error("[TasksScreen] Error en la verificación manual de admin:", error);
           setIsAdmin(false);
@@ -715,6 +839,8 @@ const TasksScreen = ({ navigation }) => {
     const profile = userObj.profile || {};
     if (profile.is_verified) return 'checkmark-circle';
     if (profile.subscriptionActive && parseFloat(profile.subscription_amount || 0) >= 8) return 'star';
+    // ✅ AÑADIDO: Icono para administradores
+    if (userObj.is_staff || userObj.is_superuser) return 'shield-checkmark';
     if (profile.subscriptionActive) return 'star-half';
     if (profile.is_recommended) return 'medal';
     return null;
@@ -773,6 +899,17 @@ const TasksScreen = ({ navigation }) => {
     }
   }, [navigation]);
 
+  const openSubMediaInReels = useCallback((task, sub, section) => {
+    if (!task?.id || !sub?.video) return;
+    navigation.navigate('Reels', {
+      openTaskId: task.id,
+      openMediaSrc: sub.video,
+      openMediaType: 'video',
+      openMediaSection: section,
+      openMediaRequestId: Date.now(),
+    });
+  }, [navigation]);
+
   const renderSubContent = (task, section) => {
     const content = Array.isArray(task[section]) ? task[section] : [];
     if (content.length === 0) return <Text style={styles.noContent}>Sin datos en esta sección</Text>;
@@ -828,11 +965,9 @@ const TasksScreen = ({ navigation }) => {
                 )}
 
                 {videoUri && (
-                  <Video
-                    source={{ uri: videoUri }}
-                    style={styles.subMedia}
-                    useNativeControls
-                    resizeMode="contain"
+                  <TaskVideoPreview
+                    uri={videoUri}
+                    onOpenReel={() => openSubMediaInReels(task, sub, section)}
                   />
                 )}
               </View>
@@ -899,6 +1034,10 @@ const TasksScreen = ({ navigation }) => {
                     navigation={navigation}
                     textStyle={[styles.taskUser, { color: getUserStatusColor(task.user) }]}
                   />
+                  {/* ✅ AÑADIDO: Mostrar el ícono de admin si corresponde */}
+                  {(task.user?.is_staff || task.user?.is_superuser) && (
+                    <Ionicons name="shield-checkmark" size={14} color="#4dabf7" style={{ marginLeft: 2 }} />
+                  )}
                   {getUserStatusIcon(task.user) && <Ionicons name={getUserStatusIcon(task.user)} size={14} color={getUserStatusColor(task.user)} />}
               </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(task.created_at).fromNow()}</Text>
               </View>
@@ -977,6 +1116,9 @@ const TasksScreen = ({ navigation }) => {
       return renderSharedItemCard(item);
     }
     const currentSec = visibleSections[item.id] || 'subtasks';
+    
+    // ✅ DEBUG: Muestra en la consola los datos del usuario de cada tarea
+    console.log(`[TasksScreen] Renderizando tarea de: ${item.user?.username}, is_staff: ${item.user?.is_staff}`);
 
     return (
       <View style={styles.taskCard}>
@@ -998,6 +1140,10 @@ const TasksScreen = ({ navigation }) => {
                   navigation={navigation}
                   textStyle={[styles.taskUser, { color: getUserStatusColor(item.user) }]}
                 />
+                {/* ✅ AÑADIDO: Mostrar el ícono de admin si corresponde */}
+                {(item.user?.is_staff || item.user?.is_superuser) && (
+                  <Ionicons name="shield-checkmark" size={14} color="#4dabf7" style={{ marginLeft: 2 }} />
+                )}
                 {getUserStatusIcon(item.user) && <Ionicons name={getUserStatusIcon(item.user)} size={14} color={getUserStatusColor(item.user)} />}
               </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(item.created_at).fromNow()}</Text></View>
             
@@ -1243,6 +1389,9 @@ const TasksScreen = ({ navigation }) => {
                   </>
                 )}
                 {isAdmin && (
+                  // ✅ DEBUG: Si isAdmin es true, esto se imprimirá en la consola
+                  console.log(`[TasksScreen] Renderizando botones de admin para la tarea: ${selectedActionTask?.id}`),
+
                   // 🪵 LOG DE DIAGNÓSTICO: Confirmamos que se intenta renderizar
                   <>
                     <TouchableOpacity style={styles.actionOption} onPress={handleToggleVerified}>
@@ -1340,7 +1489,13 @@ const styles = StyleSheet.create({
   subItemDesc: { fontSize: 14, color: '#666', lineHeight: 20, marginTop: 8 },
   subShareButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, gap: 4 },
   subShareText: { fontSize: 11, color: '#1f9d5a', fontWeight: '700' },
-  subMedia: { width: '100%', height: 240, borderRadius: 14, marginTop: 12, backgroundColor: '#f1f3f5' },
+  subMediaWrapper: { width: '100%', height: 240, marginTop: 12, borderRadius: 14, overflow: 'hidden', backgroundColor: '#f1f3f5' },
+  subMedia: { width: '100%', height: '100%', backgroundColor: '#f1f3f5' },
+  videoTouchSurface: { ...StyleSheet.absoluteFillObject },
+  videoControls: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 58, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, backgroundColor: 'rgba(0,0,0,0.62)' },
+  videoControlButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  videoProgress: { flex: 1, height: 40, marginHorizontal: 4 },
+  expandVideoButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   carouselEndSpacer: { width: 1 },
   carouselMeta: { alignItems: 'center', marginTop: 2 },
   carouselHint: { fontSize: 10, color: '#adb5bd', marginBottom: 5 },

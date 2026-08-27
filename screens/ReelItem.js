@@ -51,10 +51,16 @@ const ReelItemComponent = ({
   const userItem = useMemo(() => (item.is_original ? item.user : (item.task?.user || {})), [item]);
   const playlists = useMemo(() => buildPlaylists(contentItem), [contentItem]);
   const rawState = viewStateById[item.id] || { mode: "main", pos: 0 };
+  const mediaRefCount = Math.max(
+    playlists.main?.length || 0,
+    playlists.factores?.length || 0,
+    playlists.fuentes?.length || 0,
+    1,
+  );
 
   const videoRefs = useRef([]);
-  if (videoRefs.current.length !== (playlists.main?.length || 1)) {
-    videoRefs.current = Array(playlists.main?.length || 1).fill(null).map((_, i) => videoRefs.current[i] || React.createRef());
+  if (videoRefs.current.length !== mediaRefCount) {
+    videoRefs.current = Array(mediaRefCount).fill(null).map((_, i) => videoRefs.current[i] || React.createRef());
   }
 
   const [playbackStatus, setPlaybackStatus] = useState({});
@@ -66,6 +72,7 @@ const ReelItemComponent = ({
   const effPos = len ? Math.min(Math.max(0, rawState.pos || 0), len - 1) : 0;
 
   const list = playlists[effMode] || [];
+  const currentEntry = list[effPos] || null;
   const extraCount = (playlists.factores?.length > 0 ? 1 : 0) + (playlists.fuentes?.length > 0 ? 1 : 0);
   const badgeCount = extraCount === 0 ? 0 : extraCount === 1 ? 1 : effMode === "main" ? 2 : 1;
   const viewLabel = effMode === "main" ? tema : effMode === "factores" ? "factor" : "fuente";
@@ -121,6 +128,9 @@ const ReelItemComponent = ({
 
   // ✅ FIX: Controlamos la reproducción del video de forma más explícita
   useEffect(() => {
+    if (currentEntry?.type === 'image') {
+      setPlaybackStatus({});
+    }
     const player = videoRefs.current[rawState.pos]?.current;
     if (!player) return;
     if (isActive && !paused) {
@@ -128,7 +138,7 @@ const ReelItemComponent = ({
     } else {
       player.pauseAsync();
     }
-  }, [isActive, paused, rawState.pos]); // Ahora depende directamente de la prop `paused`
+  }, [currentEntry?.type, isActive, paused, rawState.pos]);
 
   return (
     <View style={styles.reelContainer}>
@@ -150,23 +160,27 @@ const ReelItemComponent = ({
         {list.length > 0 ? (
           list.map((entry, clipIdx) => (
             <View key={`${item.id}-clip-${clipIdx}`} style={{ width: windowWidth, height: windowHeight }}>
-              <Video // 🪵 LOG DE DIAGNÓSTICO: Video componente
-                ref={videoRefs.current[clipIdx]} // ✅ Asignamos la referencia correcta del array
-                source={{ uri: getImageUrl(entry.src) }}
-                style={styles.video}
-                resizeMode="cover" // ✅ Usamos la prop `paused` directamente
-                shouldPlay={isActive && !paused && rawState.pos === clipIdx}
-                isLooping
-                isMuted={isMuted}
-                onPlaybackStatusUpdate={(status) => { if (rawState.pos === clipIdx) { setPlaybackStatus(status); } }}
-              />
+              {entry.type === 'image' ? (
+                <Image source={{ uri: getImageUrl(entry.src) }} style={styles.image} contentFit="cover" />
+              ) : (
+                <Video
+                  ref={videoRefs.current[clipIdx]}
+                  source={{ uri: getImageUrl(entry.src) }}
+                  style={styles.video}
+                  resizeMode="cover"
+                  shouldPlay={isActive && !paused && rawState.pos === clipIdx}
+                  isLooping
+                  isMuted={isMuted}
+                  onPlaybackStatusUpdate={(status) => { if (rawState.pos === clipIdx) { setPlaybackStatus(status); } }}
+                />
+              )}
             </View>
           ))
         ) : (
           <View style={{ width: windowWidth, height: windowHeight }}> 
             <Video // 🪵 LOG DE DIAGNÓSTICO: Fallback Video componente
               ref={videoRefs.current[0]} // ✅ Asignamos la primera referencia si no hay lista
-              source={{ uri: getImageUrl(item._anyVideo) }}
+              source={{ uri: getImageUrl(item._anyMedia) }}
               style={styles.video}
               resizeMode="cover" 
               shouldPlay={isActive && !paused} // ✅ Usamos la prop `paused` directamente
@@ -392,7 +406,7 @@ const ReelItemComponent = ({
       ) : null}
 
       {/* ✅ FIX DEFINITIVO: Solo mostramos los controles si estamos en pausa Y si ya tenemos una duración válida. */}
-      {isActive && paused && playbackStatus.durationMillis > 0 && <ProgressControls status={playbackStatus} onSeek={(value) => videoRefs.current[rawState.pos]?.current?.setPositionAsync(value)} />}
+      {isActive && paused && currentEntry?.type === 'video' && playbackStatus.durationMillis > 0 && <ProgressControls status={playbackStatus} onSeek={(value) => videoRefs.current[effPos]?.current?.setPositionAsync(value)} />}
 
       <Animated.View style={[styles.likeAnimation, heartStyle, { pointerEvents: 'none' }]}>
         <Ionicons name="heart" size={100} color="white" />
@@ -406,6 +420,7 @@ const ReelItem = React.memo(ReelItemComponent);
 const styles = StyleSheet.create({
   reelContainer: { width: windowWidth, height: windowHeight },
   video: { ...StyleSheet.absoluteFillObject },
+  image: { ...StyleSheet.absoluteFillObject },
   sharedByContainer: { padding: 10, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12, marginBottom: 10, pointerEvents: 'auto' },
   sharedByRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sharedByAvatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#eee' },
