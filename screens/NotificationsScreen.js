@@ -34,6 +34,11 @@ const NOTIFICATION_COPY = {
   shared_task_reply: { icon: 'arrow-undo', color: '#4dabf7', text: 'respondió a tu comentario' },
   task_shared: { icon: 'share-social', color: '#51cf66', text: 'compartió tu tarea' },
   task_shared_to_story: { icon: 'time', color: '#845ef7', text: 'compartió tu tarea en una historia' },
+  task_tag: { icon: 'pricetag', color: '#845ef7', text: 'te etiquetó en una publicación' },
+  podcast_invite: { icon: 'mic', color: '#f783ac', text: '¡te eligió para grabar un podcast! 🎉' },
+  podcast_approved: { icon: 'ribbon', color: '#f59f00', text: '¡El podcast donde fuiste etiquetado fue aprobado! ¡A grabar se ha dicho! 🎙️' },
+  podcast_invitation_response: { icon: 'chatbubbles', color: '#4dabf7', text: 'respondió a la invitación del podcast' },
+  task_approved: { icon: 'checkmark-circle', color: '#51cf66', text: 'Tu aportación fue aprobada ✅' },
   forum_post_like: { icon: 'heart', color: '#ff5d73', text: 'le dio me gusta a tu publicación del foro' },
   forum_reply: { icon: 'arrow-undo', color: '#4dabf7', text: 'respondió a tu comentario del foro' },
   direct_message: { icon: 'mail', color: '#4dabf7', text: 'te envió un mensaje' },
@@ -247,14 +252,19 @@ const NotificationsScreen = ({ navigation }) => {
       icon: 'notifications',
       color: '#4dabf7',
     };
+    const isPodcastSpecial = ['podcast_invite', 'podcast_approved'].includes(type);
     const actor = item.actor || {};
     const actorName = getActorName(item);
     const avatar = getImageUrl(actor.image || actor.user_image || actor.avatar || actor.profile_image);
-    const detail = item.data?.title || item.data?.excerpt || item.data?.preview;
+    const detail = item.data?.task_title || item.data?.title || item.data?.excerpt || item.data?.preview;
 
     return (
       <TouchableOpacity
-        style={[styles.notificationCard, !item.is_read && styles.notificationCardUnread]}
+        style={[
+          styles.notificationCard,
+          !item.is_read && styles.notificationCardUnread,
+          isPodcastSpecial && styles.notificationCardPodcast,
+        ]}
         onPress={() => handleOpenNotification(item)}
         onLongPress={() => handleDelete(item)}
         activeOpacity={0.82}
@@ -273,7 +283,14 @@ const NotificationsScreen = ({ navigation }) => {
         </View>
 
         <View style={styles.notificationCopy}>
-          <Text style={styles.notificationText}>
+          {isPodcastSpecial ? (
+            <View style={styles.podcastHeaderRow}>
+              <Ionicons name="sparkles" size={14} color="#f783ac" />
+              <Text style={styles.podcastHeader}>¡Felicidades!</Text>
+              <Ionicons name="sparkles" size={14} color="#f783ac" />
+            </View>
+          ) : null}
+          <Text style={[styles.notificationText, isPodcastSpecial && styles.podcastText]}>
             {getNotificationText(item)}
           </Text>
           {detail ? (
@@ -284,7 +301,9 @@ const NotificationsScreen = ({ navigation }) => {
           </Text>
         </View>
 
-        {!item.is_read ? <View style={styles.unreadDot} /> : null}
+        {!item.is_read ? (
+          <View style={[styles.unreadDot, isPodcastSpecial && styles.unreadDotPodcast]} />
+        ) : null}
       </TouchableOpacity>
     );
   };
@@ -451,6 +470,26 @@ const styles = StyleSheet.create({
   time: { fontSize: 11, color: '#999', marginTop: 5 },
   timeUnread: { color: '#228be6', fontWeight: '700' },
   unreadDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#228be6', marginLeft: 9 },
+  unreadDotPodcast: { backgroundColor: '#f783ac' },
+  notificationCardPodcast: {
+    backgroundColor: '#fff0f6',
+    borderColor: '#fcc2d7',
+    borderWidth: 1.5,
+  },
+  podcastHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 4,
+  },
+  podcastHeader: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#e64980',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  podcastText: { color: '#a61e4d', fontWeight: '600' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
   emptyTitle: { marginTop: 12, fontSize: 16, fontWeight: '700', color: '#555', textAlign: 'center' },
   emptySubtitle: { marginTop: 5, fontSize: 13, color: '#999', textAlign: 'center' },

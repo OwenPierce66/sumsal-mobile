@@ -10,6 +10,7 @@ import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image'; 
 import TieredLikesModal from './TieredLikesModal';
 import FilterModal from '../components/FilterModal';
+import SavedFiltersModal from '../components/SavedFiltersModal';
 import { Video } from 'expo-av';
 import ShareModal from '../components/ShareModal';
 import { AuthContext } from '../App';
@@ -157,7 +158,9 @@ const TasksScreen = ({ navigation }) => {
   const [tema, setTema] = useState('consejos');
   const [visibleSections, setVisibleSections] = useState({});
   const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [savedFiltersModalVisible, setSavedFiltersModalVisible] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [selectedSortBy, setSelectedSortBy] = useState('all');
   const [selectedFavoritesOnly, setSelectedFavoritesOnly] = useState(false);
@@ -182,11 +185,13 @@ const TasksScreen = ({ navigation }) => {
   const [taskShareDetails, setTaskShareDetails] = useState(null);
 
   
-  // ✅ SOLUCIÓN: Cargamos las categorías una sola vez aquí.
+  // ✅ SOLUCIÓN: Cargamos las categorías del PCH activo (más las globales).
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const response = await api.get('new-categories/');
+        const response = await api.get('new-categories/', {
+          params: { pch: tema, include_approval: 'true' },
+        });
         setAvailableCategories(response.data || []);
       } catch (error) {}
     };
@@ -208,7 +213,7 @@ const TasksScreen = ({ navigation }) => {
       }
     };
     verifyAdminStatus();
-  }, []);
+  }, [tema]);
 
   // --- Funciones para el nuevo flujo de compartir ---
   const openShareModal = (task) => {
@@ -396,6 +401,49 @@ const TasksScreen = ({ navigation }) => {
       navigation.navigate('SharedTaskDetail', { sharedTaskId: selectedActionTask.id });
     } else {
       navigation.navigate('CreateTask', { task: selectedActionTask });
+    }
+  };
+
+  const handleApprovePodcast = () => {
+    if (!selectedActionTask || !isAdmin) return;
+    const sourceTask = selectedActionTask.isSharedTask
+      ? selectedActionTask.task
+      : selectedActionTask;
+    if (!sourceTask?.id) return;
+
+    const approve = async () => {
+      try {
+        const response = await api.post(`tasks/${sourceTask.id}/approve/`, { approve: true });
+        const approvedCategories = response.data?.categories;
+        const updateTask = (task) => (
+          task?.id === sourceTask.id
+            ? { ...task, categories: approvedCategories || task.categories }
+            : task
+        );
+        setTasks(current => current.map(updateTask));
+        setSharedTasks(current => current.map(shared => (
+          shared.task?.id === sourceTask.id
+            ? { ...shared, task: updateTask(shared.task) }
+            : shared
+        )));
+        setActionModalVisible(false);
+        Alert.alert('Podcast aprobado', 'Se notificó al creador y a las personas etiquetadas.');
+      } catch (error) {
+        Alert.alert('No se pudo aprobar', error.response?.data?.detail || 'Intenta de nuevo.');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('¿Aprobar este podcast y notificar a sus involucrados?')) approve();
+    } else {
+      Alert.alert(
+        'Aprobar podcast',
+        'Se cambiará Procesando por Aprobada y se notificará al creador y a las personas etiquetadas.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Aprobar', onPress: approve },
+        ],
+      );
     }
   };
 
@@ -591,6 +639,7 @@ const TasksScreen = ({ navigation }) => {
           pch: tema, 
           page: pageNumber,
           category: currentCatFilter,
+          status: overrideFilters ? overrideFilters.status : selectedStatus,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
           favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
@@ -626,7 +675,7 @@ const TasksScreen = ({ navigation }) => {
       setLoadingMore(false);
       setRefreshing(false);
     }
-  }, [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   const fetchSharedTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
     try {
@@ -636,6 +685,7 @@ const TasksScreen = ({ navigation }) => {
         params: {
           page: pageNumber,
           category: currentCatFilter,
+          status: overrideFilters ? overrideFilters.status : selectedStatus,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
           favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
@@ -661,14 +711,14 @@ const TasksScreen = ({ navigation }) => {
       }
       console.error('Error fetching shared tasks:', error.response?.data || error.message);
     }
-  }, [selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }, [selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   // ✅ CORRECCIÓN: Usamos un useEffect que reacciona a los filtros, en lugar de a cada foco.
   // Esto reduce drásticamente las llamadas a la API.
   useFocusEffect(useCallback(() => {
     fetchTasks(1);
     fetchSharedTasks(1);
-  }, [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
+  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -809,6 +859,12 @@ const TasksScreen = ({ navigation }) => {
       description?.toLowerCase().includes(searchText.toLowerCase())
     );
 
+    const itemCategories = ((item.feedType === 'shared' ? item.task?.categories : item.categories) || '')
+      .split(',').map(category => category.trim().toLowerCase()).filter(Boolean);
+    const matchesStatus = !selectedStatus || itemCategories.includes(selectedStatus.toLowerCase()) || (
+      selectedStatus.toLowerCase() === 'aprobada' && itemCategories.includes('aprobadas')
+    );
+
     // ⚡ FILTRO INTELIGENTE LOCAL PARA SUBTEMAS
     let matchesCategory = true;
     if (selectedCategory) {
@@ -817,10 +873,13 @@ const TasksScreen = ({ navigation }) => {
       const itemTags = itemCatString.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
       
       // La tarea debe contener TODOS los tags (categoría principal + subtemas) sin importar el orden
-      matchesCategory = requiredTags.every(tag => itemTags.includes(tag));
+      matchesCategory = requiredTags.every(tag => {
+        if (tag === 'aprobada') return itemTags.includes('aprobada') || itemTags.includes('aprobadas');
+        return itemTags.includes(tag);
+      });
     }
 
-    return matchesSearch && matchesCategory;
+    return matchesSearch && matchesCategory && matchesStatus;
   });
 
   // ⚡ HELPER PARA COLORES Y ICONOS DE STATUS
@@ -1053,10 +1112,32 @@ const TasksScreen = ({ navigation }) => {
             {task.categories ? (
               <View style={styles.categoriesList}>
                 {task.categories.split(',').map((cat, idx) => (
-                  <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
+                  <Text
+                    key={idx}
+                    style={[styles.categoryBadge, cat.trim().toLowerCase() === 'aprobada' && styles.categoryBadgeApproved]}
+                  >
+                    {cat.trim()}
+                  </Text>
                 ))}
               </View>
             ) : null}
+
+            {Array.isArray(task.tagged_users) && task.tagged_users.length > 0 && (
+              <View style={styles.taggedUsersRow}>
+                <Ionicons name="pricetag-outline" size={13} color="#845ef7" style={{ marginRight: 4 }} />
+                <Text style={styles.taggedUsersLabel}>Con:</Text>
+                {task.tagged_users.map((u, idx) => (
+                  <View key={u.id || idx} style={{ marginRight: 8 }}>
+                    <TouchableUsername
+                      username={`@${u.username || u.first_name || 'usuario'}`}
+                      userId={u.id}
+                      navigation={navigation}
+                      textStyle={styles.taggedUserName}
+                    />
+                  </View>
+                ))}
+              </View>
+            )}
 
             {/* ⚡ EXTRAEMOS LA PRIMERA IMAGEN DISPONIBLE (SUBTASKS, SUBFACTORES O SUBFUENTES) */}
             {(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) && (
@@ -1159,10 +1240,32 @@ const TasksScreen = ({ navigation }) => {
           {item.categories ? (
             <View style={styles.categoriesList}>
               {item.categories.split(',').map((cat, idx) => (
-                <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
+                <Text
+                  key={idx}
+                  style={[styles.categoryBadge, cat.trim().toLowerCase() === 'aprobada' && styles.categoryBadgeApproved]}
+                >
+                  {cat.trim()}
+                </Text>
               ))}
             </View>
           ) : null}
+
+          {Array.isArray(item.tagged_users) && item.tagged_users.length > 0 && (
+            <View style={styles.taggedUsersRow}>
+              <Ionicons name="pricetag-outline" size={13} color="#845ef7" style={{ marginRight: 4 }} />
+              <Text style={styles.taggedUsersLabel}>Con:</Text>
+              {item.tagged_users.map((u, idx) => (
+                <View key={u.id || idx} style={{ marginRight: 8 }}>
+                  <TouchableUsername
+                    username={`@${u.username || u.first_name || 'usuario'}`}
+                    userId={u.id}
+                    navigation={navigation}
+                    textStyle={styles.taggedUserName}
+                  />
+                </View>
+              ))}
+            </View>
+          )}
         </TouchableOpacity>
 
         <View style={styles.sectionTabs}>
@@ -1247,7 +1350,10 @@ const TasksScreen = ({ navigation }) => {
           <TouchableOpacity style={styles.headerIconBtn} onPress={() => setFilterModalVisible(true)}>
             <Ionicons name="options-outline" size={24} color="#4dabf7" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.createBtn} onPress={() => navigation.navigate('CreateTask')}>
+          <TouchableOpacity style={styles.headerIconBtn} onPress={() => setSavedFiltersModalVisible(true)}>
+            <Ionicons name="bookmarks-outline" size={24} color="#4dabf7" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.createBtn} onPress={() => navigation.navigate('CreateTask', { initialPch: tema })}>
             <Ionicons name="add" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -1277,6 +1383,9 @@ const TasksScreen = ({ navigation }) => {
         showDescendants
         onSelect={(category) => {
           setSelectedCategory(category);
+          if (category.split(',')[0].trim().toLowerCase() !== 'grabar podcast') {
+            setSelectedStatus('');
+          }
           setPage(1);
           setHasMore(true);
         }}
@@ -1308,6 +1417,7 @@ const TasksScreen = ({ navigation }) => {
         visible={filterModalVisible}
         onClose={() => setFilterModalVisible(false)}
         currentCategory={selectedCategory}
+        currentStatus={selectedStatus}
         currentDateFilter={selectedDateFilter}
         currentSortBy={selectedSortBy}
         currentFavorites={selectedFavoritesOnly}
@@ -1318,14 +1428,49 @@ const TasksScreen = ({ navigation }) => {
         isSuperAdmin={isAdmin}
         // ✅ SOLUCIÓN: Pasamos las categorías como prop.
         availableCategories={availableCategories}
+        // ⚡ PCH activo para que el modal muestre/cree categorías de este tema
+        currentPch={tema}
         onApply={(filters) => {
           setSelectedCategory(filters.category);
+          setSelectedStatus(filters.status || '');
           setSelectedDateFilter(filters.date_filter);
           setSelectedSortBy(filters.sort_by);
           setSelectedFavoritesOnly(filters.favorites_only);
           setSelectedFavoriteUsersOnly(filters.favorite_users_only);
           setSelectedVerifiedUsersOnly(filters.verified_users_only);
           setSelectedRecommendedUsersOnly(filters.recommended_users_only);
+          setPage(1);
+          setSharedPage(1);
+          setHasMore(true);
+          setSharedHasMore(true);
+          fetchTasks(1, filters);
+          fetchSharedTasks(1, filters);
+        }}
+      />
+
+      {/* MODAL DE FILTROS GUARDADOS (CRUD propio del perfil) */}
+      <SavedFiltersModal
+        visible={savedFiltersModalVisible}
+        onClose={() => setSavedFiltersModalVisible(false)}
+        currentFilters={{
+          category: selectedCategory,
+          status: selectedStatus,
+          date_filter: selectedDateFilter,
+          sort_by: selectedSortBy,
+          favorites_only: selectedFavoritesOnly,
+          favorite_users_only: selectedFavoriteUsersOnly,
+          verified_users_only: selectedVerifiedUsersOnly,
+          recommended_users_only: selectedRecommendedUsersOnly,
+        }}
+        onApplyFilter={(filters) => {
+          setSelectedCategory(filters.category || '');
+          setSelectedStatus(filters.status || '');
+          setSelectedDateFilter(filters.date_filter || '');
+          setSelectedSortBy(filters.sort_by || 'all');
+          setSelectedFavoritesOnly(filters.favorites_only || false);
+          setSelectedFavoriteUsersOnly(filters.favorite_users_only || false);
+          setSelectedVerifiedUsersOnly(filters.verified_users_only || false);
+          setSelectedRecommendedUsersOnly(filters.recommended_users_only || false);
           setPage(1);
           setSharedPage(1);
           setHasMore(true);
@@ -1394,6 +1539,24 @@ const TasksScreen = ({ navigation }) => {
 
                   // 🪵 LOG DE DIAGNÓSTICO: Confirmamos que se intenta renderizar
                   <>
+                    {(() => {
+                      const sourceTask = selectedActionTask.isSharedTask
+                        ? selectedActionTask.task
+                        : selectedActionTask;
+                      const categories = String(sourceTask?.categories || '')
+                        .split(',')
+                        .map(category => category.trim().toLowerCase());
+                      const isPodcast = categories.includes('grabar podcast');
+                      const isApproved = categories.includes('aprobada');
+                      return isPodcast ? (
+                        <TouchableOpacity style={styles.actionOption} onPress={handleApprovePodcast}>
+                          <Ionicons name={isApproved ? 'send-outline' : 'ribbon-outline'} size={20} color='#f59f00' />
+                          <Text style={[styles.actionText, { color: '#e67700', fontWeight: '700' }]}>
+                            {isApproved ? 'Enviar invitaciones del podcast' : 'Aprobar podcast'}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null;
+                    })()}
                     <TouchableOpacity style={styles.actionOption} onPress={handleToggleVerified}>
                       <Ionicons name={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "checkmark-circle" : "checkmark-circle-outline"} size={20} color={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "#4dabf7" : "#555"} />
                       <Text style={styles.actionText}>{((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "Quitar Verificación" : "Verificar Perfil"}</Text>
@@ -1474,6 +1637,10 @@ const styles = StyleSheet.create({
   taskDescription: { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 8 },
   categoriesList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 15 },
   categoryBadge: { backgroundColor: '#e3f2fd', color: '#4dabf7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, fontSize: 11, fontWeight: '600' },
+  categoryBadgeApproved: { backgroundColor: '#d3f9d8', color: '#2b8a3e', borderWidth: 1, borderColor: '#69db7c' },
+  taggedUsersRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 6 },
+  taggedUsersLabel: { color: '#868e96', fontSize: 12, marginRight: 4 },
+  taggedUserName: { color: '#845ef7', fontSize: 12, fontWeight: '600' },
   sectionTabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#f0f0f0', marginBottom: 10 },
   tab: { flex: 1, paddingVertical: 8, alignItems: 'center' },
   tabActive: { borderBottomWidth: 2, borderBottomColor: '#4dabf7' },

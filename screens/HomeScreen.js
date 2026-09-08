@@ -102,7 +102,7 @@ const handleLogout = () => {
         <Text style={styles.subtitle}>Explorar</Text>
         <Button 
           title="Nueva tarea" 
-          onPress={() => navigation.navigate('Tasks', { screen: 'CreateTask' })} 
+          onPress={() => navigation.navigate('Tasks', { screen: 'CreateTask', params: { initialPch: 'consejos' } })} 
           color="#4dabf7"
         />
       </View>

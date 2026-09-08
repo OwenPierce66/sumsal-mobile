@@ -8,6 +8,7 @@ import { Image } from 'expo-image';
 import { getImageUrl } from '../api';
 import { useFocusEffect } from '@react-navigation/native';
 import { AuthContext } from '../App';
+import PersonalCategoryFilter from '../components/PersonalCategoryFilter';
 
 const ProfileScreen = ({ route, navigation }) => {
   const { refreshCurrentUser, signOut } = useContext(AuthContext);
@@ -22,6 +23,7 @@ const ProfileScreen = ({ route, navigation }) => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('');
 
   const isCurrentUser = userId === 'me';
 
@@ -95,6 +97,16 @@ const ProfileScreen = ({ route, navigation }) => {
       fetchMyTasks(page + 1);
     }
   };
+
+  // ⚡ Filtro personal: igual criterio que TasksScreen (todas las etiquetas requeridas presentes)
+  const filteredTasks = React.useMemo(() => {
+    if (!selectedCategory) return tasks;
+    const requiredTags = selectedCategory.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+    return tasks.filter(task => {
+      const itemTags = (task.categories || '').split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+      return requiredTags.every(tag => itemTags.includes(tag));
+    });
+  }, [tasks, selectedCategory]);
 
   const handleLogout = async () => {
     await signOut();
@@ -216,11 +228,31 @@ const ProfileScreen = ({ route, navigation }) => {
         <Text style={styles.topBarTitle}>Perfil</Text>
       </View>
 
+      <PersonalCategoryFilter
+        isOwner
+        title="Mi filtro"
+        onSelect={(category) => setSelectedCategory(category)}
+      />
+      {!isCurrentUser && (
+        <PersonalCategoryFilter
+          userId={userId}
+          isOwner={false}
+          title={`Filtro de ${user?.username || 'este perfil'}`}
+          onSelect={(category) => setSelectedCategory(category)}
+        />
+      )}
+      {selectedCategory ? (
+        <TouchableOpacity style={styles.clearFilterChip} onPress={() => setSelectedCategory('')}>
+          <Ionicons name="close-circle" size={16} color="#4dabf7" />
+          <Text style={styles.clearFilterText}>Quitar filtro: {selectedCategory}</Text>
+        </TouchableOpacity>
+      ) : null}
+
       {loading && page === 1 ? (
         <ActivityIndicator size="large" color="#4dabf7" style={{ marginTop: 50 }} />
       ) : (
         <FlatList
-          data={tasks}
+          data={filteredTasks}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderTask}
           ListHeaderComponent={renderHeader}
@@ -245,6 +277,8 @@ const styles = StyleSheet.create({
   topBar: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', paddingTop: Platform.OS === 'ios' ? 50 : 16 },
   backBtn: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 16, zIndex: 10 },
   topBarTitle: { fontSize: 20, fontWeight: '800', color: '#333' },
+  clearFilterChip: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: '#e7f5ff', gap: 4 },
+  clearFilterText: { color: '#4dabf7', fontSize: 12, fontWeight: '700' },
   
   profileHeader: { padding: 20, backgroundColor: '#fff', marginBottom: 10 },
   profileInfoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },

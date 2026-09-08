@@ -277,6 +277,9 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [replyingTo, setReplyingTo] = useState(null);
   const [editingCommentId, setEditingCommentId] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [podcastInvitationStatus, setPodcastInvitationStatus] = useState(null);
+  const [respondingToPodcast, setRespondingToPodcast] = useState(false);
   const [expandedCommentIds, setExpandedCommentIds] = useState([]);
 
   // Modal de likes
@@ -323,6 +326,55 @@ const TaskDetailScreen = ({ route, navigation }) => {
         { text: "Cancelar", style: "cancel" },
         { text: "Eliminar", style: "destructive", onPress: executeDelete }
       ]);
+    }
+  };
+
+  const handleApprovePodcast = () => {
+    if (!task?.id || !isAdmin) return;
+    const approve = async () => {
+      try {
+        const response = await api.post(`tasks/${task.id}/approve/`, { approve: true });
+        setTask(current => ({
+          ...current,
+          categories: response.data?.categories || current.categories,
+        }));
+        setActionModalVisible(false);
+        Alert.alert('Podcast aprobado', 'Se notificó al creador y a las personas etiquetadas.');
+      } catch (error) {
+        Alert.alert('No se pudo aprobar', error.response?.data?.detail || 'Intenta de nuevo.');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('¿Aprobar este podcast y notificar a sus involucrados?')) approve();
+    } else {
+      Alert.alert(
+        'Aprobar podcast',
+        'Se cambiará Procesando por Aprobada y se notificará al creador y a las personas etiquetadas.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Aprobar', onPress: approve },
+        ],
+      );
+    }
+  };
+
+  const handlePodcastInvitationResponse = async (accepted) => {
+    if (!task?.id || respondingToPodcast) return;
+    setRespondingToPodcast(true);
+    try {
+      const response = await api.post(`tasks/${task.id}/podcast-invitation/`, { accepted });
+      setPodcastInvitationStatus(response.data?.status || (accepted ? 'accepted' : 'declined'));
+      Alert.alert(
+        accepted ? 'Invitación aceptada' : 'Invitación rechazada',
+        accepted
+          ? 'Se notificó al equipo y se envió tu respuesta por mensaje.'
+          : 'Se notificó al equipo de tu respuesta.'
+      );
+    } catch (error) {
+      Alert.alert('No se pudo responder', error.response?.data?.detail || 'Intenta de nuevo.');
+    } finally {
+      setRespondingToPodcast(false);
     }
   };
 
@@ -398,6 +450,7 @@ const fetchComments = useCallback(async () => {
       console.log("ðŸ› DATA DE LA TAREA:", JSON.stringify(response.data, null, 2));
 
       setTask(response.data);
+      setPodcastInvitationStatus(response.data?.podcast_invitation_status || null);
       await fetchComments();
     } catch (error) {
       console.error('Error fetching task:', error.response?.data || error.message);
@@ -413,6 +466,9 @@ const fetchComments = useCallback(async () => {
       api.get('users/me/')
          .then(res => setCurrentUserId(res.data.id))
          .catch(err => console.error("Error al obtener usuario:", err));
+      api.get('verify-admin/')
+        .then(res => setIsAdmin(Boolean(res.data?.is_admin || res.data?.is_staff)))
+        .catch(() => setIsAdmin(false));
 
       fetchTaskDetail();
     }, [fetchTaskDetail])
@@ -619,6 +675,22 @@ const fetchComments = useCallback(async () => {
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Detalle de Aportación</Text>
+        {podcastInvitationStatus === 'pending' ? (
+          <TouchableOpacity
+            style={styles.podcastAcceptButton}
+            onPress={() => handlePodcastInvitationResponse(true)}
+            disabled={respondingToPodcast}
+          >
+            {respondingToPodcast ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+                <Text style={styles.podcastAcceptText}>Aceptar</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity onPress={() => setActionModalVisible(true)}>
           <Ionicons name="ellipsis-vertical" size={24} color="#333" />
         </TouchableOpacity>
@@ -667,6 +739,23 @@ const fetchComments = useCallback(async () => {
           <View style={styles.taskInfo}>
             <Text style={styles.taskTitle}>{task.title}</Text>
             <Text style={styles.taskDescription}>{task.description}</Text>
+
+            {Array.isArray(task.tagged_users) && task.tagged_users.length > 0 && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
+                <Ionicons name="pricetag-outline" size={14} color="#845ef7" style={{ marginRight: 4 }} />
+                <Text style={{ color: '#868e96', fontSize: 13, marginRight: 4 }}>Con:</Text>
+                {task.tagged_users.map((u, idx) => (
+                  <View key={u.id || idx} style={{ marginRight: 8 }}>
+                    <TouchableUsername
+                      username={`@${u.username || u.first_name || 'usuario'}`}
+                      userId={u.id}
+                      navigation={navigation}
+                      textStyle={{ color: '#845ef7', fontSize: 13, fontWeight: '600' }}
+                    />
+                  </View>
+                ))}
+              </View>
+            )}
 
             <CategoryHierarchy categories={task.categories} />
 
@@ -822,6 +911,32 @@ const fetchComments = useCallback(async () => {
                     </TouchableOpacity>
                   </>
                 )}
+                {isAdmin && String(task.categories || '').split(',').some(category => category.trim().toLowerCase() === 'grabar podcast') && (
+                    <TouchableOpacity style={styles.actionOption} onPress={handleApprovePodcast}>
+                      <Ionicons
+                        name={String(task.categories || '').split(',').some(category => category.trim().toLowerCase() === 'aprobada') ? 'send-outline' : 'ribbon-outline'}
+                        size={20}
+                        color="#f59f00"
+                      />
+                      <Text style={[styles.actionText, { color: '#e67700', fontWeight: '700' }] }>
+                        {String(task.categories || '').split(',').some(category => category.trim().toLowerCase() === 'aprobada')
+                          ? 'Enviar invitaciones del podcast'
+                          : 'Aprobar podcast'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                {podcastInvitationStatus === 'pending' && (
+                  <TouchableOpacity
+                    style={styles.actionOption}
+                    onPress={() => {
+                      setActionModalVisible(false);
+                      handlePodcastInvitationResponse(false);
+                    }}
+                  >
+                    <Ionicons name="close-circle-outline" size={20} color="#e03131" />
+                    <Text style={[styles.actionText, { color: '#e03131' }]}>Rechazar invitación</Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
           </View>
@@ -846,6 +961,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  podcastAcceptButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#51cf66', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6, marginLeft: 'auto', marginRight: 8 },
+  podcastAcceptText: { color: '#fff', fontSize: 12, fontWeight: '800', marginLeft: 4 },
   content: { flex: 1 },
   
   taskCard: { backgroundColor: '#fff', margin: 12, borderRadius: 12, overflow: 'hidden' },

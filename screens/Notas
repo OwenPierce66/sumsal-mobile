@@ -12,7 +12,7 @@ Las aplicaciones modernas (como Facebook, Instagram o X) usan una técnica llama
 
 cosas por hacer:
 -notificaciones *
--mejorar aun mas elfiltro de temas*
+-mejorar aun mas el filtro de temas*
 -mejorar el reelitem para que se vean mejor las publicaciones**
 -rellenar perfil*
 -agregar funciones de editar a todo*
@@ -20,14 +20,103 @@ cosas por hacer:
 -ver como voy a renderizar imagenes con videos*
 -que al abrir un video te aparezca el reeldetail con cambios de dezlizamiento con videos de la  misma publicacion*
 
+
+-regrearle la funcion de solo mostrar los videos a los reels como opcion del usuario y si
+
+-etiquetar gente y poder escribir en su muro para poder hacer testimonios
 -que el foro tambien pueda compartise en las historias
 -mejorar el filtro en la createtask
--si no tengo seleccionado ninguna tema que em aparezcan todas las tareas
+-componente especifico para el buscador
+-si no tengo seleccionado ninguna tema que me aparezcan todas las tareas
 -quitar que se compartan historias de 24hrs en historias de aportaciones
--categoria de podcast
--recuperar las funcinoes de admin y mostrarlo en el perfil 
--regresr la funciona de comentar una tarea de tus favoritas por que te parece que ya hay una tarea que ya existe pero mejor explicada(referencias)
+-categoria de podcast*
+-recuperar las funciones de admin y mostrarlo en el perfil* 
+-unir las historias con inicio y tu perfil 
+-que se desaparezcan las historias y los temas al dezlizarte hacia abajo y que vuelvan aparecer al dezlizarte hacia arriba como el menu de abajo como en cualquier red social 
+-boton en inicio para  ir al foro y no en el menu
+-bonerle un contador a todo y que sean visible dependiendo el modo de apoyo que tenga el usuario 
+-que el menu tenga solamente inicio, tareas, reels, mensajes y notificaciones y perfil 
+-el inciio tendra las tareas en general y la de tareas tendra la de tus favoritos con opcion de poner en modo general en el filtro
+-poder ver com osi estuviese en el perfil de esa persona o ver la actividad del usuario como tambien poder ver a los que les ah recomendado o verificado o etc. y que lo pueda ocultar o no
+-que puedas seleccionar bien cual tarea llevar a taskdetail, la que se compartio o la original
+-que el inicio muestre el top de cada tema 
+-que en perfil se vean tus redes sociales y todos los contadores necesarios
+-ver donde ah comentado esa persona
+-poner el boton de compartir en historia en el menu de 3 punto compartiendo especificamente el que esta visible
+-que se vea mejor taskscreen las imagenes y videos
+-en reels si no hay ni un like ni nada que no se vea el pedazo gris en blanco, que simplemente no se vea
+-que todos los contadores funciones con visiblidad junto con sus insignias
+-que el dar like no tenga que ver con ipulsar y viseversa por que no me deja dar like despues de impulsa en taskscreen ni en reels
+-bloquear gente,
+-regresar la funcion de comentar una tarea de tus favoritas por que te parece que ya hay una tarea que ya existe pero mejor explicada(referencias)
+-que se apague la reproduccion al dejar de estar en ese video
+-categoria mas especificas para cada aportacion(consejo, peticion, historia)
+-que aparesca el proximo recomendado por el anterior grabado en el pocast
+-mis guardados y mis favoritos y que todo se guarde para crear un contador de cada uno y mostraselo al creador de la tarea
+-anclar y anclar favoritos en perfiles o cualquier lugar y tener la opcion de ocultarlos o no 
+-mejorar todo el inicio para que se vean bien las tareas
+-acomodar todos los botones basicos en el inicio o tareas
+-botones en taskdetail como impulsar compartir y guardar
+-cadad usuario puede crear su filtro en su perfil, se llena con la tareas que va creando, (que se guarde un soo campo para eso)
+-elegir entre renderizar global o solo de tus amigos 
+-perfiles recomendados por la app
+que puedas anclar tus guardados eh inluso anclar en favoritos y tener la opcion de mostrar o no tus favoritos
+-mostrar su actividad de likes
+-que puedas ver como si estuvieses en el perfil seleccionado si es que el usuario lo permite
+-consejo anterior o posterior que recomiendo despues de este*
+-mostrar en mi perfil  cuantos perfiles ah sido compartido mi perfil
+-mejores perfiles recomendados por la app y por el usuario seleccionado y anclar y poner una linea en los mejores 5 
+-Componente mas grande y especifico solo para las categorias para que tengan imagenes y se describan mejor
+-mejora el busador para poder buscar por categorias y sus subtemas que no esten en el filtro de la app
+-que lo que recomiendes o verifiques o lo que sea, que aparezcan en tu perfil 
+-input de decripcion mas inteligente tipo que puedas poner cualquier link, etiquetar, hashtags, vermas... etc,
+-regresarle el traductor a los mensajes directos
+-agregarle el filtro a los foros
+-descargar
+-meditar
+-visitas que tiene el perfil en el modo de paga
+-consejo anterior y posterior 
+enlistar todas las acciones y mostrarlas en modo paga o no 
+-historial de comentarios
+-poderle agregar subtema manual al subtema seleccionado en el createtask
+-podcast-
+-bien ahora para poder hacer la siguiente funcion de notificar al que ah sido menciado en una publicacion con la categoria de Grabar Podcast. debemos de crear la funcion de etiquetar ah alguien en una publicacion para despues poder mencionar ah alguien en una publicacion en la decripcion o en un comentario. asi que comencemos con la etiqueta comun de las redes sociales en una publicacion de una o varias personas
+-etiquetar en comentarios
+-y notificar al usuario cuando se haya decidido hacer el podcast
+-poderle agregarsubtema al subtema en createtask y en buscar
+-arreglar el boton de reglresar de notificaciones y de todos los  lugares
+-acomodar el orden del filtro
+-solo los administradores pueden aprobar los podcast y las peticiones.-categoria de Aprobadas que solo lo pueda poner los admin
+-mostrar los likes del perfil
+-como admin puedes borrar tareas
+-al no haber una PCH seleccionada que aparezcan las 3 al mismo tiempo
+-ajustar bien el video e imagen al reel y taskscreen
+-que al crear na tarea con categoria de grabar podcast que automaticamente tenga el subtema en procesando y que no aparezca el aprovado, qmenos que si eres el admin que te aparezca la opcion para poder cambiarla de en proceso a aprovada
+-ubicacion
+-unir al pueblo como cheran michoacan 
+
+logo y nombre de la app
+-aveces tienes que saber que te falta si es agua, comida, azucar, oxigeno
+
+--el aprobar puede ser simplemente que el admin se el unico que pueda ponerle la etiqueta de categoria de aprovado a la tarea en createtask y edittask--
+--regresar la funcion de ver la descripcion de quien ah compartido esa tarea en reels ya sea tus favoritos o global-
+-y la funcion de anclar todo tambien, en tus perfiles favoritos, tareas favoritas y que el usuario pueda elegir entre ponerlo en modo oculto al publico o no- osea que se debe de de poder editar el feed de cuando se selecciona ver los favoritos de algun perfil o tarea,
+--tambien poderlo poner como opcion al crear una tarea si quieres compartirla ya o solo ver como quedaria compartida en tu perfil en modo oculto-
+
+
+-arreglar el PCH que se cree la tarea con el que este seleccionado y para que cada PCH se pueda separar y tengan sus propias categorias
+-antes para renerizar las tareas tenia una funciona que la hacia mas rapida, query no se que creo, ya esta implementeda? o implmentaste otra o no fue necesaria?
+-que tu tick sea el respirar
+
+-filtrar mejor las categorias y sus subtemas mejor para
+-mejorar el filtro al crear subcategorias que no exiten creadas por la app
 
 
 
-npx expo start --offline -c
+Anclar perfiles y tareas favoritas.
+Ocultar o mostrar favoritos públicamente.
+Compartir una tarea sin publicarla todavía, como vista previa privada.
+Bloquear usuarios.
+Compartir publicaciones del foro en historias.
+Mejorar el buscador por categorías y subtemas.
+Separar y mejorar la visualización de imágenes/videos en Reels y TasksScreen.

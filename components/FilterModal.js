@@ -167,9 +167,10 @@ const DraggableSubtheme = ({ name, index, subthemes, selected, onSelect, onReord
   );
 };
 
-const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, isSuperAdmin }) => {
+const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, isSuperAdmin, currentPch }) => {
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [sortBy, setSortBy] = useState(currentSortBy || 'recent');
@@ -192,10 +193,12 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
     return categories.filter(category => !childNames.has(String(category.name).trim().toLowerCase()));
   }, [categories, subthemesTree]);
 
+  const isPetitionsPch = String(currentPch || '').trim().toLowerCase() === 'peticiones';
+
   useEffect(() => {
     fetchCategories();
     loadSubthemesTree();
-  }, []);
+  }, [currentPch]);
 
   const loadSubthemesTree = async () => {
     try {
@@ -210,10 +213,14 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
     if (!newCatName.trim()) return;
     setIsCreating(true);
     try {
-      await api.post("new-categories/", { name: newCatName.trim() });
+      // ⚡ La categoría nace asignada al PCH que se está viendo (vacío = global)
+      await api.post("new-categories/", { name: newCatName.trim(), pch: currentPch || '' });
       setNewCatName("");
       fetchCategories();
-    } catch (error) {} finally {
+    } catch (error) {
+      const detail = error.response?.data?.name?.[0] || error.response?.data?.detail;
+      if (detail) Alert.alert('No se pudo crear', String(detail));
+    } finally {
       setIsCreating(false);
     }
   };
@@ -236,17 +243,23 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
       setSelectedSubcategories([]);
     }
 
+    setSelectedStatus(currentStatus || '');
     setSelectedDateFilter(currentDateFilter || '');
     setSortBy(currentSortBy || 'recent');
     setFavoritesOnly(currentFavorites || false);
     setFavoriteUsersOnly(currentFavoriteUsers || false);
     setVerifiedUsersOnly(currentVerifiedUsers || false);
     setRecommendedUsersOnly(currentRecommendedUsers || false);
-  }, [currentCategory, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, visible, subthemesTree]);
+  }, [currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, visible, subthemesTree]);
 
   const fetchCategories = async () => {
     try {
-      const response = await api.get('new-categories/');
+      // ⚡ Categorías del PCH activo + globales
+      const response = await api.get('new-categories/', {
+        params: currentPch
+          ? { pch: currentPch, include_approval: 'true' }
+          : { include_approval: 'true' },
+      });
       let fetchedCats = response.data;
       try {
         const savedOrder = await AsyncStorage.getItem('categoriesOrder');
@@ -334,6 +347,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
 
     onApply({
       category: finalCategory,
+      status: selectedStatus,
       date_filter: selectedDateFilter,
       sort_by: sortBy,
       favorites_only: favoritesOnly,
@@ -346,6 +360,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
 
   const handleClear = () => {
     setSelectedCategory('');
+    setSelectedStatus('');
     setSelectedSubcategories([]);
     setSelectedDateFilter('');
     setSortBy('recent');
@@ -355,6 +370,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
     setRecommendedUsersOnly(false);
     onApply({
       category: '',
+      status: '',
       date_filter: '',
       sort_by: 'recent',
       favorites_only: false,
@@ -446,6 +462,38 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
               })}
             </View>
 
+            {selectedCategory.trim().toLowerCase() === 'grabar podcast' ? (
+              <View style={styles.podcastStatusSection}>
+                <Text style={styles.sectionTitle}>Estado de Grabar Podcast</Text>
+                <View style={styles.optionsContainer}>
+                  {[
+                    { label: 'Procesando', value: 'Procesando' },
+                    { label: 'Aprobadas', value: 'Aprobada' },
+                  ].map((statusOption) => (
+                    <TouchableOpacity
+                      key={statusOption.value}
+                      style={[
+                        styles.optionBadge,
+                        selectedStatus.toLowerCase() === statusOption.value.toLowerCase() &&
+                          styles.optionBadgeActive,
+                      ]}
+                      onPress={() => setSelectedStatus(statusOption.value)}
+                    >
+                      <Text
+                        style={[
+                          styles.optionText,
+                          selectedStatus.toLowerCase() === statusOption.value.toLowerCase() &&
+                            styles.optionTextActive,
+                        ]}
+                      >
+                        {statusOption.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+
             <Text style={styles.sectionTitle}>Ordenar por</Text>
             <View style={styles.optionsContainer}>
               {sortOptions.map((option) => (
@@ -468,6 +516,35 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentDateFi
                 </TouchableOpacity>
               ))}
             </View>
+
+            {isPetitionsPch ? (
+              <>
+                <Text style={styles.sectionTitle}>Podcast</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.podcastRankingButton,
+                    selectedCategory === 'Grabar Podcast' &&
+                      selectedSubcategories.includes('Procesando') &&
+                      sortBy === 'likes' &&
+                      styles.podcastRankingButtonActive,
+                  ]}
+                  onPress={() => {
+                    setSelectedCategory('Grabar Podcast');
+                    setSelectedSubcategories(['Procesando']);
+                    setSortBy('likes');
+                  }}
+                >
+                  <Ionicons name="mic-outline" size={18} color="#fff" />
+                  <View style={styles.podcastRankingCopy}>
+                    <Text style={styles.podcastRankingTitle}>Top para podcast</Text>
+                    <Text style={styles.podcastRankingSubtitle}>
+                      Grabar Podcast + Procesando + Más likes
+                    </Text>
+                  </View>
+                  <Ionicons name="flash-outline" size={18} color="#fff" />
+                </TouchableOpacity>
+              </>
+            ) : null}
 
             <Text style={styles.sectionTitle}>Especiales</Text>
             <View style={styles.optionsContainer}>
@@ -810,6 +887,35 @@ const styles = StyleSheet.create({
   optionTextActive: {
     color: '#fff',
     fontWeight: 'bold',
+  },
+  podcastRankingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: '#845ef7',
+    borderWidth: 1,
+    borderColor: '#7048e8',
+    marginBottom: 10,
+  },
+  podcastRankingButtonActive: {
+    backgroundColor: '#5f3dc4',
+    borderColor: '#3b238a',
+  },
+  podcastRankingCopy: {
+    flex: 1,
+    marginHorizontal: 10,
+  },
+  podcastRankingTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  podcastRankingSubtitle: {
+    color: '#f3f0ff',
+    fontSize: 11,
+    marginTop: 2,
   },
   footer: {
     flexDirection: 'row',
