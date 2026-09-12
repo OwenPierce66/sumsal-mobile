@@ -17,6 +17,7 @@ import { AuthContext } from '../App';
 import ShareActionMenu from './ShareActionMenu'; // Importa el nuevo menú
 import TouchableUsername from '../components/TouchableUsername';
 import CategoryHierarchy from '../components/CategoryHierarchy';
+import PersonalCategoryFilter from '../components/PersonalCategoryFilter';
 import Slider from '@react-native-community/slider';
 
 const TASK_VIDEO_AUTOPLAY_DELAY_MS = 500;
@@ -169,6 +170,7 @@ const TasksScreen = ({ navigation }) => {
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
 
   const [availableCategories, setAvailableCategories] = useState([]);
+  const [showPersonalFilter, setShowPersonalFilter] = useState(false);
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
   const [likesModalTitle, setLikesModalTitle] = useState('Likes');
@@ -196,6 +198,11 @@ const TasksScreen = ({ navigation }) => {
       } catch (error) {}
     };
     fetchCategories();
+
+    // El usuario puede elegir que su filtro personal lo acompañe por toda la app.
+    api.get('categories/visibility/')
+      .then(res => setShowPersonalFilter(Boolean(res.data?.personal_filter_public)))
+      .catch(() => setShowPersonalFilter(false));
 
     // ✅ FIX: Si el contexto no nos da el estado de admin, lo verificamos aquí.
     const verifyAdminStatus = async () => {
@@ -1390,6 +1397,19 @@ const TasksScreen = ({ navigation }) => {
           setHasMore(true);
         }}
       />
+
+      {showPersonalFilter && (
+        <PersonalCategoryFilter
+          isOwner
+          title="Mi filtro"
+          excludeNames={availableCategories.map(cat => cat.name)}
+          onSelect={(category) => {
+            setSelectedCategory(category);
+            setPage(1);
+            setHasMore(true);
+          }}
+        />
+      )}
 
       <FlatList
         data={filteredTasks}

@@ -7,11 +7,19 @@ import CategoryHierarchy from './CategoryHierarchy';
 // ⚡ Filtro personal por perfil: categorías propias guardadas aparte (CRUD),
 // no recalculadas al renderizar tareas. Se muestra igual que CategoryHierarchy
 // en TasksScreen; en modo dueño permite agregar, quitar y reordenar.
-const PersonalCategoryFilter = ({ userId, isOwner = false, title, onSelect }) => {
+const PersonalCategoryFilter = ({ userId, isOwner = false, title, onSelect, onCategoriesChanged, excludeNames = [] }) => {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
   const [newName, setNewName] = useState('');
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [subName, setSubName] = useState('');
+
+  // Las que ya salen en el filtro de la app no se repiten aquí.
+  const visibleCategories = React.useMemo(() => {
+    const excluded = new Set(excludeNames.map(name => String(name || '').trim().toLowerCase()));
+    return categories.filter(cat => !excluded.has(String(cat.name || '').trim().toLowerCase()));
+  }, [categories, excludeNames]);
 
   const fetchCategories = useCallback(async () => {
     setLoading(true);
@@ -40,9 +48,24 @@ const PersonalCategoryFilter = ({ userId, isOwner = false, title, onSelect }) =>
     try {
       const response = await api.post('categories/', { name });
       setCategories(prev => [...prev, response.data]);
+      onCategoriesChanged?.();
       setNewName('');
     } catch (error) {
       const detail = error.response?.data?.name;
+      Alert.alert('No se pudo agregar', String(detail || 'Intenta con otro nombre.'));
+    }
+  };
+
+  const handleAddSubcategory = async () => {
+    const name = subName.trim();
+    if (!name || !selectedNode) return;
+    try {
+      const response = await api.post('categories/', { name, parent: selectedNode.id });
+      setCategories(prev => [...prev, response.data]);
+      onCategoriesChanged?.();
+      setSubName('');
+    } catch (error) {
+      const detail = error.response?.data?.name || error.response?.data?.parent;
       Alert.alert('No se pudo agregar', String(detail || 'Intenta con otro nombre.'));
     }
   };
@@ -52,6 +75,7 @@ const PersonalCategoryFilter = ({ userId, isOwner = false, title, onSelect }) =>
       try {
         await api.delete(`categories/${cat.id}/`);
         setCategories(prev => prev.filter(c => c.id !== cat.id));
+        onCategoriesChanged?.();
       } catch (error) {
         Alert.alert('Error', 'No se pudo quitar la categoría.');
       }
@@ -76,13 +100,14 @@ const PersonalCategoryFilter = ({ userId, isOwner = false, title, onSelect }) =>
     setCategories(reordered);
     try {
       await api.patch('categories/reorder/', { order: reordered.map(c => c.id) });
+      onCategoriesChanged?.();
     } catch (error) {
       console.error('[PersonalCategoryFilter] Error reordenando:', error.response?.data || error.message);
       fetchCategories();
     }
   };
 
-  if (!isOwner && categories.length === 0 && !loading) return null;
+  if (!isOwner && visibleCategories.length === 0 && !loading) return null;
 
   return (
     <View style={styles.container}>
@@ -118,10 +143,32 @@ const PersonalCategoryFilter = ({ userId, isOwner = false, title, onSelect }) =>
         </View>
       ) : (
         <CategoryHierarchy
-          availableCategories={categories}
+          availableCategories={visibleCategories}
           showDescendants
-          onSelect={onSelect}
+          onSelect={(categoryName) => {
+            const match = categories.find(
+              cat => String(cat.name).trim().toLowerCase() === String(categoryName).trim().toLowerCase()
+            );
+            setSelectedNode(match || null);
+            onSelect?.(categoryName);
+          }}
         />
+      )}
+
+      {isOwner && !reorderMode && selectedNode && (
+        <View style={styles.addRow}>
+          <TextInput
+            style={styles.addInput}
+            placeholder={`Subcategoría de ${selectedNode.name}...`}
+            placeholderTextColor="#999"
+            value={subName}
+            onChangeText={setSubName}
+            onSubmitEditing={handleAddSubcategory}
+          />
+          <TouchableOpacity style={styles.addBtn} onPress={handleAddSubcategory}>
+            <Ionicons name="git-branch-outline" size={18} color="#fff" />
+          </TouchableOpacity>
+        </View>
       )}
 
       {isOwner && !reorderMode && (

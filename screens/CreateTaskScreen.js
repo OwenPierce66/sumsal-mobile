@@ -87,6 +87,8 @@ const CreateTaskScreen = ({ navigation, route }) => {
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [manualSubcategories, setManualSubcategories] = useState('');
   const [subthemesTree, setSubthemesTree] = useState(PREDEFINED_SUBTEMAS);
+  const [subParent, setSubParent] = useState('');
+  const [myCategories, setMyCategories] = useState([]);
   // ⚡ Personas etiquetadas en la publicación
   const [taggedUsers, setTaggedUsers] = useState([]);
   const [tagModalVisible, setTagModalVisible] = useState(false);
@@ -149,12 +151,17 @@ const CreateTaskScreen = ({ navigation, route }) => {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        // ⚡ Cada PCH tiene sus propias categorías (más las globales)
-        const response = await api.get('new-categories/', { params: { pch: tema } });
-        const cats = response.data || [];
+        // ⚡ Cada PCH tiene sus propias categorías (más las globales) + las del usuario
+        const [appResponse, mineResponse] = await Promise.all([
+          api.get('new-categories/', { params: { pch: tema } }),
+          api.get('categories/'),
+        ]);
+        const cats = appResponse.data || [];
+        const mine = mineResponse.data || [];
         setAvailableCategories(cats);
-        // Al cambiar de PCH, limpiamos las seleccionadas que no existen en este tema
-        const validNames = new Set(cats.map(c => c.name));
+        setMyCategories(mine);
+        // Al cambiar de PCH solo descartamos lo que no existe ni en la app ni en tu filtro
+        const validNames = new Set([...cats, ...mine].map(c => c.name));
         setSelectedCategories(prev => prev.filter(name => validNames.has(name)));
       } catch (error) {
         console.error('Error fetching categories:', error);
@@ -162,6 +169,54 @@ const CreateTaskScreen = ({ navigation, route }) => {
     };
     fetchCategories();
   }, [tema, isAdminUser]);
+
+  // Crea la categoría en tu filtro personal y la deja seleccionada al instante.
+  const handleAddOwnCategory = async () => {
+    const name = manualCategories.trim();
+    if (!name) return;
+    if (name.toLowerCase() === 'aprobada' && !isAdminUser) {
+      Alert.alert('No permitido', "La etiqueta 'aprobada' es exclusiva de administradores.");
+      return;
+    }
+    const already = [...availableCategories, ...myCategories]
+      .some(c => c.name.trim().toLowerCase() === name.toLowerCase());
+    try {
+      if (!already) {
+        const response = await api.post('categories/', { name });
+        setMyCategories(prev => [...prev, response.data]);
+      }
+      setSelectedCategories(prev => (prev.includes(name) ? prev : [...prev, name]));
+      setSubParent(name);
+      setManualCategories('');
+    } catch (error) {
+      const detail = error.response?.data?.name;
+      Alert.alert('No se pudo agregar', String(detail || 'Intenta con otro nombre.'));
+    }
+  };
+
+  // Crea una subcategoría bajo la categoría elegida, a cualquier profundidad.
+  const handleAddOwnSubcategory = async () => {
+    const name = manualSubcategories.trim();
+    if (!name || !subParent) return;
+    const parentNode = myCategories.find(
+      c => c.name.trim().toLowerCase() === subParent.trim().toLowerCase()
+    );
+    try {
+      let parentId = parentNode?.id;
+      if (!parentId) {
+        const createdParent = await api.post('categories/', { name: subParent });
+        setMyCategories(prev => [...prev, createdParent.data]);
+        parentId = createdParent.data.id;
+      }
+      const response = await api.post('categories/', { name, parent: parentId });
+      setMyCategories(prev => [...prev, response.data]);
+      setSelectedSubcategories(prev => (prev.includes(name) ? prev : [...prev, name]));
+      setManualSubcategories('');
+    } catch (error) {
+      const detail = error.response?.data?.name || error.response?.data?.parent;
+      Alert.alert('No se pudo agregar', String(detail || 'Intenta con otro nombre.'));
+    }
+  };
 
   const toggleCategory = (catName) => {
     if (catName.trim().toLowerCase() === 'aprobada' && !isAdminUser) return;
@@ -661,7 +716,12 @@ const CreateTaskScreen = ({ navigation, route }) => {
         
         {availableCategories.length > 0 && (
           <View style={styles.tagsContainer}>
-            {availableCategories
+            {[
+              ...availableCategories,
+              ...myCategories.filter(mine => !mine.parent && !availableCategories.some(
+                app => app.name.trim().toLowerCase() === mine.name.trim().toLowerCase()
+              )),
+            ]
               .filter(cat => isAdminUser || cat.name.trim().toLowerCase() !== 'aprobada')
               .map(cat => (
               <TouchableOpacity
@@ -684,13 +744,19 @@ const CreateTaskScreen = ({ navigation, route }) => {
           </View>
         )}
 
-        <TextInput
-          style={styles.manualCatInput}
-          placeholder="Añadir categorías manuales (separadas por coma)..."
-          placeholderTextColor="#999"
-          value={manualCategories}
-          onChangeText={setManualCategories}
-        />
+        <View style={styles.inlineAddRow}>
+          <TextInput
+            style={[styles.manualCatInput, { flex: 1 }]}
+            placeholder="Escribe una categoría nueva..."
+            placeholderTextColor="#999"
+            value={manualCategories}
+            onChangeText={setManualCategories}
+            onSubmitEditing={handleAddOwnCategory}
+          />
+          <TouchableOpacity style={styles.inlineAddBtn} onPress={handleAddOwnCategory}>
+            <Ionicons name="add" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ⚡ BLOQUE INTELIGENTE DE SUBTEMAS INFINITO */}
@@ -700,7 +766,11 @@ const CreateTaskScreen = ({ navigation, route }) => {
             .filter((value, index, self) => self.indexOf(value) === index) // Evitar duplicados
             .map((theme, idx) => {
             const themeKey = theme.toLowerCase();
-            const subs = subthemesTree[themeKey] || [];
+            const parentNode = myCategories.find(c => c.name.trim().toLowerCase() === themeKey);
+            const ownSubs = parentNode
+              ? myCategories.filter(c => c.parent === parentNode.id).map(c => c.name)
+              : [];
+            const subs = [...new Set([...(subthemesTree[themeKey] || []), ...ownSubs])];
             if (subs.length === 0) return null;
 
             return (
@@ -725,14 +795,34 @@ const CreateTaskScreen = ({ navigation, route }) => {
           })}
 
           <View style={styles.categoriesBlock}>
-            <Text style={styles.sectionTitle}>Subtemas Manuales Adicionales</Text>
-            <TextInput
-              style={styles.manualCatInput}
-              placeholder="Añadir subtemas manuales (separados por coma)..."
-              placeholderTextColor="#999"
-              value={manualSubcategories}
-              onChangeText={setManualSubcategories}
-            />
+            <Text style={styles.sectionTitle}>Agregar subcategoría</Text>
+            <View style={styles.tagsContainer}>
+              {[...selectedCategories, ...selectedSubcategories]
+                .filter((value, index, self) => self.indexOf(value) === index)
+                .map((theme) => (
+                  <TouchableOpacity
+                    key={`parent-${theme}`}
+                    style={[styles.tagBadge, subParent === theme && styles.tagBadgeActive]}
+                    onPress={() => setSubParent(theme)}
+                  >
+                    <Text style={[styles.tagText, subParent === theme && styles.tagTextActive]}>{theme}</Text>
+                  </TouchableOpacity>
+                ))}
+            </View>
+            <View style={styles.inlineAddRow}>
+              <TextInput
+                style={[styles.manualCatInput, { flex: 1 }]}
+                placeholder={subParent ? `Subcategoría de ${subParent}...` : 'Elige primero una categoría arriba'}
+                placeholderTextColor="#999"
+                value={manualSubcategories}
+                onChangeText={setManualSubcategories}
+                onSubmitEditing={handleAddOwnSubcategory}
+                editable={Boolean(subParent)}
+              />
+              <TouchableOpacity style={styles.inlineAddBtn} onPress={handleAddOwnSubcategory}>
+                <Ionicons name="git-branch-outline" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
           </View>
         </>
       )}
@@ -780,6 +870,8 @@ const styles = StyleSheet.create({
   },
   lockedSubthemeText: { color: '#2b8a3e', fontSize: 13, fontWeight: '700', marginLeft: 5 },
   manualCatInput: { fontSize: 14, backgroundColor: '#f9f9f9', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#eee', color: '#333' },
+  inlineAddRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  inlineAddBtn: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#4dabf7', alignItems: 'center', justifyContent: 'center' },
   temaContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
   temaBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#f0f0f0', flex: 0.31, alignItems: 'center' },
   temaBtnActive: { backgroundColor: '#333' },

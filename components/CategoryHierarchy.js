@@ -19,7 +19,16 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, showDesc
   const [tree, setTree] = useState(DEFAULT_SUBTHEMES);
   const [selectedPath, setSelectedPath] = useState([]);
 
+  const source = categories || availableCategories || [];
+
+  // Si el backend manda objetos con `parent`, la jerarquía viene de la base de datos.
+  const nodes = useMemo(() => (
+    Array.isArray(source) ? source.filter(item => item && typeof item === 'object' && item.id !== undefined) : []
+  ), [source]);
+  const treeMode = nodes.length > 0;
+
   useEffect(() => {
+    if (treeMode) return undefined;
     let mounted = true;
     AsyncStorage.getItem('subthemesTree')
       .then(stored => {
@@ -33,11 +42,10 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, showDesc
       .catch(error => console.warn('[CategoryHierarchy] No se pudo cargar el árbol:', error));
 
     return () => { mounted = false; };
-  }, []);
+  }, [treeMode]);
 
   const selected = useMemo(() => {
-    const sourceValues = categories || availableCategories || [];
-    const values = Array.isArray(sourceValues) ? sourceValues : String(sourceValues || '').split(',');
+    const values = Array.isArray(source) ? source : String(source || '').split(',');
     const unique = [];
     const seen = new Set();
     values.map(value => normalize(typeof value === 'object' ? value.name : value)).filter(Boolean).forEach(value => {
@@ -48,38 +56,54 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, showDesc
       }
     });
     return unique;
-  }, [categories, availableCategories]);
+  }, [source]);
 
   const selectedKeys = useMemo(() => new Set(selected.map(keyFor)), [selected]);
 
-  const childrenOf = parent => {
-    const children = tree[keyFor(parent)] || [];
-    return children
+  const childrenByParent = useMemo(() => {
+    const map = new Map();
+    if (!treeMode) return map;
+    nodes.forEach(node => {
+      const parentId = node.parent ?? null;
+      const bucket = map.get(parentId) || [];
+      bucket.push(node);
+      map.set(parentId, bucket);
+    });
+    return map;
+  }, [nodes, treeMode]);
+
+  const childrenOf = node => {
+    if (treeMode) return childrenByParent.get(node?.id) || [];
+    return (tree[keyFor(node)] || [])
       .map(normalize)
       .filter(child => showDescendants || selectedKeys.has(keyFor(child)));
   };
 
   const roots = useMemo(() => {
-    const allChildren = new Set(
-      Object.values(tree).flat().map(keyFor)
-    );
+    if (treeMode) {
+      const presentIds = new Set(nodes.map(node => node.id));
+      return nodes.filter(node => node.parent == null || !presentIds.has(node.parent));
+    }
+    const allChildren = new Set(Object.values(tree).flat().map(keyFor));
     return selected.filter(value => !allChildren.has(keyFor(value)));
-  }, [selected, tree]);
+  }, [treeMode, nodes, selected, tree]);
+
+  const labelOf = value => (typeof value === 'object' ? normalize(value.name) : normalize(value));
 
   const handleSelect = (value, level) => {
-    const valueKey = keyFor(value);
+    const valueKey = keyFor(labelOf(value));
     setSelectedPath(previous => {
       if (previous[level] === valueKey) return previous.slice(0, level);
       return [...previous.slice(0, level), valueKey];
     });
-    onSelect?.(value);
+    onSelect?.(labelOf(value));
   };
 
-  const renderLevel = (values, level, parentKey, parentLabel = '') => {
+  const renderLevel = (values, level, parentKey) => {
     if (!values.length) return null;
     const selectedValue = selectedPath[level];
-    const selectedLabel = values.find(value => keyFor(value) === selectedValue);
-    const visibleChildren = selectedLabel ? childrenOf(selectedLabel) : [];
+    const selectedItem = values.find(value => keyFor(labelOf(value)) === selectedValue);
+    const visibleChildren = selectedItem ? childrenOf(selectedItem) : [];
 
     return (
       <View key={`${parentKey}-${level}`} style={[styles.level, { paddingLeft: level * 14 }]}>
@@ -89,25 +113,33 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, showDesc
           contentContainerStyle={styles.row}
           keyboardShouldPersistTaps="handled"
         >
-          {values.map(value => (
-            <TouchableOpacity
-              key={`${parentKey}-${keyFor(value)}`}
-              onPress={() => handleSelect(value, level)}
-              style={[styles.badge, level === 0 ? styles.rootBadge : styles.childBadge, selectedValue === keyFor(value) && styles.selectedBadge]}
-            >
-              <Text style={[styles.badgeText, level === 0 ? styles.rootText : styles.childText, selectedValue === keyFor(value) && styles.selectedText]}>{value}</Text>
-            </TouchableOpacity>
-          ))}
+          {values.map(value => {
+            const label = labelOf(value);
+            const isSelected = selectedValue === keyFor(label);
+            return (
+              <TouchableOpacity
+                key={`${parentKey}-${value?.id ?? keyFor(label)}`}
+                onPress={() => handleSelect(value, level)}
+                style={[styles.badge, level === 0 ? styles.rootBadge : styles.childBadge, isSelected && styles.selectedBadge]}
+              >
+                <Text style={[styles.badgeText, level === 0 ? styles.rootText : styles.childText, isSelected && styles.selectedText]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
-        {selectedLabel && visibleChildren.length > 0 && renderLevel(visibleChildren, level + 1, keyFor(selectedLabel), selectedLabel)}
+        {selectedItem && visibleChildren.length > 0 && renderLevel(visibleChildren, level + 1, keyFor(labelOf(selectedItem)))}
       </View>
     );
   };
 
-  if (!selected.length) return null;
+  const topLevel = roots.length ? roots : (treeMode ? nodes : selected);
+  if (!topLevel.length) return null;
+
   return (
     <View style={styles.container}>
-      {renderLevel(roots.length ? roots : selected, 0, 'root')}
+      {renderLevel(topLevel, 0, 'root')}
     </View>
   );
 };

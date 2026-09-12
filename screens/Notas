@@ -110,6 +110,9 @@ logo y nombre de la app
 
 -filtrar mejor las categorias y sus subtemas mejor para
 -mejorar el filtro al crear subcategorias que no exiten creadas por la app
+-mejor el filtro para que muestre las tareas que no se repiten del usuario seleccionado 
+-agrgarles las vistas al contador de influencia de la tarea
+-ademas de que los reels ya no se ven 
 
 
 
@@ -120,3 +123,6 @@ Bloquear usuarios.
 Compartir publicaciones del foro en historias.
 Mejorar el buscador por categorías y subtemas.
 Separar y mejorar la visualización de imágenes/videos en Reels y TasksScreen.
+-3 verificados verifican, recomendados con uno o historial de verificacion 
+-acabo de crear literalmente una tarea con la categoria Kick Boxing para que minimo apareciara en mi filtro de mi perfil y no aparece, y debemos poner el taskscreen en el perfil
+-los reels dejaron de funcionar
