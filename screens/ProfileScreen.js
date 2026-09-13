@@ -71,13 +71,19 @@ const ProfileScreen = ({ route, navigation }) => {
     return null;
   };
 
-  const fetchMyTasks = async (pageNumber = 1) => {
+  const fetchMyTasks = async (pageNumber = 1, categoryOverride = selectedCategory) => {
     try {
       if (pageNumber === 1) setLoading(true);
       else setLoadingMore(true);
 
-      const endpoint = isCurrentUser ? 'users/me/tasks/' : `tasks/?user_id=${userId}&page=${pageNumber}`;
-      const response = await api.get(endpoint);
+      const endpoint = isCurrentUser ? 'users/me/tasks/' : 'tasks/';
+      const response = await api.get(endpoint, {
+        params: {
+          page: pageNumber,
+          user_id: isCurrentUser ? undefined : userId,
+          category: categoryOverride || undefined,
+        },
+      });
       const newTasks = response.data.results || response.data || [];
 
       if (pageNumber === 1) {
@@ -170,14 +176,12 @@ const ProfileScreen = ({ route, navigation }) => {
   };
 
   // ⚡ Filtro personal: igual criterio que TasksScreen (todas las etiquetas requeridas presentes)
-  const filteredTasks = React.useMemo(() => {
-    if (!selectedCategory) return tasks;
-    const requiredTags = selectedCategory.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
-    return tasks.filter(task => {
-      const itemTags = (task.categories || '').split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
-      return requiredTags.every(tag => itemTags.includes(tag));
-    });
-  }, [tasks, selectedCategory]);
+  const filteredTasks = tasks;
+
+  const handleCategorySelect = (category) => {
+    setSelectedCategory(category);
+    fetchMyTasks(1, category);
+  };
 
   // El backend ya devuelve solo las categorías de la app presentes en este perfil.
   const appCategoryNames = React.useMemo(
@@ -427,7 +431,7 @@ const ProfileScreen = ({ route, navigation }) => {
           <CategoryHierarchy
             availableCategories={appCategories}
             showDescendants
-            onSelect={(category) => setSelectedCategory(category)}
+            onSelect={handleCategorySelect}
           />
         ) : (
           <Text style={styles.emptyFilterText}>No hay categorías disponibles para este perfil.</Text>
@@ -439,7 +443,7 @@ const ProfileScreen = ({ route, navigation }) => {
           isOwner
           title="Mi filtro"
           excludeNames={appCategoryNames}
-          onSelect={(category) => setSelectedCategory(category)}
+          onSelect={handleCategorySelect}
           onCategoriesChanged={fetchProfileAndAppCategories}
         />
       ) : (
@@ -448,7 +452,7 @@ const ProfileScreen = ({ route, navigation }) => {
           isOwner={false}
           excludeNames={appCategoryNames}
           title={`Filtro de ${user?.username || 'este perfil'}`}
-          onSelect={(category) => setSelectedCategory(category)}
+          onSelect={handleCategorySelect}
         />
       )}
 

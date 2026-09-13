@@ -646,6 +646,7 @@ const TasksScreen = ({ navigation }) => {
           pch: tema, 
           page: pageNumber,
           category: currentCatFilter,
+          search: searchText.trim(),
           status: overrideFilters ? overrideFilters.status : selectedStatus,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
@@ -682,7 +683,7 @@ const TasksScreen = ({ navigation }) => {
       setLoadingMore(false);
       setRefreshing(false);
     }
-  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }, [tema, searchText, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   const fetchSharedTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
     try {
@@ -692,6 +693,7 @@ const TasksScreen = ({ navigation }) => {
         params: {
           page: pageNumber,
           category: currentCatFilter,
+          search: searchText.trim(),
           status: overrideFilters ? overrideFilters.status : selectedStatus,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
@@ -718,14 +720,14 @@ const TasksScreen = ({ navigation }) => {
       }
       console.error('Error fetching shared tasks:', error.response?.data || error.message);
     }
-  }, [selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }, [searchText, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   // ✅ CORRECCIÓN: Usamos un useEffect que reacciona a los filtros, en lugar de a cada foco.
   // Esto reduce drásticamente las llamadas a la API.
   useFocusEffect(useCallback(() => {
     fetchTasks(1);
     fetchSharedTasks(1);
-  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
+  }, [tema, searchText, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -866,27 +868,10 @@ const TasksScreen = ({ navigation }) => {
       description?.toLowerCase().includes(searchText.toLowerCase())
     );
 
-    const itemCategories = ((item.feedType === 'shared' ? item.task?.categories : item.categories) || '')
-      .split(',').map(category => category.trim().toLowerCase()).filter(Boolean);
-    const matchesStatus = !selectedStatus || itemCategories.includes(selectedStatus.toLowerCase()) || (
-      selectedStatus.toLowerCase() === 'aprobada' && itemCategories.includes('aprobadas')
-    );
-
-    // ⚡ FILTRO INTELIGENTE LOCAL PARA SUBTEMAS
-    let matchesCategory = true;
-    if (selectedCategory) {
-      const requiredTags = selectedCategory.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
-      const itemCatString = (item.feedType === 'shared' ? item.task?.categories : item.categories) || '';
-      const itemTags = itemCatString.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
-      
-      // La tarea debe contener TODOS los tags (categoría principal + subtemas) sin importar el orden
-      matchesCategory = requiredTags.every(tag => {
-        if (tag === 'aprobada') return itemTags.includes('aprobada') || itemTags.includes('aprobadas');
-        return itemTags.includes(tag);
-      });
-    }
-
-    return matchesSearch && matchesCategory && matchesStatus;
+    // Category, status and user/profile filters are authoritative in the
+    // backend. Keeping only the local text search avoids divergent behavior
+    // between paginated results and profile feeds.
+    return matchesSearch;
   });
 
   // ⚡ HELPER PARA COLORES Y ICONOS DE STATUS

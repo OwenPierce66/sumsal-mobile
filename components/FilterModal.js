@@ -172,6 +172,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
+  const [customSubcategory, setCustomSubcategory] = useState('');
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [sortBy, setSortBy] = useState(currentSortBy || 'recent');
   const [favoritesOnly, setFavoritesOnly] = useState(currentFavorites || false);
@@ -186,12 +187,20 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const [categoriesOrder, setCategoriesOrder] = useState([]);
   const [subthemesTree, setSubthemesTree] = useState(PREDEFINED_SUBTEMAS);
   const [adminSubthemeInputs, setAdminSubthemeInputs] = useState({});
-  const rootCategories = React.useMemo(() => {
-    const childNames = new Set(
-      Object.values(subthemesTree).flat().map(name => String(name).trim().toLowerCase())
+  // The backend parent relation is the only source of truth for the filter.
+  const rootCategories = React.useMemo(
+    () => categories.filter(category => category.parent == null),
+    [categories]
+  );
+  const childrenFor = (parentName) => {
+    const parent = categories.find(
+      category => String(category.name).trim().toLowerCase() === String(parentName).trim().toLowerCase()
     );
-    return categories.filter(category => !childNames.has(String(category.name).trim().toLowerCase()));
-  }, [categories, subthemesTree]);
+    const backendChildren = parent
+      ? categories.filter(category => category.parent === parent.id)
+      : [];
+    return backendChildren.map(category => category.name);
+  };
 
   const isPetitionsPch = String(currentPch || '').trim().toLowerCase() === 'peticiones';
 
@@ -233,8 +242,9 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       
       const subcats = parts.slice(1);
       if (subcats.length > 0) {
-        const allPredefinedSet = new Set(Object.values(subthemesTree).flat());
-        setSelectedSubcategories(subcats.filter(c => allPredefinedSet.has(c)));
+        // Keep terms returned by saved filters even when they are not in the
+        // catalog. They are valid transient backend search criteria.
+        setSelectedSubcategories(subcats);
       } else {
         setSelectedSubcategories([]);
       }
@@ -242,6 +252,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       setSelectedCategory('');
       setSelectedSubcategories([]);
     }
+    setCustomSubcategory('');
 
     setSelectedStatus(currentStatus || '');
     setSelectedDateFilter(currentDateFilter || '');
@@ -328,22 +339,35 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     const text = adminSubthemeInputs[parentTheme];
     if (!text || !text.trim()) return;
     const newSubTheme = text.trim();
-    const parentKey = parentTheme.toLowerCase();
-    const currentSubs = subthemesTree[parentKey] || [];
-
-    if (!currentSubs.includes(newSubTheme)) {
-      const newTree = { ...subthemesTree, [parentKey]: [...currentSubs, newSubTheme] };
-      setSubthemesTree(newTree);
-      await AsyncStorage.setItem('subthemesTree', JSON.stringify(newTree));
+    const parent = categories.find(
+      category => String(category.name).trim().toLowerCase() === parentTheme.trim().toLowerCase()
+    );
+    try {
+      await api.post('new-categories/', {
+        name: newSubTheme,
+        pch: currentPch || '',
+        parent: parent?.id || null,
+      });
+      await fetchCategories();
+      setAdminSubthemeInputs(prev => ({ ...prev, [parentTheme]: '' }));
+    } catch (error) {
+      const detail = error.response?.data?.name?.[0] || error.response?.data?.detail;
+      Alert.alert('No se pudo crear', String(detail || 'Intenta con otro nombre.'));
     }
-    setAdminSubthemeInputs(prev => ({ ...prev, [parentTheme]: '' }));
   };
 
   const handleApply = () => {
     let finalCategory = selectedCategory;
-    const allSubcats = selectedSubcategories;
-    if (finalCategory && allSubcats.length > 0) finalCategory = [finalCategory, ...allSubcats].join(',');
-    else if (!finalCategory && allSubcats.length > 0) finalCategory = allSubcats.join(',');
+    const typedSubcategory = customSubcategory.trim().replace(/\s+/g, ' ');
+    const allSubcats = typedSubcategory
+      ? [...selectedSubcategories, typedSubcategory]
+      : selectedSubcategories;
+    const uniqueSubcategories = allSubcats.filter(
+      (value, index, values) =>
+        values.findIndex(item => item.trim().toLowerCase() === value.trim().toLowerCase()) === index
+    );
+    if (finalCategory && uniqueSubcategories.length > 0) finalCategory = [finalCategory, ...uniqueSubcategories].join(',');
+    else if (!finalCategory && uniqueSubcategories.length > 0) finalCategory = uniqueSubcategories.join(',');
 
     onApply({
       category: finalCategory,
@@ -362,6 +386,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setSelectedCategory('');
     setSelectedStatus('');
     setSelectedSubcategories([]);
+    setCustomSubcategory('');
     setSelectedDateFilter('');
     setSortBy('recent');
     setFavoritesOnly(false);
@@ -421,7 +446,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
               </ScrollView>
 
               {selectedCategory !== '' && [selectedCategory, ...selectedSubcategories].map((parentTheme, level) => {
-                const subthemes = subthemesTree[parentTheme.toLowerCase()] || [];
+                const subthemes = childrenFor(parentTheme);
                 if (subthemes.length === 0 && !isSuper) return null;
                 const selectedSubtheme = selectedSubcategories[level];
 
@@ -460,6 +485,20 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   </View>
                 );
               })}
+              <View style={styles.customSubcategoryRow}>
+                <TextInput
+                  style={styles.customSubcategoryInput}
+                  placeholder="Buscar otra subcategoría..."
+                  placeholderTextColor="#999"
+                  value={customSubcategory}
+                  onChangeText={setCustomSubcategory}
+                  onSubmitEditing={handleApply}
+                  returnKeyType="search"
+                />
+                <Text style={styles.customSubcategoryHint}>
+                  También puedes escribir un término que no esté en el catálogo.
+                </Text>
+              </View>
             </View>
 
             {selectedCategory.trim().toLowerCase() === 'grabar podcast' ? (
@@ -726,7 +765,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   ))}
                 </View>
                 {selectedCategory !== '' && [selectedCategory, ...selectedSubcategories].map((parentTheme, level) => {
-                  const subthemes = subthemesTree[parentTheme.toLowerCase()] || [];
+                  const subthemes = childrenFor(parentTheme);
                   if (subthemes.length === 0) return null;
 
                   return (
@@ -795,6 +834,17 @@ const styles = StyleSheet.create({
   hierarchyBadgeActive: { backgroundColor: '#4dabf7', borderColor: '#4dabf7' },
   hierarchyText: { color: '#555', fontSize: 13, fontWeight: '700' },
   hierarchyTextActive: { color: '#fff' },
+  customSubcategoryRow: { marginTop: 14 },
+  customSubcategoryInput: {
+    height: 42,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#d9e2ec',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    color: '#333',
+  },
+  customSubcategoryHint: { marginTop: 5, color: '#777', fontSize: 12 },
   adminSubthemeInput: { borderColor: '#4dabf7' },
   nestedOrderSection: { marginTop: 14, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: '#dceeff' },
   draggableSubtheme: { position: 'relative', flexDirection: 'row', alignItems: 'center', height: ROW_HEIGHT, marginBottom: 8 },
