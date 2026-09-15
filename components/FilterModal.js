@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View, Text, Modal, StyleSheet, TouchableOpacity, ScrollView, Platform, TextInput, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons'; // Switch no se usa aquí, se usa en el componente ToggleOption
 import api from '../api';
+import CategorySearchInput from './CategorySearchInput';
 
 // ⚡ DICCIONARIO INTELIGENTE DE SUBTEMAS
 const PREDEFINED_SUBTEMAS = {
@@ -29,7 +30,7 @@ const ToggleOption = ({ label, value, onValueChange }) => (
 );
 
 const ROW_HEIGHT = 45;
-const DraggableCategory = ({ cat, index, categories, setCategories, selectedCategory, setSelectedCategory, isSuper, handleDeleteCat, setScrollEnabled, saveCategoriesOrder }) => {
+const DraggableCategory = ({ cat, index, categories, selectedCategory, setSelectedCategory, isSuper, handleDeleteCat, setScrollEnabled, onReorder }) => {
   const pan = useRef(new Animated.Value(0)).current;
   const [isDragging, setIsDragging] = useState(false);
   
@@ -58,8 +59,7 @@ const DraggableCategory = ({ cat, index, categories, setCategories, selectedCate
           const newCategories = [...categories];
           const [movedItem] = newCategories.splice(index, 1);
           newCategories.splice(newIndex, 0, movedItem);
-          setCategories(newCategories);
-          saveCategoriesOrder(newCategories);
+          onReorder(newCategories);
         }
         
         Animated.spring(pan, {
@@ -73,7 +73,7 @@ const DraggableCategory = ({ cat, index, categories, setCategories, selectedCate
         Animated.spring(pan, { toValue: 0, useNativeDriver: false }).start();
       }
     }),
-    [categories, index, pan, saveCategoriesOrder, setCategories, setScrollEnabled]
+    [categories, index, onReorder, pan, setScrollEnabled]
   );
 
   return (
@@ -113,7 +113,7 @@ const DraggableCategory = ({ cat, index, categories, setCategories, selectedCate
   );
 };
 
-const DraggableSubtheme = ({ name, index, subthemes, selected, onSelect, onReorder, setScrollEnabled }) => {
+const DraggableSubtheme = ({ name, index, subthemes, selected, onSelect, onReorder, setScrollEnabled, isSuper, onDelete }) => {
   const pan = useRef(new Animated.Value(0)).current;
   const [isDragging, setIsDragging] = useState(false);
   const panResponder = React.useMemo(
@@ -163,6 +163,16 @@ const DraggableSubtheme = ({ name, index, subthemes, selected, onSelect, onReord
       <View {...panResponder.panHandlers} style={styles.dragHandle}>
         <Ionicons name="menu" size={20} color="#999" />
       </View>
+      {isSuper && (
+        <TouchableOpacity
+          style={styles.subthemeDeleteButton}
+          onPress={() => onDelete(name)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel={`Eliminar ${name}`}
+        >
+          <Ionicons name="close" size={12} color="#fff" />
+        </TouchableOpacity>
+      )}
     </Animated.View>
   );
 };
@@ -189,17 +199,62 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const [adminSubthemeInputs, setAdminSubthemeInputs] = useState({});
   // The backend parent relation is the only source of truth for the filter.
   const rootCategories = React.useMemo(
-    () => categories.filter(category => category.parent == null),
+    () => categories.filter(category => {
+      const normalized = String(category.name || '').trim().toLowerCase();
+      return category.parent == null && !['aprobada', 'aprobadas', 'aprovada', 'aprovadas'].includes(normalized);
+    }),
+    [categories]
+  );
+  const legacyApprovalCategories = React.useMemo(
+    () => categories.filter(category => (
+      ['aprobada', 'aprobadas', 'aprovada', 'aprovadas'].includes(
+        String(category.name || '').trim().toLowerCase()
+      )
+    )),
     [categories]
   );
   const childrenFor = (parentName) => {
+    return childCategoriesFor(parentName)
+      .map(category => category.name)
+      .filter(name => !['aprobada', 'aprobadas', 'aprovada', 'aprovadas', 'procesando'].includes(
+        String(name).trim().toLowerCase()
+      ));
+  };
+  const isPodcastStatus = (parentName, subtheme) => (
+    String(parentName).trim().replace(/\s+/g, ' ').toLowerCase() === 'grabar podcast'
+    && ['procesando', 'aprobada', 'aprobadas'].includes(String(subtheme).trim().toLowerCase())
+  );
+  const isSelectedPodcastStatus = (subtheme) => {
+    const normalized = String(subtheme).trim().toLowerCase();
+    const selected = String(selectedStatus || '').trim().toLowerCase();
+    return normalized === selected || (normalized === 'aprobadas' && selected === 'aprobada');
+  };
+  const displayedSubthemesFor = (parentName) => {
+    const subthemes = childrenFor(parentName);
+    if (String(parentName).trim().replace(/\s+/g, ' ').toLowerCase() !== 'grabar podcast') {
+      return subthemes;
+    }
+    return [...subthemes, 'Procesando', 'Aprobadas'];
+  };
+  const childCategoriesFor = (parentName) => {
     const parent = categories.find(
       category => String(category.name).trim().toLowerCase() === String(parentName).trim().toLowerCase()
     );
-    const backendChildren = parent
-      ? categories.filter(category => category.parent === parent.id)
+    const children = parent
+      ? categories.filter(category => (
+        category.parent != null && String(category.parent) === String(parent.id)
+      ))
       : [];
-    return backendChildren.map(category => category.name);
+    const savedOrder = subthemesTree[String(parentName).trim().toLowerCase()];
+    if (!Array.isArray(savedOrder)) return children;
+    return [...children].sort((a, b) => {
+      const indexA = savedOrder.findIndex(name => String(name).trim().toLowerCase() === String(a.name).trim().toLowerCase());
+      const indexB = savedOrder.findIndex(name => String(name).trim().toLowerCase() === String(b.name).trim().toLowerCase());
+      if (indexA === -1 && indexB === -1) return 0;
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      return indexA - indexB;
+    });
   };
 
   const isPetitionsPch = String(currentPch || '').trim().toLowerCase() === 'peticiones';
@@ -216,7 +271,32 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     } catch(e){}
   };
 
-  const handleDeleteCat = (catId) => { if (Platform.OS === "web") { if (window.confirm("¿Estás seguro de que deseas eliminar esta categoria? Esta acción no se puede deshacer.")) { executeDeleteCat(catId); } } else { Alert.alert("Eliminar Categoria", "¿Estás seguro de que deseas eliminar esta categoria? Esta acción no se puede deshacer.", [{ text: "Cancelar", style: "cancel" }, { text: "Eliminar", style: "destructive", onPress: () => executeDeleteCat(catId) }]); } }; const executeDeleteCat = async (catId) => { try { await api.delete("new-categories/" + catId + "/"); fetchCategories(); if (selectedCategory !== "" && categories.find(c => c.id === catId)?.name === selectedCategory) { setSelectedCategory(""); } } catch (error) { console.error("Error deleting category:", error); } };
+  const handleDeleteCat = (catId) => {
+    if (!catId) return;
+    if (Platform.OS === "web") {
+      if (window.confirm("¿Estás seguro de que deseas eliminar esta categoria? Esta acción no se puede deshacer.")) {
+        executeDeleteCat(catId);
+      }
+    } else {
+      Alert.alert("Eliminar Categoria", "¿Estás seguro de que deseas eliminar esta categoria? Esta acción no se puede deshacer.", [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Eliminar", style: "destructive", onPress: () => executeDeleteCat(catId) },
+      ]);
+    }
+  };
+  const executeDeleteCat = async (catId) => {
+    try {
+      await api.delete("new-categories/" + catId + "/");
+      await fetchCategories();
+      if (selectedCategory !== "" && categories.find(c => c.id === catId)?.name === selectedCategory) {
+        setSelectedCategory("");
+      }
+    } catch (error) {
+      const status = error.response?.status;
+      const detail = error.response?.data?.detail || error.response?.data?.name?.[0] || "No se pudo eliminar la categoría.";
+      Alert.alert(status === 403 ? "Sin permisos" : "No se pudo eliminar", String(detail));
+    }
+  };
 
   const handleCreateCat = async () => {
     if (!newCatName.trim()) return;
@@ -308,6 +388,13 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     await AsyncStorage.setItem('subthemesTree', JSON.stringify(newTree));
   };
 
+  const reorderRootCategories = (reorderedRoots) => {
+    const rootIds = new Set(reorderedRoots.map(category => category.id));
+    const nonRoots = categories.filter(category => !rootIds.has(category.id));
+    setCategories([...reorderedRoots, ...nonRoots]);
+    saveCategoriesOrder(reorderedRoots);
+  };
+
   const dateOptions = [
     { label: 'Cualquier fecha', value: '' },
     { label: 'Hoy', value: 'hoy' },
@@ -332,6 +419,59 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       }
       return [...prev.slice(0, level), subcategory];
     });
+  };
+
+  const normalizeCategoryName = value => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+  const findCategory = value => categories.find(
+    category => normalizeCategoryName(category.name) === normalizeCategoryName(value)
+  );
+
+  const commitCategorySearch = (searchValue = customSubcategory) => {
+    const value = searchValue.trim().replace(/\s+/g, ' ');
+    if (!value) return;
+
+    const exactCategory = findCategory(value);
+    if (!selectedCategory) {
+      if (exactCategory?.parent == null) {
+        selectMainCategory(exactCategory.name);
+      } else if (exactCategory?.parent != null) {
+        const parent = categories.find(category => String(category.id) === String(exactCategory.parent));
+        if (parent) {
+          setSelectedCategory(parent.name);
+          setSelectedSubcategories([exactCategory.name]);
+        } else {
+          setSelectedCategory(value);
+          setSelectedSubcategories([]);
+        }
+      } else {
+        setSelectedSubcategories(prev => [...prev, value]);
+      }
+    } else {
+      const parentName = selectedSubcategories[selectedSubcategories.length - 1] || selectedCategory;
+      const parent = findCategory(parentName);
+      const isChild = exactCategory && parent && String(exactCategory.parent) === String(parent.id);
+      if (isChild) {
+        selectSubcategoryAtLevel(exactCategory.name, selectedSubcategories.length);
+      } else {
+        setSelectedSubcategories(prev => (
+          prev.some(item => normalizeCategoryName(item) === normalizeCategoryName(value))
+            ? prev
+            : [...prev, value]
+        ));
+      }
+    }
+    setCustomSubcategory('');
+  };
+
+  const removeSelectedCategoryPart = level => {
+    if (level === 0) {
+      setSelectedCategory('');
+      setSelectedSubcategories([]);
+      setSelectedStatus('');
+      return;
+    }
+    setSelectedSubcategories(prev => prev.slice(0, level - 1));
   };
 
   // ⚡ LÓGICA DE ADMIN PARA GUARDAR SUBTEMAS CONSECUTIVOS AL ÁRBOL Y A LA DB
@@ -433,20 +573,31 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   <Text style={[styles.hierarchyText, selectedCategory === '' && styles.hierarchyTextActive]}>Todos</Text>
                 </TouchableOpacity>
                 {rootCategories.map(category => (
-                  <TouchableOpacity
-                    key={category.id}
-                    style={[styles.hierarchyBadge, selectedCategory === category.name && styles.hierarchyBadgeActive]}
-                    onPress={() => selectMainCategory(category.name)}
-                  >
-                    <Text style={[styles.hierarchyText, selectedCategory === category.name && styles.hierarchyTextActive]}>
-                      {category.name}
-                    </Text>
-                  </TouchableOpacity>
+                  <View key={category.id} style={styles.hierarchyBadgeWrapper}>
+                    <TouchableOpacity
+                      style={[styles.hierarchyBadge, selectedCategory === category.name && styles.hierarchyBadgeActive, isSuper && styles.hierarchyBadgeWithDelete]}
+                      onPress={() => selectMainCategory(category.name)}
+                    >
+                      <Text style={[styles.hierarchyText, selectedCategory === category.name && styles.hierarchyTextActive]}>
+                        {category.name}
+                      </Text>
+                    </TouchableOpacity>
+                    {isSuper && (
+                      <TouchableOpacity
+                        style={styles.hierarchyDeleteButton}
+                        onPress={() => handleDeleteCat(category.id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityLabel={`Eliminar ${category.name}`}
+                      >
+                        <Ionicons name="close" size={12} color="#fff" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 ))}
               </ScrollView>
 
               {selectedCategory !== '' && [selectedCategory, ...selectedSubcategories].map((parentTheme, level) => {
-                const subthemes = childrenFor(parentTheme);
+                const subthemes = displayedSubthemesFor(parentTheme);
                 if (subthemes.length === 0 && !isSuper) return null;
                 const selectedSubtheme = selectedSubcategories[level];
 
@@ -456,15 +607,48 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                     {subthemes.length > 0 ? (
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalOptions}>
                         {subthemes.map(subtheme => (
-                          <TouchableOpacity
-                            key={subtheme}
-                            style={[styles.hierarchyBadge, selectedSubtheme === subtheme && styles.hierarchyBadgeActive]}
-                            onPress={() => selectSubcategoryAtLevel(subtheme, level)}
-                          >
-                            <Text style={[styles.hierarchyText, selectedSubtheme === subtheme && styles.hierarchyTextActive]}>
-                              {subtheme}
-                            </Text>
-                          </TouchableOpacity>
+                          <View key={subtheme} style={styles.hierarchyBadgeWrapper}>
+                            <TouchableOpacity
+                              style={[
+                                styles.hierarchyBadge,
+                                (
+                                  selectedSubtheme === subtheme
+                                  || (isPodcastStatus(parentTheme, subtheme) &&
+                                    isSelectedPodcastStatus(subtheme))
+                                ) && styles.hierarchyBadgeActive,
+                                isSuper && styles.hierarchyBadgeWithDelete,
+                              ]}
+                              onPress={() => {
+                                if (isPodcastStatus(parentTheme, subtheme)) {
+                                  setSelectedStatus(
+                                    subtheme.toLowerCase().startsWith('aprob')
+                                      ? 'Aprobada'
+                                      : 'Procesando'
+                                  );
+                                  return;
+                                }
+                                selectSubcategoryAtLevel(subtheme, level);
+                              }}
+                            >
+                              <Text style={[styles.hierarchyText, (
+                                selectedSubtheme === subtheme
+                                || (isPodcastStatus(parentTheme, subtheme) &&
+                                  isSelectedPodcastStatus(subtheme))
+                              ) && styles.hierarchyTextActive]}>
+                                {subtheme}
+                              </Text>
+                            </TouchableOpacity>
+                            {isSuper && !isPodcastStatus(parentTheme, subtheme) && (
+                              <TouchableOpacity
+                                style={styles.hierarchyDeleteButton}
+                                onPress={() => handleDeleteCat(childCategoriesFor(parentTheme).find(child => child.name === subtheme)?.id)}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                accessibilityLabel={`Eliminar ${subtheme}`}
+                              >
+                                <Ionicons name="close" size={12} color="#fff" />
+                              </TouchableOpacity>
+                            )}
+                          </View>
                         ))}
                       </ScrollView>
                     ) : null}
@@ -485,53 +669,32 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   </View>
                 );
               })}
+              {(selectedCategory || selectedSubcategories.length > 0) && (
+                <View style={styles.selectedSearchTerms}>
+                  {[selectedCategory, ...selectedSubcategories].filter(Boolean).map((term, index) => (
+                    <View key={`${term}-${index}`} style={styles.selectedSearchTerm}>
+                      <Text style={styles.selectedSearchTermText}>{term}</Text>
+                      <TouchableOpacity
+                        onPress={() => removeSelectedCategoryPart(index)}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        accessibilityLabel={`Quitar ${term}`}
+                      >
+                        <Ionicons name="close-circle" size={16} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+              <CategorySearchInput
+                categories={categories}
+                onSubmit={commitCategorySearch}
+              />
               <View style={styles.customSubcategoryRow}>
-                <TextInput
-                  style={styles.customSubcategoryInput}
-                  placeholder="Buscar otra subcategoría..."
-                  placeholderTextColor="#999"
-                  value={customSubcategory}
-                  onChangeText={setCustomSubcategory}
-                  onSubmitEditing={handleApply}
-                  returnKeyType="search"
-                />
                 <Text style={styles.customSubcategoryHint}>
-                  También puedes escribir un término que no esté en el catálogo.
+                  Presiona Enter para agregar cualquier término. Después puedes buscar otra subcategoría tantas veces como quieras.
                 </Text>
               </View>
             </View>
-
-            {selectedCategory.trim().toLowerCase() === 'grabar podcast' ? (
-              <View style={styles.podcastStatusSection}>
-                <Text style={styles.sectionTitle}>Estado de Grabar Podcast</Text>
-                <View style={styles.optionsContainer}>
-                  {[
-                    { label: 'Procesando', value: 'Procesando' },
-                    { label: 'Aprobadas', value: 'Aprobada' },
-                  ].map((statusOption) => (
-                    <TouchableOpacity
-                      key={statusOption.value}
-                      style={[
-                        styles.optionBadge,
-                        selectedStatus.toLowerCase() === statusOption.value.toLowerCase() &&
-                          styles.optionBadgeActive,
-                      ]}
-                      onPress={() => setSelectedStatus(statusOption.value)}
-                    >
-                      <Text
-                        style={[
-                          styles.optionText,
-                          selectedStatus.toLowerCase() === statusOption.value.toLowerCase() &&
-                            styles.optionTextActive,
-                        ]}
-                      >
-                        {statusOption.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            ) : null}
 
             <Text style={styles.sectionTitle}>Ordenar por</Text>
             <View style={styles.optionsContainer}>
@@ -760,10 +923,27 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                       isSuper={isSuper}
                       handleDeleteCat={handleDeleteCat}
                       setScrollEnabled={setScrollEnabled}
-                      saveCategoriesOrder={saveCategoriesOrder}
+                      onReorder={reorderRootCategories}
                     />
                   ))}
                 </View>
+                {legacyApprovalCategories.length > 0 && (
+                  <View style={styles.legacyCategorySection}>
+                    <Text style={styles.sectionTitle}>Estados antiguos para corregir</Text>
+                    {legacyApprovalCategories.map(category => (
+                      <View key={category.id} style={styles.legacyCategoryRow}>
+                        <Text style={styles.legacyCategoryText}>{category.name}</Text>
+                        <TouchableOpacity
+                          onPress={() => handleDeleteCat(category.id)}
+                          style={styles.legacyDeleteButton}
+                          accessibilityLabel={`Eliminar ${category.name}`}
+                        >
+                          <Ionicons name="close" size={18} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
                 {selectedCategory !== '' && [selectedCategory, ...selectedSubcategories].map((parentTheme, level) => {
                   const subthemes = childrenFor(parentTheme);
                   if (subthemes.length === 0) return null;
@@ -781,6 +961,8 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                           onSelect={() => selectSubcategoryAtLevel(subtheme, level)}
                           onReorder={reordered => saveSubthemesOrder(parentTheme, reordered)}
                           setScrollEnabled={setScrollEnabled}
+                          isSuper={isSuper}
+                          onDelete={name => handleDeleteCat(childCategoriesFor(parentTheme).find(child => child.name === name)?.id)}
                         />
                       ))}
                     </View>
@@ -830,12 +1012,21 @@ const styles = StyleSheet.create({
   hierarchyLevel: { marginTop: 14 },
   hierarchyTitle: { marginBottom: 8, fontSize: 14, fontWeight: '800', color: '#333' },
   horizontalOptions: { gap: 8, paddingRight: 14 },
+  hierarchyBadgeWrapper: { position: 'relative' },
   hierarchyBadge: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 18, backgroundColor: '#f0f2f5', borderWidth: 1, borderColor: '#e4e7eb' },
+  hierarchyBadgeWithDelete: { paddingRight: 25 },
+  hierarchyDeleteButton: { position: 'absolute', top: -5, right: -5, width: 18, height: 18, borderRadius: 9, backgroundColor: '#ff6b6b', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
   hierarchyBadgeActive: { backgroundColor: '#4dabf7', borderColor: '#4dabf7' },
   hierarchyText: { color: '#555', fontSize: 13, fontWeight: '700' },
+  podcastSubcategoryStatus: { marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: '#f8f9fa', borderWidth: 1, borderColor: '#e9ecef' },
   hierarchyTextActive: { color: '#fff' },
   customSubcategoryRow: { marginTop: 14 },
+  selectedSearchTerms: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  selectedSearchTerm: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 16, backgroundColor: '#4dabf7' },
+  selectedSearchTermText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  searchInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   customSubcategoryInput: {
+    flex: 1,
     height: 42,
     backgroundColor: '#f5f5f5',
     borderWidth: 1,
@@ -844,12 +1035,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     color: '#333',
   },
+  searchCommitButton: { width: 42, height: 42, borderRadius: 10, backgroundColor: '#4dabf7', alignItems: 'center', justifyContent: 'center' },
+  searchSuggestions: { marginTop: 5, borderWidth: 1, borderColor: '#e4e7eb', borderRadius: 10, backgroundColor: '#fff', overflow: 'hidden' },
+  searchSuggestion: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 9, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#f1f3f5' },
+  searchSuggestionText: { color: '#333', fontSize: 14 },
   customSubcategoryHint: { marginTop: 5, color: '#777', fontSize: 12 },
   adminSubthemeInput: { borderColor: '#4dabf7' },
   nestedOrderSection: { marginTop: 14, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: '#dceeff' },
+  legacyCategorySection: { marginTop: 14, padding: 12, backgroundColor: '#fff4e6', borderRadius: 10 },
+  legacyCategoryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  legacyCategoryText: { color: '#995000', fontWeight: '700' },
+  legacyDeleteButton: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#ff6b6b', alignItems: 'center', justifyContent: 'center' },
   draggableSubtheme: { position: 'relative', flexDirection: 'row', alignItems: 'center', height: ROW_HEIGHT, marginBottom: 8 },
   draggableSubthemeButton: { flex: 1, marginRight: 0, marginBottom: 0, paddingRight: 44 },
   dragHandle: { position: 'absolute', right: 4, padding: 10, zIndex: 10 },
+  subthemeDeleteButton: { position: 'absolute', right: 42, top: -5, width: 18, height: 18, borderRadius: 9, backgroundColor: '#ff6b6b', alignItems: 'center', justifyContent: 'center', zIndex: 20, elevation: 5 },
   addManualSubthemeContainer: {
     flexDirection: 'row',
     marginTop: 10,

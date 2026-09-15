@@ -15,7 +15,7 @@ const DEFAULT_SUBTHEMES = {
 const normalize = value => String(value || '').trim();
 const keyFor = value => normalize(value).toLowerCase();
 
-const CategoryHierarchy = ({ categories, availableCategories, onSelect, showDescendants = false }) => {
+const CategoryHierarchy = ({ categories, availableCategories, onSelect, selectedStatus = '', onStatusSelect, showDescendants = false }) => {
   const [tree, setTree] = useState(DEFAULT_SUBTHEMES);
   const [selectedPath, setSelectedPath] = useState([]);
 
@@ -64,7 +64,7 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, showDesc
     const map = new Map();
     if (!treeMode) return map;
     nodes.forEach(node => {
-      const parentId = node.parent ?? null;
+      const parentId = node.parent == null ? null : String(node.parent);
       const bucket = map.get(parentId) || [];
       bucket.push(node);
       map.set(parentId, bucket);
@@ -73,7 +73,17 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, showDesc
   }, [nodes, treeMode]);
 
   const childrenOf = node => {
-    if (treeMode) return childrenByParent.get(node?.id) || [];
+    if (treeMode) {
+      const children = childrenByParent.get(node?.id == null ? null : String(node.id)) || [];
+      if (keyFor(node?.name) === 'grabar podcast') {
+        return [
+          ...children.filter(child => !['procesando', 'aprobada', 'aprobadas', 'aprovada', 'aprovadas'].includes(keyFor(child.name))),
+          { id: 'podcast-status-processing', name: 'Procesando', virtualStatus: 'Procesando' },
+          { id: 'podcast-status-approved', name: 'Aprobadas', virtualStatus: 'Aprobada' },
+        ];
+      }
+      return children;
+    }
     return (tree[keyFor(node)] || [])
       .map(normalize)
       .filter(child => showDescendants || selectedKeys.has(keyFor(child)));
@@ -81,8 +91,10 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, showDesc
 
   const roots = useMemo(() => {
     if (treeMode) {
-      const presentIds = new Set(nodes.map(node => node.id));
-      return nodes.filter(node => node.parent == null || !presentIds.has(node.parent));
+      const presentIds = new Set(nodes.map(node => String(node.id)));
+      return nodes.filter(node => (
+        node.parent == null || !presentIds.has(String(node.parent))
+      ));
     }
     const allChildren = new Set(Object.values(tree).flat().map(keyFor));
     return selected.filter(value => !allChildren.has(keyFor(value)));
@@ -116,20 +128,31 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, showDesc
           {values.map(value => {
             const label = labelOf(value);
             const isSelected = selectedValue === keyFor(label);
+            const isStatus = Boolean(value?.virtualStatus);
+            const isStatusSelected = isStatus &&
+              keyFor(selectedStatus) === keyFor(value.virtualStatus);
             return (
               <TouchableOpacity
                 key={`${parentKey}-${value?.id ?? keyFor(label)}`}
-                onPress={() => handleSelect(value, level)}
-                style={[styles.badge, level === 0 ? styles.rootBadge : styles.childBadge, isSelected && styles.selectedBadge]}
+                onPress={() => {
+                  if (isStatus) {
+                    onStatusSelect?.(value.virtualStatus);
+                    return;
+                  }
+                  handleSelect(value, level);
+                }}
+                style={[styles.badge, level === 0 ? styles.rootBadge : styles.childBadge, (isSelected || isStatusSelected) && styles.selectedBadge]}
               >
-                <Text style={[styles.badgeText, level === 0 ? styles.rootText : styles.childText, isSelected && styles.selectedText]}>
+                <Text style={[styles.badgeText, level === 0 ? styles.rootText : styles.childText, (isSelected || isStatusSelected) && styles.selectedText]}>
                   {label}
                 </Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
-        {selectedItem && visibleChildren.length > 0 && renderLevel(visibleChildren, level + 1, keyFor(labelOf(selectedItem)))}
+        {selectedItem && visibleChildren.length > 0
+          ? renderLevel(visibleChildren, level + 1, keyFor(labelOf(selectedItem)))
+          : null}
       </View>
     );
   };

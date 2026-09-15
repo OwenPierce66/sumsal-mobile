@@ -126,3 +126,8 @@ Separar y mejorar la visualización de imágenes/videos en Reels y TasksScreen.
 -3 verificados verifican, recomendados con uno o historial de verificacion 
 -acabo de crear literalmente una tarea con la categoria Kick Boxing para que minimo apareciara en mi filtro de mi perfil y no aparece, y debemos poner el taskscreen en el perfil
 -los reels dejaron de funcionar
+
+export ANDROID_HOME=$HOME/Android/Sdk   # O %LOCALAPPDATA%\Android\Sdk en Windows
+export PATH=$PATH:$ANDROID_HOME/emulator
+export PATH=$PATH:$ANDROID_HOME/platform-tools
+export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin

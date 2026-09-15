@@ -1373,6 +1373,14 @@ const TasksScreen = ({ navigation }) => {
       <CategoryHierarchy
         availableCategories={availableCategories}
         showDescendants
+        selectedStatus={selectedStatus}
+        onStatusSelect={(status) => {
+          setSelectedStatus(status);
+          setPage(1);
+          setSharedPage(1);
+          setHasMore(true);
+          setSharedHasMore(true);
+        }}
         onSelect={(category) => {
           setSelectedCategory(category);
           if (category.split(',')[0].trim().toLowerCase() !== 'grabar podcast') {
