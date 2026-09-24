@@ -1,7 +1,8 @@
-import React, { useState, useCallback, useEffect, useContext, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useContext, useRef, useMemo } from 'react';
 import {
   View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions,
-  RefreshControl, TextInput, Platform, ActivityIndicator, Modal, Alert, Button, SafeAreaView, useWindowDimensions
+  RefreshControl, TextInput, Platform, ActivityIndicator, Modal, Alert, Button, SafeAreaView, useWindowDimensions,
+  InteractionManager
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -156,6 +157,19 @@ const TasksScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchExpanded, setSearchExpanded] = useState(false);
+  const [searchTasks, setSearchTasks] = useState([]);
+  const [searchSharedTasks, setSearchSharedTasks] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchCategory, setSearchCategory] = useState('');
+  const [searchCategoryLevel, setSearchCategoryLevel] = useState(-1);
+  const [searchStatus, setSearchStatus] = useState('');
+  const [searchHasStarted, setSearchHasStarted] = useState(false);
+  const [searchCustomPaths, setSearchCustomPaths] = useState([]);
+  const searchCacheRef = useRef(new Map());
+  const feedListRef = useRef(null);
+  const feedScrollOffsetRef = useRef(0);
+  const mainFeedScrollOffsetRef = useRef(0);
+  const resetMainFeedOnCloseRef = useRef(false);
   const [tema, setTema] = useState('consejos');
   const [visibleSections, setVisibleSections] = useState({});
   const [filterModalVisible, setFilterModalVisible] = useState(false);
@@ -646,7 +660,7 @@ const TasksScreen = ({ navigation }) => {
           pch: tema, 
           page: pageNumber,
           category: currentCatFilter,
-          search: searchText.trim(),
+          search: '',
           status: overrideFilters ? overrideFilters.status : selectedStatus,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
@@ -683,7 +697,7 @@ const TasksScreen = ({ navigation }) => {
       setLoadingMore(false);
       setRefreshing(false);
     }
-  }, [tema, searchText, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   const fetchSharedTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
     try {
@@ -693,7 +707,7 @@ const TasksScreen = ({ navigation }) => {
         params: {
           page: pageNumber,
           category: currentCatFilter,
-          search: searchText.trim(),
+          search: '',
           status: overrideFilters ? overrideFilters.status : selectedStatus,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
@@ -720,14 +734,80 @@ const TasksScreen = ({ navigation }) => {
       }
       console.error('Error fetching shared tasks:', error.response?.data || error.message);
     }
-  }, [searchText, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }, [selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   // ✅ CORRECCIÓN: Usamos un useEffect que reacciona a los filtros, en lugar de a cada foco.
   // Esto reduce drásticamente las llamadas a la API.
   useFocusEffect(useCallback(() => {
     fetchTasks(1);
     fetchSharedTasks(1);
-  }, [tema, searchText, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
+  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
+
+  const fetchSearchResults = useCallback(async (query) => {
+    const normalizedQuery = query.trim();
+
+    const cacheKey = JSON.stringify({
+      query: normalizedQuery.toLowerCase(),
+      tema,
+      category: searchCategory,
+      status: searchStatus,
+      dateFilter: selectedDateFilter,
+      sortBy: selectedSortBy,
+      favoritesOnly: selectedFavoritesOnly,
+      favoriteUsersOnly: selectedFavoriteUsersOnly,
+      verifiedUsersOnly: selectedVerifiedUsersOnly,
+      recommendedUsersOnly: selectedRecommendedUsersOnly,
+    });
+    const cached = searchCacheRef.current.get(cacheKey);
+    if (cached) {
+      setSearchTasks(cached.tasks);
+      setSearchSharedTasks(cached.sharedTasks);
+      return;
+    }
+
+    setSearchLoading(true);
+    try {
+      const params = {
+        page: 1,
+        category: searchCategory,
+        search: normalizedQuery,
+        status: searchStatus,
+        date_filter: selectedDateFilter,
+        sort_by: selectedSortBy,
+        favorites_only: selectedFavoritesOnly,
+        favorite_users_only: selectedFavoriteUsersOnly,
+        verified_users_only: selectedVerifiedUsersOnly,
+        recommended_users_only: selectedRecommendedUsersOnly,
+      };
+      const [tasksResponse, sharedResponse] = await Promise.all([
+        api.get('tasks/', { params: { ...params, pch: tema } }),
+        api.get('shared-tasks/', { params }),
+      ]);
+      const result = {
+        tasks: tasksResponse.data.results ?? tasksResponse.data ?? [],
+        sharedTasks: sharedResponse.data.results ?? sharedResponse.data ?? [],
+      };
+      searchCacheRef.current.set(cacheKey, result);
+      if (searchCacheRef.current.size > 20) {
+        const oldestKey = searchCacheRef.current.keys().next().value;
+        searchCacheRef.current.delete(oldestKey);
+      }
+      setSearchTasks(result.tasks);
+      setSearchSharedTasks(result.sharedTasks);
+    } catch (error) {
+      console.error('[TasksScreen] Error buscando en el feed independiente:', error.response?.data || error.message);
+      setSearchTasks([]);
+      setSearchSharedTasks([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [tema, searchCategory, searchStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+
+  useEffect(() => {
+    if (!searchExpanded || !searchHasStarted) return undefined;
+    const timer = setTimeout(() => fetchSearchResults(searchText), 300);
+    return () => clearTimeout(timer);
+  }, [fetchSearchResults, searchExpanded, searchHasStarted, searchText, searchCategory]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -736,6 +816,121 @@ const TasksScreen = ({ navigation }) => {
     setHasMore(true);
     setSharedHasMore(true);
     Promise.all([fetchTasks(1), fetchSharedTasks(1)]).finally(() => setRefreshing(false));
+  };
+
+  const normalizeCategoryValue = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+  const searchCategoryPath = searchCategory.split(',').map(normalizeCategoryValue).filter(Boolean);
+  const activeCategoryPath = searchExpanded
+    ? searchCategoryPath
+    : selectedCategory.split(',').map(normalizeCategoryValue).filter(Boolean);
+  const categoriesWithSelectedSearchPath = useMemo(() => {
+    const source = Array.isArray(availableCategories) ? [...availableCategories] : [];
+    const paths = [
+      activeCategoryPath,
+      ...searchCustomPaths.filter(path => path.join(',').toLowerCase() !== activeCategoryPath.join(',').toLowerCase()),
+    ];
+    paths.forEach(path => {
+      let parentId = null;
+      path.forEach((name, level) => {
+        const existing = source.find(category => (
+          normalizeCategoryValue(category?.name).toLowerCase() === name.toLowerCase() &&
+          (category?.parent == null ? null : String(category.parent)) === (parentId == null ? null : String(parentId))
+        ));
+        if (existing) {
+          parentId = existing.id;
+          return;
+        }
+
+        const customId = `search-category-${level}-${name.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}`;
+        source.push({
+          id: customId,
+          name,
+          parent: parentId,
+          isSearchCategory: true,
+          searchPath: path.slice(0, level + 1),
+        });
+        parentId = customId;
+      });
+    });
+    return source;
+  }, [availableCategories, activeCategoryPath.join(','), searchCustomPaths]);
+  const applySearchCategory = useCallback((rawValue) => {
+    const value = normalizeCategoryValue(rawValue);
+    if (!value) return;
+    setSearchHasStarted(true);
+    const path = searchCategory.split(',').map(normalizeCategoryValue).filter(Boolean);
+    const level = searchCategoryPath.length
+      ? Math.min(Math.max(searchCategoryLevel, 0), searchCategoryPath.length - 1)
+      : -1;
+    const base = level >= 0 ? path.slice(0, level + 1) : path;
+    const nextPath = base.some(item => item.toLowerCase() === value.toLowerCase())
+      ? base
+      : [...base, value];
+    setSearchCategory(nextPath.join(','));
+    setSearchCategoryLevel(nextPath.length - 1);
+    setSearchCustomPaths(previous => (
+      previous.some(path => path.join(',').toLowerCase() === nextPath.join(',').toLowerCase())
+        ? previous
+        : [...previous, nextPath]
+    ));
+  }, [searchCategory, searchCategoryLevel, searchCategoryPath.length]);
+
+  const openSearch = () => {
+    mainFeedScrollOffsetRef.current = feedScrollOffsetRef.current;
+    const path = selectedCategory.split(',').map(normalizeCategoryValue).filter(Boolean);
+    setSearchCategory(path.join(','));
+    setSearchCategoryLevel(path.length - 1);
+    setSearchStatus(selectedStatus);
+    setSearchHasStarted(false);
+    setSearchExpanded(true);
+  };
+
+  const closeSearch = () => {
+    setSearchText('');
+    setSearchExpanded(false);
+    setSearchCategory('');
+    setSearchCategoryLevel(-1);
+    setSearchStatus('');
+    setSearchHasStarted(false);
+    setSearchTasks([]);
+    setSearchSharedTasks([]);
+  };
+
+  useEffect(() => {
+    if (searchExpanded) return undefined;
+    const restoreScroll = () => {
+      if (resetMainFeedOnCloseRef.current) {
+        feedListRef.current?.scrollToOffset({ offset: 0, animated: false });
+        feedScrollOffsetRef.current = 0;
+        mainFeedScrollOffsetRef.current = 0;
+        resetMainFeedOnCloseRef.current = false;
+        return;
+      }
+      feedListRef.current?.scrollToOffset({
+        offset: mainFeedScrollOffsetRef.current,
+        animated: false,
+      });
+      feedScrollOffsetRef.current = mainFeedScrollOffsetRef.current;
+    };
+    const interaction = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        restoreScroll();
+        requestAnimationFrame(restoreScroll);
+      });
+    });
+    return () => interaction.cancel();
+  }, [searchExpanded]);
+
+  const applySearchToMainFilter = () => {
+    const nextCategory = searchCategory;
+    resetMainFeedOnCloseRef.current = true;
+    setSelectedCategory(nextCategory);
+    setSelectedStatus(searchStatus);
+    setPage(1);
+    setSharedPage(1);
+    setHasMore(true);
+    setSharedHasMore(true);
+    closeSearch();
   };
 
   // ✅ CORRECCIÓN: Se añade la función para dar "Me gusta" a una tarea original.
@@ -822,8 +1017,29 @@ const TasksScreen = ({ navigation }) => {
     navigation.navigate('SharedTaskDetail', { sharedTaskId });
   };
 
+  const categoryPathRank = (item, categoryPath) => {
+    const requested = String(categoryPath || '')
+      .split(',')
+      .map(value => normalizeCategoryValue(value).toLowerCase())
+      .filter(Boolean)
+      .join(',');
+    if (!requested) return 0;
+
+    const categories = String(
+      item.feedType === 'shared' ? item.task?.categories : item.categories
+    )
+      .split(',')
+      .map(value => normalizeCategoryValue(value).toLowerCase())
+      .filter(Boolean)
+      .join(',');
+    if (categories === requested) return 0;
+    if (categories.startsWith(`${requested},`)) return 1;
+    return 2;
+  };
+
   // ⚡ FUNCIÓN PARA CARGAR MÁS DATOS AL BAJAR
   const loadMoreTasks = () => {
+    if (searchExpanded) return;
     if (!loadingMore && (hasMore || sharedHasMore)) {
       setLoadingMore(true);
       const promises = [];
@@ -844,20 +1060,45 @@ const TasksScreen = ({ navigation }) => {
     const sharedItems = sharedTasks.map((shared) => ({ ...shared, feedType: 'shared' }));
     const combined = [...plainTasks, ...sharedItems];
 
+    const categoryOrder = selectedCategory
+      ? (a, b) => categoryPathRank(a, selectedCategory) - categoryPathRank(b, selectedCategory)
+      : () => 0;
     switch (selectedSortBy) {
       case 'likes':
-        return combined.sort((a, b) => (b.likes_count || 0) - (a.likes_count || 0));
+        return combined.sort((a, b) => (
+          categoryOrder(a, b)
+          || (b.likes_count || 0) - (a.likes_count || 0)
+        ));
       case 'recent':
-        return combined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        return combined.sort((a, b) => (
+          categoryOrder(a, b)
+          || new Date(b.created_at) - new Date(a.created_at)
+        ));
       case 'all':
       default:
         // Para 'all', simplemente combinamos y dejamos que el orden de la API (que ya es por fecha) prevalezca.
         // Opcionalmente, se puede re-ordenar por fecha si la combinación desordena.
-        return combined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        return combined.sort((a, b) => (
+          categoryOrder(a, b)
+          || new Date(b.created_at) - new Date(a.created_at)
+        ));
     }
-  }, [tasks, sharedTasks, selectedSortBy]);
+  }, [selectedCategory, selectedSortBy, tasks, sharedTasks]);
 
-  const filteredTasks = feedItems.filter((item) => {
+  const searchFeedItems = React.useMemo(() => {
+    const plainTasks = searchTasks.map(task => ({ ...task, feedType: 'task' }));
+    const sharedItems = searchSharedTasks.map(shared => ({ ...shared, feedType: 'shared' }));
+    return [...plainTasks, ...sharedItems].sort((a, b) => (
+      categoryPathRank(a, searchCategory)
+      || (selectedSortBy === 'likes'
+        ? (b.likes_count || 0) - (a.likes_count || 0)
+        : new Date(b.created_at) - new Date(a.created_at))
+    ));
+  }, [searchCategory, searchSharedTasks, searchTasks, selectedSortBy]);
+
+  const displayedFeedItems = searchExpanded && searchHasStarted ? searchFeedItems : feedItems;
+  const filteredTasks = displayedFeedItems.filter((item) => {
+    if (searchExpanded && searchHasStarted) return true;
     const title = item.feedType === 'shared' ? item.task?.title : item.title;
     const description = item.feedType === 'shared'
       ? (item.description || item.task?.description)
@@ -1315,30 +1556,55 @@ const TasksScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        {searchExpanded ? (
-          <View style={styles.searchContainer}>
-            <Ionicons name="search" size={20} color="#999" />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Buscar objetivos..."
-              value={searchText}
-              onChangeText={setSearchText}
-              autoFocus
-            />
-            <TouchableOpacity onPress={() => { setSearchText(''); setSearchExpanded(false); }}>
-              <Ionicons name="close-circle" size={20} color="#999" />
+      {searchExpanded ? (
+        <View style={styles.searchHeader}>
+          <View style={styles.searchHeaderRow}>
+            <View style={styles.searchInputHost}>
+              <View style={styles.searchContainer}>
+                <Ionicons name="search-outline" size={20} color="#666" />
+                <TextInput
+                  style={styles.searchInput}
+                  value={searchText}
+                  onChangeText={value => {
+                    setSearchText(value);
+                    if (value.trim()) setSearchHasStarted(true);
+                  }}
+                  autoFocus
+                  returnKeyType="search"
+                  onSubmitEditing={() => applySearchCategory(searchText)}
+                  placeholder="Buscar"
+                  placeholderTextColor="#777"
+                  accessibilityLabel="Buscar"
+                />
+                <TouchableOpacity
+                  onPress={() => setSearchText('')}
+                  accessibilityLabel="Limpiar búsqueda"
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close-circle" size={18} color="#777" />
+                </TouchableOpacity>
+              </View>
+              {searchLoading ? <ActivityIndicator style={styles.searchLoading} size="small" color="#4dabf7" /> : null}
+            </View>
+            <TouchableOpacity style={styles.applySearchButton} onPress={applySearchToMainFilter}>
+              <Text style={styles.applySearchButtonText}>Aplicar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.searchCloseButton}
+              onPress={closeSearch}
+              accessibilityLabel="Salir de la búsqueda"
+            >
+              <Ionicons name="close" size={25} color="#333" />
             </TouchableOpacity>
           </View>
-        ) : (
+        </View>
+      ) : (
+        <View style={styles.header}>
           <Text style={styles.headerTitle}>Éxito</Text>
-        )}
-        <View style={styles.headerActions}>
-          {!searchExpanded && (
-            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setSearchExpanded(true)}>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.headerIconBtn} onPress={openSearch}>
               <Ionicons name="search-outline" size={24} color="#4dabf7" />
             </TouchableOpacity>
-          )}
           <TouchableOpacity style={styles.headerIconBtn} onPress={() => setFilterModalVisible(true)}>
             <Ionicons name="options-outline" size={24} color="#4dabf7" />
           </TouchableOpacity>
@@ -1348,8 +1614,9 @@ const TasksScreen = ({ navigation }) => {
           <TouchableOpacity style={styles.createBtn} onPress={() => navigation.navigate('CreateTask', { initialPch: tema })}>
             <Ionicons name="add" size={24} color="#fff" />
           </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      )}
 
       <View style={styles.temaSelector}>
         {['consejos', 'peticiones', 'historias'].map((t) => (
@@ -1371,23 +1638,74 @@ const TasksScreen = ({ navigation }) => {
       </View>
 
       <CategoryHierarchy
-        availableCategories={availableCategories}
+        availableCategories={categoriesWithSelectedSearchPath}
+        selectedCategoryPath={activeCategoryPath}
+        onRemoveCategory={(value, level) => {
+          if (value?.isSearchCategory && Array.isArray(value.searchPath)) {
+            const removedPath = value.searchPath.join(',').toLowerCase();
+            const isDescendant = path => {
+              const normalizedPath = path.join(',').toLowerCase();
+              return normalizedPath === removedPath || normalizedPath.startsWith(`${removedPath},`);
+            };
+            setSearchCustomPaths(previous => previous.filter(path => !isDescendant(path)));
+            if (searchExpanded && isDescendant(searchCategoryPath)) {
+              const nextPath = searchCategoryPath.slice(0, value.searchPath.length - 1);
+              setSearchCategory(nextPath.join(','));
+              setSearchCategoryLevel(nextPath.length - 1);
+              if (!nextPath.length) setSearchHasStarted(false);
+            } else if (!searchExpanded) {
+              const selectedPath = selectedCategory.split(',').map(normalizeCategoryValue).filter(Boolean);
+              if (isDescendant(selectedPath)) {
+                const nextPath = selectedPath.slice(0, value.searchPath.length - 1);
+                setSelectedCategory(nextPath.join(','));
+                setPage(1);
+                setSharedPage(1);
+                setHasMore(true);
+                setSharedHasMore(true);
+              }
+            }
+            return;
+          }
+          if (searchExpanded) {
+            const nextPath = searchCategoryPath.slice(0, level);
+            setSearchCategory(nextPath.join(','));
+            setSearchCategoryLevel(nextPath.length - 1);
+            if (!nextPath.length) setSearchHasStarted(false);
+          }
+        }}
         showDescendants
-        selectedStatus={selectedStatus}
+        selectedStatus={searchExpanded ? searchStatus : selectedStatus}
         onStatusSelect={(status) => {
-          setSelectedStatus(status);
-          setPage(1);
-          setSharedPage(1);
-          setHasMore(true);
-          setSharedHasMore(true);
+          if (searchExpanded) {
+            setSearchStatus(status);
+          } else {
+            setSelectedStatus(status);
+            setPage(1);
+            setSharedPage(1);
+            setHasMore(true);
+            setSharedHasMore(true);
+          }
         }}
         onSelect={(category) => {
-          setSelectedCategory(category);
-          if (category.split(',')[0].trim().toLowerCase() !== 'grabar podcast') {
-            setSelectedStatus('');
+          if (searchExpanded) {
+            setSearchHasStarted(true);
+            const nextPath = category.split(',').map(normalizeCategoryValue).filter(Boolean);
+            setSearchCategory(nextPath.join(','));
+            setSearchCategoryLevel(nextPath.length - 1);
+          } else {
+            setSelectedCategory(category);
           }
-          setPage(1);
-          setHasMore(true);
+          if (category.split(',')[0].trim().toLowerCase() !== 'grabar podcast') {
+            if (searchExpanded) {
+              setSearchStatus('');
+            } else {
+              setSelectedStatus('');
+            }
+          }
+          if (!searchExpanded) {
+            setPage(1);
+            setHasMore(true);
+          }
         }}
       />
 
@@ -1397,20 +1715,36 @@ const TasksScreen = ({ navigation }) => {
           title="Mi filtro"
           excludeNames={availableCategories.map(cat => cat.name)}
           onSelect={(category) => {
-            setSelectedCategory(category);
-            setPage(1);
-            setHasMore(true);
+            if (searchExpanded) {
+              setSearchHasStarted(true);
+              const nextPath = category.split(',').map(normalizeCategoryValue).filter(Boolean);
+              setSearchCategory(nextPath.join(','));
+              setSearchCategoryLevel(nextPath.length - 1);
+            } else {
+              setSelectedCategory(category);
+              setPage(1);
+              setHasMore(true);
+            }
           }}
         />
       )}
 
       <FlatList
+        ref={feedListRef}
         data={filteredTasks}
         // ✅ FIX: Usamos una clave única y consistente que previene duplicados.
         // Para un item compartido, usamos su propio ID, no el de la tarea anidada.
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderFeedItem}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        onScroll={event => {
+          const offset = event.nativeEvent.contentOffset.y;
+          feedScrollOffsetRef.current = offset;
+          if (!searchExpanded) {
+            mainFeedScrollOffsetRef.current = offset;
+          }
+        }}
+        scrollEventThrottle={16}
         contentContainerStyle={styles.listContent}
         
         // ⚡ LAS PROPS MÁGICAS DE RENDIMIENTO Y SCROLL INFINITO
@@ -1619,7 +1953,14 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   headerIconBtn: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
   createBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
+  searchHeader: { padding: 12, backgroundColor: '#fff', gap: 8 },
+  searchHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  searchInputHost: { flex: 1, minWidth: 0 },
+  searchLoading: { position: 'absolute', right: 42, top: 26 },
   searchContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, backgroundColor: '#f8f9fa', borderRadius: 12, borderWidth: 1, borderColor: '#eee' },
+  searchCloseButton: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
+  applySearchButton: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#1864ab' },
+  applySearchButtonText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   searchInput: { 
     flex: 1, 
     height: 45, 
@@ -1633,6 +1974,7 @@ const styles = StyleSheet.create({
   temaBadgeActive: { backgroundColor: '#333' },
   temaBadgeText: { fontSize: 12, fontWeight: 'bold', color: '#666' },
   temaBadgeTextActive: { color: '#fff' },
+  categorySearchContainer: { paddingHorizontal: 12, marginBottom: 8 },
   listContent: { paddingBottom: 100 },
   taskCard: { 
     backgroundColor: '#fff', 

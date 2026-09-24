@@ -182,6 +182,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
+  const [activeSearchLevel, setActiveSearchLevel] = useState(-1);
   const [customSubcategory, setCustomSubcategory] = useState('');
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [sortBy, setSortBy] = useState(currentSortBy || 'recent');
@@ -325,8 +326,10 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
         // Keep terms returned by saved filters even when they are not in the
         // catalog. They are valid transient backend search criteria.
         setSelectedSubcategories(subcats);
+        setActiveSearchLevel(parts.length - 1);
       } else {
         setSelectedSubcategories([]);
+        setActiveSearchLevel(parts[0] ? 0 : -1);
       }
     } else {
       setSelectedCategory('');
@@ -410,6 +413,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const selectMainCategory = (category) => {
     setSelectedCategory(category);
     setSelectedSubcategories([]);
+    setActiveSearchLevel(category ? 0 : -1);
   };
 
   const selectSubcategoryAtLevel = (subcategory, level) => {
@@ -419,6 +423,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       }
       return [...prev.slice(0, level), subcategory];
     });
+    setActiveSearchLevel(level + 1);
   };
 
   const normalizeCategoryName = value => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -430,6 +435,24 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const commitCategorySearch = (searchValue = customSubcategory) => {
     const value = searchValue.trim().replace(/\s+/g, ' ');
     if (!value) return;
+
+    const selectedPath = [selectedCategory, ...selectedSubcategories].filter(Boolean);
+    const contextLevel = selectedPath.length > 0
+      ? Math.min(Math.max(activeSearchLevel, 0), selectedPath.length - 1)
+      : -1;
+    const basePath = contextLevel >= 0
+      ? selectedPath.slice(0, contextLevel + 1)
+      : selectedPath;
+    const alreadySelected = basePath.some(item => normalizeCategoryName(item) === normalizeCategoryName(value));
+    const nextPath = alreadySelected ? basePath : [...basePath, value];
+
+    if (nextPath.length > 0) {
+      setSelectedCategory(nextPath[0]);
+      setSelectedSubcategories(nextPath.slice(1));
+      setActiveSearchLevel(nextPath.length - 1);
+      setCustomSubcategory('');
+      return;
+    }
 
     const exactCategory = findCategory(value);
     if (!selectedCategory) {
@@ -468,11 +491,24 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     if (level === 0) {
       setSelectedCategory('');
       setSelectedSubcategories([]);
+      setActiveSearchLevel(-1);
       setSelectedStatus('');
       return;
     }
     setSelectedSubcategories(prev => prev.slice(0, level - 1));
+    setActiveSearchLevel(level - 1);
   };
+
+  const selectedSearchPath = [selectedCategory, ...selectedSubcategories].filter(Boolean);
+  const normalizedActiveSearchLevel = selectedSearchPath.length > 0
+    ? Math.min(Math.max(activeSearchLevel, 0), selectedSearchPath.length - 1)
+    : -1;
+  const categorySearchContext = normalizedActiveSearchLevel >= 0
+    ? selectedSearchPath[normalizedActiveSearchLevel]
+    : '';
+  const categorySearchPlaceholder = categorySearchContext
+    ? `Buscar dentro de ${categorySearchContext}...`
+    : 'Buscar categoría o subcategoría...';
 
   // ⚡ LÓGICA DE ADMIN PARA GUARDAR SUBTEMAS CONSECUTIVOS AL ÁRBOL Y A LA DB
   const handleAdminAddSubtheme = async (parentTheme) => {
@@ -672,22 +708,32 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
               {(selectedCategory || selectedSubcategories.length > 0) && (
                 <View style={styles.selectedSearchTerms}>
                   {[selectedCategory, ...selectedSubcategories].filter(Boolean).map((term, index) => (
-                    <View key={`${term}-${index}`} style={styles.selectedSearchTerm}>
-                      <Text style={styles.selectedSearchTermText}>{term}</Text>
-                      <TouchableOpacity
-                        onPress={() => removeSelectedCategoryPart(index)}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                        accessibilityLabel={`Quitar ${term}`}
+                      <View
+                        key={`${term}-${index}`}
+                        style={[
+                          styles.selectedSearchTerm,
+                          index === activeSearchLevel && styles.selectedSearchTermContext,
+                        ]}
                       >
-                        <Ionicons name="close-circle" size={16} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
+                        <TouchableOpacity onPress={() => setActiveSearchLevel(index)} accessibilityLabel={`Buscar dentro de ${term}`}>
+                          <Text style={styles.selectedSearchTermText}>{term}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => removeSelectedCategoryPart(index)}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          accessibilityLabel={`Quitar ${term}`}
+                        >
+                          <Ionicons name="close-circle" size={16} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
                   ))}
                 </View>
               )}
               <CategorySearchInput
                 categories={categories}
                 onSubmit={commitCategorySearch}
+                placeholder={categorySearchPlaceholder}
+                contextLabel={categorySearchContext}
               />
               <View style={styles.customSubcategoryRow}>
                 <Text style={styles.customSubcategoryHint}>

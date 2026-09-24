@@ -9,10 +9,22 @@ const HISTORY_KEY = 'categorySearchHistory';
 const normalize = value => String(value || '').trim().replace(/\s+/g, ' ');
 const keyFor = value => normalize(value).toLowerCase();
 
-const CategorySearchInput = ({ categories = [], onSubmit, placeholder = 'Buscar categoría o subcategoría...' }) => {
+const CategorySearchInput = ({
+  categories = [],
+  onSubmit,
+  onQueryChange,
+  value,
+  autoFocus = false,
+  placeholder = 'Buscar categoría o subcategoría...',
+  contextLabel = '',
+}) => {
   const [query, setQuery] = useState('');
   const [history, setHistory] = useState([]);
   const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (value !== undefined && value !== query) setQuery(value);
+  }, [query, value]);
 
   useEffect(() => {
     let mounted = true;
@@ -52,11 +64,17 @@ const CategorySearchInput = ({ categories = [], onSubmit, placeholder = 'Buscar 
     AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(nextHistory))
       .catch(error => console.warn('[CategorySearchInput] No se pudo guardar el historial:', error));
     setQuery('');
+    onQueryChange?.('');
     onSubmit?.(normalized);
   };
 
   return (
     <View style={styles.container}>
+      {contextLabel ? (
+        <Text style={styles.contextLabel}>
+          Buscando dentro de <Text style={styles.contextValue}>{contextLabel}</Text>
+        </Text>
+      ) : null}
       <View style={styles.inputRow}>
         <Ionicons name="search-outline" size={19} color="#777" />
         <TextInput
@@ -64,8 +82,12 @@ const CategorySearchInput = ({ categories = [], onSubmit, placeholder = 'Buscar 
           placeholder={placeholder}
           placeholderTextColor="#999"
           value={query}
-          onChangeText={setQuery}
+          onChangeText={nextQuery => {
+            setQuery(nextQuery);
+            onQueryChange?.(nextQuery);
+          }}
           onFocus={() => setFocused(true)}
+          autoFocus={autoFocus}
           onBlur={() => setTimeout(() => setFocused(false), 150)}
           onSubmitEditing={() => submit(query)}
           returnKeyType="search"
@@ -100,6 +122,8 @@ const CategorySearchInput = ({ categories = [], onSubmit, placeholder = 'Buscar 
 
 const styles = StyleSheet.create({
   container: { marginTop: 14, zIndex: 10 },
+  contextLabel: { marginBottom: 6, color: '#777', fontSize: 12 },
+  contextValue: { color: '#333', fontWeight: '700' },
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 44, paddingHorizontal: 12, backgroundColor: '#f5f5f5', borderWidth: 1, borderColor: '#d9e2ec', borderRadius: 10 },
   input: { flex: 1, color: '#333', minWidth: 0 },
   addButton: { width: 30, height: 30, borderRadius: 8, backgroundColor: '#4dabf7', alignItems: 'center', justifyContent: 'center' },

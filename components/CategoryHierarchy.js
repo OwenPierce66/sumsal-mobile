@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -15,11 +15,25 @@ const DEFAULT_SUBTHEMES = {
 const normalize = value => String(value || '').trim();
 const keyFor = value => normalize(value).toLowerCase();
 
-const CategoryHierarchy = ({ categories, availableCategories, onSelect, selectedStatus = '', onStatusSelect, showDescendants = false }) => {
+const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemoveCategory, selectedStatus = '', onStatusSelect, showDescendants = false, selectedCategoryPath = [] }) => {
   const [tree, setTree] = useState(DEFAULT_SUBTHEMES);
   const [selectedPath, setSelectedPath] = useState([]);
+  const [collapsedLevels, setCollapsedLevels] = useState(new Set());
+  const levelScrollRefs = useRef(new Map());
 
   const source = categories || availableCategories || [];
+
+  useEffect(() => {
+    if (Array.isArray(selectedCategoryPath)) {
+      setSelectedPath(selectedCategoryPath.map(normalize).filter(Boolean));
+      setCollapsedLevels(previous => new Set(
+        [...previous].filter(level => level < selectedCategoryPath.length)
+      ));
+    }
+    requestAnimationFrame(() => {
+      levelScrollRefs.current.forEach(scrollView => scrollView?.scrollToEnd({ animated: false }));
+    });
+  }, [selectedCategoryPath]);
 
   // Si el backend manda objetos con `parent`, la jerarquía viene de la base de datos.
   const nodes = useMemo(() => (
@@ -103,19 +117,37 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, selected
   const labelOf = value => (typeof value === 'object' ? normalize(value.name) : normalize(value));
 
   const handleSelect = (value, level) => {
-    const valueKey = keyFor(labelOf(value));
-    setSelectedPath(previous => {
-      if (previous[level] === valueKey) return previous.slice(0, level);
-      return [...previous.slice(0, level), valueKey];
-    });
-    onSelect?.(labelOf(value));
+    const label = labelOf(value);
+    const valueKey = keyFor(label);
+    const isSameSelection = keyFor(selectedPath[level]) === valueKey;
+    if (isSameSelection) {
+      setCollapsedLevels(previousCollapsed => {
+        const nextCollapsed = new Set(previousCollapsed);
+        if (nextCollapsed.has(level)) {
+          nextCollapsed.delete(level);
+        } else {
+          nextCollapsed.add(level);
+        }
+        return nextCollapsed;
+      });
+      return;
+    }
+
+    setCollapsedLevels(previousCollapsed => new Set(
+      [...previousCollapsed].filter(collapsedLevel => collapsedLevel < level)
+    ));
+    const nextPath = [...selectedPath.slice(0, level), label];
+    onSelect?.(nextPath.join(','));
+    setSelectedPath(nextPath);
   };
 
   const renderLevel = (values, level, parentKey) => {
     if (!values.length) return null;
-    const selectedValue = selectedPath[level];
+    const selectedValue = keyFor(selectedPath[level]);
     const selectedItem = values.find(value => keyFor(labelOf(value)) === selectedValue);
-    const visibleChildren = selectedItem ? childrenOf(selectedItem) : [];
+    const visibleChildren = selectedItem && !collapsedLevels.has(level)
+      ? childrenOf(selectedItem)
+      : [];
 
     return (
       <View key={`${parentKey}-${level}`} style={[styles.level, { paddingLeft: level * 14 }]}>
@@ -124,6 +156,7 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, selected
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.row}
           keyboardShouldPersistTaps="handled"
+          ref={scrollView => levelScrollRefs.current.set(level, scrollView)}
         >
           {values.map(value => {
             const label = labelOf(value);
@@ -131,22 +164,33 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, selected
             const isStatus = Boolean(value?.virtualStatus);
             const isStatusSelected = isStatus &&
               keyFor(selectedStatus) === keyFor(value.virtualStatus);
+            const isRemovable = Boolean(value?.isSearchCategory);
             return (
-              <TouchableOpacity
-                key={`${parentKey}-${value?.id ?? keyFor(label)}`}
-                onPress={() => {
-                  if (isStatus) {
-                    onStatusSelect?.(value.virtualStatus);
-                    return;
-                  }
-                  handleSelect(value, level);
-                }}
-                style={[styles.badge, level === 0 ? styles.rootBadge : styles.childBadge, (isSelected || isStatusSelected) && styles.selectedBadge]}
-              >
-                <Text style={[styles.badgeText, level === 0 ? styles.rootText : styles.childText, (isSelected || isStatusSelected) && styles.selectedText]}>
-                  {label}
-                </Text>
-              </TouchableOpacity>
+              <View key={`${parentKey}-${value?.id ?? keyFor(label)}`} style={styles.badgeGroup}>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (isStatus) {
+                      onStatusSelect?.(value.virtualStatus);
+                      return;
+                    }
+                    handleSelect(value, level);
+                  }}
+                  style={[styles.badge, level === 0 ? styles.rootBadge : styles.childBadge, (isSelected || isStatusSelected) && styles.selectedBadge, isRemovable && styles.removableBadge]}
+                >
+                  <Text style={[styles.badgeText, level === 0 ? styles.rootText : styles.childText, (isSelected || isStatusSelected) && styles.selectedText]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+                {isRemovable ? (
+                  <TouchableOpacity
+                    style={styles.removeBadgeButton}
+                    onPress={() => onRemoveCategory?.(value, level)}
+                    accessibilityLabel={`Quitar ${label}`}
+                  >
+                    <Text style={styles.removeBadgeText}>×</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             );
           })}
         </ScrollView>
@@ -171,7 +215,11 @@ const styles = StyleSheet.create({
   container: { marginTop: 10, marginBottom: 8 },
   level: { marginBottom: 8 },
   row: { flexDirection: 'row', gap: 10, paddingHorizontal: 12, paddingVertical: 2 },
+  badgeGroup: { position: 'relative' },
   badge: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, borderWidth: 1, minHeight: 36, justifyContent: 'center' },
+  removableBadge: { paddingRight: 27 },
+  removeBadgeButton: { position: 'absolute', right: 5, top: 8, width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  removeBadgeText: { color: '#777', fontSize: 18, lineHeight: 18 },
   rootBadge: { backgroundColor: '#f0f0f0', borderColor: '#e0e0e0' },
   childBadge: { backgroundColor: '#f0f0f0', borderColor: '#e0e0e0' },
   selectedBadge: { backgroundColor: '#4dabf7', borderColor: '#4dabf7' },
