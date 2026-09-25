@@ -28,6 +28,7 @@ const NOTIFICATION_COPY = {
   profile_like: { icon: 'heart-circle', color: '#ff5d73', text: 'le dio me gusta a tu perfil' },
   task_favorite: { icon: 'bookmark', color: '#f59f00', text: 'guardó tu tarea en favoritos' },
   profile_favorite: { icon: 'star', color: '#f59f00', text: 'agregó tu perfil a favoritos' },
+  favorite_pin: { icon: 'pin', color: '#845ef7', text: 'te colocó entre sus 5 favoritos' },
   task_comment: { icon: 'chatbubble', color: '#4dabf7', text: 'comentó en tu tarea' },
   task_reply: { icon: 'arrow-undo', color: '#4dabf7', text: 'respondió a tu comentario' },
   shared_task_comment: { icon: 'chatbubble', color: '#4dabf7', text: 'comentó en tu publicación compartida' },

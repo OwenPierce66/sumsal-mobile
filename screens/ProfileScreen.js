@@ -31,6 +31,9 @@ const ProfileScreen = ({ route, navigation }) => {
   const [appCategories, setAppCategories] = useState([]);
   const [personalFilterPublic, setPersonalFilterPublic] = useState(false);
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
+  const [showFavoriteFeed, setShowFavoriteFeed] = useState(false);
+  const [favoriteFeedTasks, setFavoriteFeedTasks] = useState([]);
+  const [favoriteFeedLoading, setFavoriteFeedLoading] = useState(false);
   const [viewMode, setViewMode] = useState('compact');
   const [visibleSections, setVisibleSections] = useState({});
 
@@ -178,6 +181,31 @@ const ProfileScreen = ({ route, navigation }) => {
   // ⚡ Filtro personal: igual criterio que TasksScreen (todas las etiquetas requeridas presentes)
   const filteredTasks = tasks;
 
+  const loadFavoriteFeed = async () => {
+    setFavoriteFeedLoading(true);
+    try {
+      const response = await api.get('favorites/collection/');
+      const favoriteTasks = Array.isArray(response.data?.tasks)
+        ? response.data.tasks
+          .map((item) => item.task)
+          .filter(Boolean)
+        : [];
+      setFavoriteFeedTasks(favoriteTasks);
+      setShowFavoriteFeed(true);
+      setProfileMenuVisible(false);
+    } catch (error) {
+      console.error('[ProfileScreen] Error cargando favoritos:', error.response?.data || error.message);
+      Alert.alert('No se pudieron cargar', 'Intenta nuevamente.');
+    } finally {
+      setFavoriteFeedLoading(false);
+    }
+  };
+
+  const exitFavoriteFeed = () => {
+    setShowFavoriteFeed(false);
+    setFavoriteFeedTasks([]);
+  };
+
   const handleCategorySelect = (category) => {
     setSelectedCategory(category);
     fetchMyTasks(1, category);
@@ -194,6 +222,7 @@ const ProfileScreen = ({ route, navigation }) => {
   };
 
   const renderTask = ({ item }) => {
+    const taskOwner = item.user || user;
     return (
       <TouchableOpacity 
         style={styles.taskCard} 
@@ -203,12 +232,13 @@ const ProfileScreen = ({ route, navigation }) => {
         activeOpacity={0.9}
       >
         <View style={styles.taskHeader}>
-          <Image 
-            source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }} 
-            style={styles.avatar} 
+          <Image
+            source={{ uri: getImageUrl(taskOwner?.user_image || taskOwner?.profile?.user_image) }}
+            style={styles.avatar}
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.taskTitle}>{item.title}</Text>
+            <Text style={styles.taskCreator}>Creada por {taskOwner?.username || [taskOwner?.first_name, taskOwner?.last_name].filter(Boolean).join(' ') || 'Usuario'}</Text>
             <Text style={styles.taskDate}>{moment(item.created_at).fromNow()}</Text>
           </View>
         </View>
@@ -258,16 +288,18 @@ const ProfileScreen = ({ route, navigation }) => {
   const renderDetailedTask = ({ item }) => {
     const currentSec = visibleSections[item.id] || 'subtasks';
     const content = Array.isArray(item[currentSec]) ? item[currentSec] : [];
+    const taskOwner = item.user || user;
 
     return (
       <View style={styles.detailedCard}>
         <View style={styles.taskHeader}>
           <Image
-            source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }}
+            source={{ uri: getImageUrl(taskOwner?.user_image || taskOwner?.profile?.user_image) }}
             style={styles.avatar}
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.taskTitle}>{item.title}</Text>
+            <Text style={styles.taskCreator}>Creada por {taskOwner?.username || [taskOwner?.first_name, taskOwner?.last_name].filter(Boolean).join(' ') || 'Usuario'}</Text>
             <Text style={styles.taskDate}>{moment(item.created_at).fromNow()}</Text>
           </View>
         </View>
@@ -366,21 +398,20 @@ const ProfileScreen = ({ route, navigation }) => {
         </View>
       </View>
       
-      {isCurrentUser && (
-        <View style={styles.actionButtonsContainer}>
-          <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('EditProfile', { user })}>
-            <Ionicons name="pencil" size={18} color="#4dabf7" />
-            <Text style={styles.actionBtnText}>Editar Perfil</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, styles.logoutBtn]} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={18} color="#ff6b6b" />
-            <Text style={styles.actionBtnTextLogout}>Cerrar Sesión</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      
       <View style={styles.divider} />
-      <Text style={styles.sectionTitle}>{isCurrentUser ? 'Mis Publicaciones' : `Publicaciones de ${user?.username || ''}`}</Text>
+      <View style={styles.sectionTitleRow}>
+        <Text style={styles.sectionTitle}>
+          {showFavoriteFeed
+            ? 'Tareas favoritas'
+            : (isCurrentUser ? 'Mis Publicaciones' : `Publicaciones de ${user?.username || ''}`)}
+        </Text>
+        {showFavoriteFeed ? (
+          <TouchableOpacity style={styles.exitFavoritesButton} onPress={exitFavoriteFeed}>
+            <Ionicons name="close-circle-outline" size={18} color="#f59f00" />
+            <Text style={styles.exitFavoritesText}>Salir</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
     </View>
   );
 
@@ -415,6 +446,31 @@ const ProfileScreen = ({ route, navigation }) => {
       >
         <TouchableOpacity style={styles.profileMenuOverlay} activeOpacity={1} onPress={() => setProfileMenuVisible(false)}>
           <View style={styles.profileMenuCard}>
+            <TouchableOpacity style={styles.profileMenuOption} onPress={() => {
+              setProfileMenuVisible(false);
+              loadFavoriteFeed();
+            }}>
+              <Ionicons name="star-outline" size={20} color="#f59f00" />
+              <Text style={styles.profileMenuText}>Favoritos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.profileMenuOption} onPress={() => {
+              setProfileMenuVisible(false);
+              navigation.navigate('Favorites', { mode: 'organize' });
+            }}>
+              <Ionicons name="options-outline" size={20} color="#845ef7" />
+              <Text style={styles.profileMenuText}>Ordenar favoritos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.profileMenuOption} onPress={() => {
+              setProfileMenuVisible(false);
+              navigation.navigate('EditProfile', { user });
+            }}>
+              <Ionicons name="pencil-outline" size={20} color="#4dabf7" />
+              <Text style={styles.profileMenuText}>Editar perfil</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.profileMenuOption} onPress={handleLogout}>
+              <Ionicons name="log-out-outline" size={20} color="#ff6b6b" />
+              <Text style={styles.profileMenuText}>Cerrar sesión</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.profileMenuOption} onPress={togglePersonalFilterVisibility}>
               <Ionicons name={personalFilterPublic ? 'eye-off-outline' : 'eye-outline'} size={20} color="#4dabf7" />
               <Text style={styles.profileMenuText}>
@@ -480,11 +536,11 @@ const ProfileScreen = ({ route, navigation }) => {
         </TouchableOpacity>
       ) : null}
 
-      {loading && page === 1 ? (
+      {(loading && page === 1) || favoriteFeedLoading ? (
         <ActivityIndicator size="large" color="#4dabf7" style={{ marginTop: 50 }} />
       ) : (
         <FlatList
-          data={filteredTasks}
+          data={showFavoriteFeed ? favoriteFeedTasks : filteredTasks}
           keyExtractor={(item) => item.id.toString()}
           renderItem={viewMode === 'detailed' ? renderDetailedTask : renderTask}
           ListHeaderComponent={renderHeader}
@@ -548,7 +604,7 @@ const styles = StyleSheet.create({
   adminBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, backgroundColor: '#d9534f' },
   adminBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   
-  actionButtonsContainer: { flexDirection: 'row', justifyContent: 'flex-start', gap: 10 },
+  actionButtonsContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', gap: 10 },
   actionBtn: { 
     flexDirection: 'row', 
     alignItems: 'center', 
@@ -565,6 +621,9 @@ const styles = StyleSheet.create({
   
   divider: { height: 1, backgroundColor: '#eee', marginVertical: 20 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  exitFavoritesButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: '#fff4d6' },
+  exitFavoritesText: { color: '#d97706', fontSize: 12, fontWeight: '700' },
   
   listContent: { paddingBottom: 30 },
   
@@ -573,6 +632,7 @@ const styles = StyleSheet.create({
   avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, backgroundColor: '#eee' },
   taskTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
   taskDate: { fontSize: 12, color: '#999', marginTop: 2 },
+  taskCreator: { fontSize: 12, color: '#4dabf7', marginTop: 2 },
   taskDescription: { fontSize: 14, color: '#555', lineHeight: 20 },
   categoriesList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, marginBottom: 10 },
   categoryBadge: { backgroundColor: '#e3f2fd', color: '#4dabf7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, fontSize: 11, fontWeight: '600' },

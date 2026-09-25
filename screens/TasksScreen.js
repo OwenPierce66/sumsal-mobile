@@ -159,8 +159,10 @@ const TasksScreen = ({ navigation }) => {
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [searchTasks, setSearchTasks] = useState([]);
   const [searchSharedTasks, setSearchSharedTasks] = useState([]);
+  const [searchDirectoryProfiles, setSearchDirectoryProfiles] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchCategory, setSearchCategory] = useState('');
+  const [searchScope, setSearchScope] = useState('both');
   const [searchCategoryLevel, setSearchCategoryLevel] = useState(-1);
   const [searchStatus, setSearchStatus] = useState('');
   const [searchHasStarted, setSearchHasStarted] = useState(false);
@@ -185,6 +187,9 @@ const TasksScreen = ({ navigation }) => {
 
   const [availableCategories, setAvailableCategories] = useState([]);
   const [showPersonalFilter, setShowPersonalFilter] = useState(false);
+  const [favoriteVisibilityVisible, setFavoriteVisibilityVisible] = useState(false);
+  const [favoriteProfilesPublic, setFavoriteProfilesPublic] = useState(false);
+  const [favoriteTasksPublic, setFavoriteTasksPublic] = useState(false);
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
   const [likesModalTitle, setLikesModalTitle] = useState('Likes');
@@ -215,7 +220,11 @@ const TasksScreen = ({ navigation }) => {
 
     // El usuario puede elegir que su filtro personal lo acompañe por toda la app.
     api.get('categories/visibility/')
-      .then(res => setShowPersonalFilter(Boolean(res.data?.personal_filter_public)))
+      .then(res => {
+        setShowPersonalFilter(Boolean(res.data?.personal_filter_public));
+        setFavoriteProfilesPublic(Boolean(res.data?.favorite_profiles_public));
+        setFavoriteTasksPublic(Boolean(res.data?.favorite_tasks_public));
+      })
       .catch(() => setShowPersonalFilter(false));
 
     // ✅ FIX: Si el contexto no nos da el estado de admin, lo verificamos aquí.
@@ -611,6 +620,24 @@ const TasksScreen = ({ navigation }) => {
     }
   };
 
+  const handlePinFavorite = async (kind) => {
+    if (!selectedActionTask) return;
+    const target = kind === 'profile'
+      ? (selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)
+      : (selectedActionTask.isSharedTask ? selectedActionTask.task : selectedActionTask);
+    const targetId = typeof target === 'object' ? target?.id : target;
+    if (!targetId) return;
+    try {
+      await api.post('favorites/pin/', { type: kind, target_id: targetId, is_pinned: true });
+      Alert.alert('Favorito anclado', 'Se colocó dentro de tus primeros 5 favoritos.');
+    } catch (error) {
+      const message = error.response?.data?.is_pinned?.[0] || 'No se pudo anclar este favorito.';
+      Alert.alert('No se pudo anclar', message);
+    } finally {
+      setActionModalVisible(false);
+    }
+  };
+
 
   const handleShowTaskLikes = (taskId) => {
     const url = `tasks/${taskId}/users-who-liked/`; // ✅ CORRECCIÓN: URL correcta
@@ -748,6 +775,7 @@ const TasksScreen = ({ navigation }) => {
 
     const cacheKey = JSON.stringify({
       query: normalizedQuery.toLowerCase(),
+      scope: searchScope,
       tema,
       category: searchCategory,
       status: searchStatus,
@@ -767,6 +795,14 @@ const TasksScreen = ({ navigation }) => {
 
     setSearchLoading(true);
     try {
+      if (searchScope !== 'tasks') {
+        const directoryResponse = await api.get('search/directory/', {
+          params: { q: normalizedQuery, scope: searchScope },
+        });
+        setSearchDirectoryProfiles(directoryResponse.data?.profiles || []);
+      } else {
+        setSearchDirectoryProfiles([]);
+      }
       const params = {
         page: 1,
         category: searchCategory,
@@ -779,10 +815,12 @@ const TasksScreen = ({ navigation }) => {
         verified_users_only: selectedVerifiedUsersOnly,
         recommended_users_only: selectedRecommendedUsersOnly,
       };
-      const [tasksResponse, sharedResponse] = await Promise.all([
-        api.get('tasks/', { params: { ...params, pch: tema } }),
-        api.get('shared-tasks/', { params }),
-      ]);
+      const [tasksResponse, sharedResponse] = searchScope === 'profiles'
+        ? [{ data: [] }, { data: [] }]
+        : await Promise.all([
+          api.get('tasks/', { params: { ...params, pch: tema } }),
+          api.get('shared-tasks/', { params }),
+        ]);
       const result = {
         tasks: tasksResponse.data.results ?? tasksResponse.data ?? [],
         sharedTasks: sharedResponse.data.results ?? sharedResponse.data ?? [],
@@ -801,7 +839,7 @@ const TasksScreen = ({ navigation }) => {
     } finally {
       setSearchLoading(false);
     }
-  }, [tema, searchCategory, searchStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }, [tema, searchCategory, searchStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly, searchScope]);
 
   useEffect(() => {
     if (!searchExpanded || !searchHasStarted) return undefined;
@@ -1597,6 +1635,46 @@ const TasksScreen = ({ navigation }) => {
               <Ionicons name="close" size={25} color="#333" />
             </TouchableOpacity>
           </View>
+          <View style={styles.searchScopeRow}>
+            {[
+              ['both', 'Ambos'],
+              ['tasks', 'Tareas'],
+              ['profiles', 'Perfiles'],
+            ].map(([scope, label]) => (
+              <TouchableOpacity
+                key={scope}
+                style={[styles.searchScopeButton, searchScope === scope && styles.searchScopeButtonActive]}
+                onPress={() => {
+                  setSearchScope(scope);
+                  setSearchHasStarted(Boolean(searchText.trim()));
+                }}
+              >
+                <Text style={[styles.searchScopeText, searchScope === scope && styles.searchScopeTextActive]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {searchScope !== 'tasks' && searchDirectoryProfiles.length > 0 ? (
+            <View style={styles.directoryResults}>
+              {searchDirectoryProfiles.slice(0, 5).map((profile) => (
+                <TouchableOpacity
+                  key={profile.id}
+                  style={styles.directoryResult}
+                  onPress={() => navigation.navigate('UserProfile', {
+                    userId: profile.id,
+                    userName: profile.username || profile.name,
+                    userAvatar: getImageUrl(profile.user_image),
+                  })}
+                >
+                  <Ionicons name="person-circle-outline" size={20} color="#4dabf7" />
+                  <Text style={styles.directoryResultText} numberOfLines={1}>
+                    {profile.username || [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Perfil'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : (
         <View style={styles.header}>
@@ -1610,6 +1688,9 @@ const TasksScreen = ({ navigation }) => {
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerIconBtn} onPress={() => setSavedFiltersModalVisible(true)}>
             <Ionicons name="bookmarks-outline" size={24} color="#4dabf7" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIconBtn} onPress={() => setFavoriteVisibilityVisible(true)}>
+            <Ionicons name="eye-outline" size={24} color="#4dabf7" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.createBtn} onPress={() => navigation.navigate('CreateTask', { initialPch: tema })}>
             <Ionicons name="add" size={24} color="#fff" />
@@ -1760,6 +1841,48 @@ const TasksScreen = ({ navigation }) => {
       />
 
       {/* MODAL DE FILTROS */}
+      <Modal
+        visible={favoriteVisibilityVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFavoriteVisibilityVisible(false)}
+      >
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setFavoriteVisibilityVisible(false)}>
+          <View style={styles.visibilityModal}>
+            <Text style={styles.visibilityTitle}>Visibilidad de favoritos</Text>
+            <Text style={styles.visibilityHint}>Decide qué listas pueden ver otros usuarios.</Text>
+            {[
+              ['profiles', 'Perfiles favoritos', favoriteProfilesPublic, setFavoriteProfilesPublic],
+              ['tasks', 'Tareas favoritas', favoriteTasksPublic, setFavoriteTasksPublic],
+            ].map(([type, label, enabled, setEnabled]) => (
+              <TouchableOpacity
+                key={type}
+                style={styles.visibilityRow}
+                onPress={async () => {
+                  const next = !enabled;
+                  setEnabled(next);
+                  try {
+                    await api.patch('categories/visibility/', {
+                      [type === 'profiles' ? 'favorite_profiles_public' : 'favorite_tasks_public']: next,
+                    });
+                  } catch (error) {
+                    setEnabled(enabled);
+                    Alert.alert('No se pudo actualizar', 'Intenta nuevamente.');
+                  }
+                }}
+              >
+                <Ionicons name={enabled ? 'eye' : 'eye-off'} size={20} color={enabled ? '#1864ab' : '#868e96'} />
+                <Text style={styles.visibilityLabel}>{label}</Text>
+                <Text style={styles.visibilityValue}>{enabled ? 'Público' : 'Privado'}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.visibilityClose} onPress={() => setFavoriteVisibilityVisible(false)}>
+              <Text style={styles.visibilityCloseText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <FilterModal
         visible={filterModalVisible}
         onClose={() => setFilterModalVisible(false)}
@@ -1846,6 +1969,10 @@ const TasksScreen = ({ navigation }) => {
                   <Ionicons name={selectedActionTask.is_favorited ? 'star' : 'star-outline'} size={20} color={selectedActionTask.is_favorited ? '#f59f00' : '#555'} />
                   <Text style={styles.actionText}>{selectedActionTask.is_favorited ? 'Eliminar de favoritos' : 'Agregar a favoritos'}</Text>
                 </TouchableOpacity>
+                <TouchableOpacity style={styles.actionOption} onPress={() => handlePinFavorite('task')}>
+                  <Ionicons name="pin-outline" size={20} color="#845ef7" />
+                  <Text style={styles.actionText}>Anclar tarea en top 5</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); handleOpenShareActionMenu(selectedActionTask); }}>
                   <Ionicons name='share-social-outline' size={20} color='#555' />
                   <Text style={styles.actionText}>Compartir</Text>
@@ -1863,6 +1990,10 @@ const TasksScreen = ({ navigation }) => {
                     <TouchableOpacity style={styles.actionOption} onPress={handleToggleProfileFavorite}>
                       <Ionicons name={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.is_favorited) ? "heart" : "heart-outline"} size={20} color={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.is_favorited) ? "#ff0b5a" : "#555"} />
                       <Text style={styles.actionText}>{((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.is_favorited) ? "Eliminar perfil de favoritos" : "Agregar perfil a favoritos"}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.actionOption} onPress={() => handlePinFavorite('profile')}>
+                      <Ionicons name="pin-outline" size={20} color="#845ef7" />
+                      <Text style={styles.actionText}>Anclar perfil en top 5</Text>
                     </TouchableOpacity>
                   </>
                 )}
@@ -1961,6 +2092,22 @@ const styles = StyleSheet.create({
   searchCloseButton: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
   applySearchButton: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#1864ab' },
   applySearchButtonText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  searchScopeRow: { flexDirection: 'row', gap: 8 },
+  searchScopeButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: '#f1f3f5' },
+  searchScopeButtonActive: { backgroundColor: '#d0ebff' },
+  searchScopeText: { color: '#495057', fontSize: 12, fontWeight: '600' },
+  searchScopeTextActive: { color: '#1864ab' },
+  directoryResults: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  directoryResult: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 12, backgroundColor: '#f8f9fa' },
+  directoryResultText: { maxWidth: 140, color: '#343a40', fontSize: 12 },
+  visibilityModal: { width: '88%', maxWidth: 420, padding: 20, borderRadius: 18, backgroundColor: '#fff' },
+  visibilityTitle: { color: '#212529', fontSize: 18, fontWeight: '700', marginBottom: 6 },
+  visibilityHint: { color: '#868e96', fontSize: 13, marginBottom: 14 },
+  visibilityRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f1f3f5', gap: 10 },
+  visibilityLabel: { flex: 1, color: '#343a40', fontSize: 14 },
+  visibilityValue: { color: '#868e96', fontSize: 12, fontWeight: '600' },
+  visibilityClose: { alignSelf: 'flex-end', marginTop: 14, paddingHorizontal: 12, paddingVertical: 8 },
+  visibilityCloseText: { color: '#1864ab', fontWeight: '700' },
   searchInput: { 
     flex: 1, 
     height: 45, 

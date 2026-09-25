@@ -1,0 +1,16 @@
+{
+  "files": {
+    "main.js": "/static/js/main.c1dfc7a0.js",
+    "static/js/875.2d461eae.js": "/static/js/875.2d461eae.js",
+    "static/media/Ionicons.ttf": "/static/media/Ionicons.3517aeaa34b2f8cd8eef.ttf",
+    "index.html": "/index.html",
+    "serve.json": "/serve.json",
+    "manifest.json": "/manifest.json",
+    "main.c1dfc7a0.js.map": "/static/js/main.c1dfc7a0.js.map",
+    "875.2d461eae.js.map": "/static/js/875.2d461eae.js.map"
+  },
+  "entrypoints": [
+    "static/js/875.2d461eae.js",
+    "static/js/main.c1dfc7a0.js"
+  ]
+}

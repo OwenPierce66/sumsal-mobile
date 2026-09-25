@@ -25,6 +25,7 @@ import ChatListScreen from './screens/ChatListScreen';
 import ChatDetailScreen from './screens/ChatDetailScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import EditProfileScreen from './screens/EditProfileScreen';
+import FavoritesScreen from './screens/FavoritesScreen';
 import { NotificationsProvider } from './contexts/NotificationsContext';
 
 const Stack = createStackNavigator();
@@ -86,6 +87,7 @@ const ProfileStackNavigator = () => {
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+      <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
   );
@@ -166,6 +168,7 @@ const linking = {
           Profile: {
             screens: {
               ProfileMain: 'profile',
+              Favorites: 'profile/favorites',
               TaskDetail: 'profile/task/:taskId',
               SharedTaskDetail: 'profile/shared/:sharedTaskId'
             }
