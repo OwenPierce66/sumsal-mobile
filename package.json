@@ -12,9 +12,11 @@
     "@expo/vector-icons": "^13.0.0",
     "@expo/webpack-config": "^19.0.0",
     "@react-native-async-storage/async-storage": "1.18.2",
+    "@react-native-community/slider": "4.4.2",
     "@react-navigation/bottom-tabs": "^6.5.8",
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/stack": "^6.3.20",
+    "@tanstack/react-query": "^5.104.0",
     "axios": "^1.6.0",
     "expo": "~49.0.15",
     "expo-av": "~13.4.1",
@@ -28,8 +30,7 @@
     "react-native": "0.72.10",
     "react-native-gesture-handler": "~2.12.0",
     "react-native-reanimated": "~3.3.0",
-    "react-native-web": "~0.19.6",
-    "@react-native-community/slider": "4.4.2"
+    "react-native-web": "~0.19.6"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0"

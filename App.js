@@ -5,7 +5,20 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import api, { clearAuthData } from './api'; // Importamos tu función de limpieza
+
+// Configuración global del cliente de caché TanStack Query
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutos de datos frescos
+      gcTime: 1000 * 60 * 30,    // 30 minutos de persistencia en memoria
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 // Tus pantallas
 import HomeScreen from './screens/HomeScreen';
@@ -248,22 +261,24 @@ export default function App() {
   }
 
   return (
-   // ⚡ 3. ENVOLVEMOS LA APP CON EL CONTEXTO
-    <AuthContext.Provider value={authContext}>
-      <NavigationContainer linking={linking}>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>{
-          state.userToken == null ? (
-            // ⚡ EL ARREGLO: Agrupamos Login y Register para los que no tienen sesión
-            <>
-              <Stack.Screen name="Login" component={LoginScreen} />
-              <Stack.Screen name="Register" component={RegisterScreen} />
-            </>
-          ) : (
-            // Si hay token, cargan las tabs.
-            <Stack.Screen name="Home" component={AuthenticatedTabs} />
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
-    </AuthContext.Provider>
+    // ⚡ ENVOLVEMOS LA APP CON TANSTACK QUERY Y CONTEXTO
+    <QueryClientProvider client={queryClient}>
+      <AuthContext.Provider value={authContext}>
+        <NavigationContainer linking={linking}>
+          <Stack.Navigator screenOptions={{ headerShown: false }}>{
+            state.userToken == null ? (
+              // ⚡ EL ARREGLO: Agrupamos Login y Register para los que no tienen sesión
+              <>
+                <Stack.Screen name="Login" component={LoginScreen} />
+                <Stack.Screen name="Register" component={RegisterScreen} />
+              </>
+            ) : (
+              // Si hay token, cargan las tabs.
+              <Stack.Screen name="Home" component={AuthenticatedTabs} />
+            )}
+          </Stack.Navigator>
+        </NavigationContainer>
+      </AuthContext.Provider>
+    </QueryClientProvider>
   );
 }

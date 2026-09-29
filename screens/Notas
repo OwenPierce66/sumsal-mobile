@@ -113,7 +113,8 @@ logo y nombre de la app
 -mejor el filtro para que muestre las tareas que no se repiten del usuario seleccionado 
 -agrgarles las vistas al contador de influencia de la tarea
 -ademas de que los reels ya no se ven 
-
+-doctor bayter
+-informe de actividades
 
 
 Anclar perfiles y tareas favoritas.
@@ -127,7 +128,14 @@ Separar y mejorar la visualización de imágenes/videos en Reels y TasksScreen.
 -acabo de crear literalmente una tarea con la categoria Kick Boxing para que minimo apareciara en mi filtro de mi perfil y no aparece, y debemos poner el taskscreen en el perfil
 -los reels dejaron de funcionar
 -com oproteger las areas verdes
-
+. El Modo "Ver como Usuario Seleccionado" (Infiltrarse en el Feed de Otro Perfil)
+-like de la app o compania
+-7. Segmentación Temporal del Feed (top_day, top_week, top_month)
+En peticiones.js: El sistema de ordenamiento permitía clasificar las peticiones no solo por fecha o popularidad general, sino por ventanas de tiempo específicas:
+top_day: Lo más votado en las últimas 24 horas.
+top_week: Lo más votado de la semana.
+top_month: Lo más votado del mes.
+En la versión moderna: El modal de filtros de TasksScreen.js redujo o no tiene conectados de forma directa estos períodos dinámicos de votación temporal.
 
 export ANDROID_HOME=$HOME/Android/Sdk   # O %LOCALAPPDATA%\Android\Sdk en Windows
 export PATH=$PATH:$ANDROID_HOME/emulator

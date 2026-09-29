@@ -2,8 +2,8 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// ⚡ TU IP LOCAL EXACTA (192.168.1.115)
-const LOCAL_IP = '192.168.1.115';
+// ⚡ TU IP LOCAL EXACTA (192.168.0.108)
+const LOCAL_IP = '192.168.0.108';
 
 // Usa 'localhost' en Web y tu IP local en móvil (Android / iOS)
 const API_URL = Platform.OS === 'web' ? 'http://localhost:8001/api/' : `http://${LOCAL_IP}:8001/api/`;

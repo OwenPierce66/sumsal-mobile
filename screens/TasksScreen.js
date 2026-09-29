@@ -20,6 +20,7 @@ import TouchableUsername from '../components/TouchableUsername';
 import CategoryHierarchy from '../components/CategoryHierarchy';
 import PersonalCategoryFilter from '../components/PersonalCategoryFilter';
 import Slider from '@react-native-community/slider';
+import { useQueryClient } from '@tanstack/react-query';
 
 const TASK_VIDEO_AUTOPLAY_DELAY_MS = 500;
 
@@ -667,6 +668,34 @@ const TasksScreen = ({ navigation }) => {
     setLikesModalVisible(true);
   };
 
+  // ⚡ GESTOR DE CACHÉ TANSTACK QUERY
+  const queryClient = useQueryClient();
+
+  const getTasksCacheKey = useCallback((pchTema, catFilter = selectedCategory, statusFilter = selectedStatus) => [
+    'tasks-feed',
+    pchTema,
+    catFilter,
+    statusFilter,
+    selectedDateFilter,
+    selectedSortBy,
+    selectedFavoritesOnly,
+    selectedFavoriteUsersOnly,
+    selectedVerifiedUsersOnly,
+    selectedRecommendedUsersOnly,
+  ], [selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+
+  const getSharedTasksCacheKey = useCallback((catFilter = selectedCategory, statusFilter = selectedStatus) => [
+    'shared-tasks-feed',
+    catFilter,
+    statusFilter,
+    selectedDateFilter,
+    selectedSortBy,
+    selectedFavoritesOnly,
+    selectedFavoriteUsersOnly,
+    selectedVerifiedUsersOnly,
+    selectedRecommendedUsersOnly,
+  ], [selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+
   // ⚡ NUEVOS ESTADOS PARA EL INFINITE SCROLL
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -674,21 +703,33 @@ const TasksScreen = ({ navigation }) => {
   const [sharedHasMore, setSharedHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // Modificamos fetchTasks para que acepte el número de página
+  // Modificamos fetchTasks para que acepte el número de página y use TanStack Query
   const fetchTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
+    const currentCatFilter = overrideFilters ? overrideFilters.category : selectedCategory;
+    const currentStatusFilter = overrideFilters ? overrideFilters.status : selectedStatus;
+    const cacheKey = getTasksCacheKey(tema, currentCatFilter, currentStatusFilter);
+
+    // ⚡ 1. RECUPERACIÓN INSTANTÁNEA DESDE TANSTACK QUERY (0 ms de espera)
+    if (pageNumber === 1) {
+      const cachedData = queryClient.getQueryData(cacheKey);
+      if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
+        setTasks(cachedData);
+        setLoading(false); // No mostramos spinner si ya hay datos en memoria
+      } else {
+        setLoading(true);
+      }
+    } else {
+      setLoadingMore(true);
+    }
+
     try {
-      if (pageNumber === 1) setLoading(true);
-      else setLoadingMore(true);
-
-      const currentCatFilter = overrideFilters ? overrideFilters.category : selectedCategory;
-
       const response = await api.get('tasks/', { 
         params: {
           pch: tema, 
           page: pageNumber,
           category: currentCatFilter,
           search: '',
-          status: overrideFilters ? overrideFilters.status : selectedStatus,
+          status: currentStatusFilter,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
           favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
@@ -702,6 +743,8 @@ const TasksScreen = ({ navigation }) => {
 
       if (pageNumber === 1) {
         setTasks(data);
+        // ⚡ Guardamos en la memoria caché de TanStack Query
+        queryClient.setQueryData(cacheKey, data);
       } else {
         setTasks(prev => [...prev, ...data]);
       }
@@ -724,18 +767,27 @@ const TasksScreen = ({ navigation }) => {
       setLoadingMore(false);
       setRefreshing(false);
     }
-  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly, getTasksCacheKey, queryClient]);
 
   const fetchSharedTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
-    try {
-      const currentCatFilter = overrideFilters ? overrideFilters.category : selectedCategory;
+    const currentCatFilter = overrideFilters ? overrideFilters.category : selectedCategory;
+    const currentStatusFilter = overrideFilters ? overrideFilters.status : selectedStatus;
+    const cacheKey = getSharedTasksCacheKey(currentCatFilter, currentStatusFilter);
 
+    if (pageNumber === 1) {
+      const cachedData = queryClient.getQueryData(cacheKey);
+      if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
+        setSharedTasks(cachedData);
+      }
+    }
+
+    try {
       const response = await api.get('shared-tasks/', { 
         params: {
           page: pageNumber,
           category: currentCatFilter,
           search: '',
-          status: overrideFilters ? overrideFilters.status : selectedStatus,
+          status: currentStatusFilter,
           date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
           sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
           favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
@@ -748,6 +800,7 @@ const TasksScreen = ({ navigation }) => {
 
       if (pageNumber === 1) {
         setSharedTasks(data);
+        queryClient.setQueryData(cacheKey, data);
       } else {
         setSharedTasks(prev => [...prev, ...data]);
       }
@@ -761,7 +814,7 @@ const TasksScreen = ({ navigation }) => {
       }
       console.error('Error fetching shared tasks:', error.response?.data || error.message);
     }
-  }, [selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }, [selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly, getSharedTasksCacheKey, queryClient]);
 
   // ✅ CORRECCIÓN: Usamos un useEffect que reacciona a los filtros, en lugar de a cada foco.
   // Esto reduce drásticamente las llamadas a la API.
@@ -769,6 +822,36 @@ const TasksScreen = ({ navigation }) => {
     fetchTasks(1);
     fetchSharedTasks(1);
   }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
+
+  // ⚡ PREFETCH INTELIGENTE EN SEGUNDO PLANO (TanStack Query)
+  // Precarga silenciosamente las otras pestañas PCH para que al cambiar de pestaña ya estén listas en memoria
+  useEffect(() => {
+    const otherTemas = ['consejos', 'peticiones', 'historias'].filter(t => t !== tema);
+    otherTemas.forEach(t => {
+      const key = getTasksCacheKey(t);
+      queryClient.prefetchQuery({
+        queryKey: key,
+        queryFn: async () => {
+          const res = await api.get('tasks/', {
+            params: {
+              pch: t,
+              page: 1,
+              category: selectedCategory,
+              status: selectedStatus,
+              date_filter: selectedDateFilter,
+              sort_by: selectedSortBy,
+              favorites_only: selectedFavoritesOnly,
+              favorite_users_only: selectedFavoriteUsersOnly,
+              verified_users_only: selectedVerifiedUsersOnly,
+              recommended_users_only: selectedRecommendedUsersOnly,
+            }
+          });
+          return res.data.results ?? res.data ?? [];
+        },
+        staleTime: 1000 * 60 * 5,
+      });
+    });
+  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly, getTasksCacheKey, queryClient]);
 
   const fetchSearchResults = useCallback(async (query) => {
     const normalizedQuery = query.trim();
@@ -988,10 +1071,14 @@ const TasksScreen = ({ navigation }) => {
       const response = await api.post(`tasks/${task.id}/like/`); // ✅ Endpoint correcto
       const { liked, likes_count } = response.data;
 
-      // 3. Sincronización silenciosa con la respuesta del servidor.
+      // 3. Sincronización silenciosa con la respuesta del servidor y la caché de TanStack Query.
       const finalTask = { ...updatedTask, user_has_liked: liked, likes_count: likes_count };
       setTasks(prev => prev.map(t => t.id === task.id ? finalTask : t));
       setSharedTasks(prev => prev.map(s => s.task?.id === task.id ? { ...s, task: finalTask } : s));
+      queryClient.setQueryData(getTasksCacheKey(tema), (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.map(t => t.id === task.id ? finalTask : t);
+      });
     } catch (error) {
       console.error(`[TasksScreen | handleLikeTask] ERROR - API call failed:`, error.response?.data || error);
       // 4. Reversión en caso de error.
@@ -1043,6 +1130,10 @@ const TasksScreen = ({ navigation }) => {
           }
           return t;
         }));
+        queryClient.setQueryData(getTasksCacheKey(tema), (old) => {
+          if (!Array.isArray(old)) return old;
+          return old.map(t => t.id === originalTaskId ? { ...t, user_has_liked: liked, likes_count: likes_count_original } : t);
+        });
       }
     } catch (error) {
       console.error(`[TasksScreen | handleLikeSharedTask] ERROR - API call failed:`, error.response?.data || error.message);
@@ -1705,7 +1796,15 @@ const TasksScreen = ({ navigation }) => {
             key={t}
             style={[styles.temaBadge, tema === t && styles.temaBadgeActive]}
             onPress={() => {
-              // Si cambian de pestaña, forzamos la página a 1
+              if (tema === t) return;
+              // ⚡ CAMBIO INSTANTÁNEO EN 0 MS GRACIAS A TANSTACK QUERY
+              // Si ya tenemos las tareas de esa pestaña en la memoria caché, las mostramos de inmediato
+              const nextCacheKey = getTasksCacheKey(t);
+              const cached = queryClient.getQueryData(nextCacheKey);
+              if (cached && Array.isArray(cached) && cached.length > 0) {
+                setTasks(cached);
+                setLoading(false); // Cero parpadeo ni spinners
+              }
               setPage(1);
               setHasMore(true);
               setTema(t);
