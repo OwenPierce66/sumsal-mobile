@@ -1,20 +1,33 @@
-import React, { useState, useContext } from 'react'; // ⚡ IMPORTAMOS useContext
+import React, { useState, useContext, useRef, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import api, { saveAuthData } from '../api';
-import { AuthContext } from '../App'; // ⚡ IMPORTAMOS EL CONTEXTO GLOBAL
+import { AuthContext } from '../App';
 
 const RegisterScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
-  const [username, setUsername] = useState(''); // ⚡ NUEVO ESTADO PARA USERNAME
+  const [username, setUsername] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  // ⚡ Obtenemos signIn del control remoto de App.js
   const { signIn } = useContext(AuthContext);
 
+  // AbortController: cancela la petición si el usuario sale antes de que responda
+  const abortControllerRef = useRef(null);
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
   const handleRegister = async () => {
+    // Bloquea doble-tap accidental
+    if (isLoading) return;
+
     if (!email || !password || !username) {
       Alert.alert('Error', 'Email, username y contraseña son obligatorios.');
       return;
@@ -30,22 +43,34 @@ const RegisterScreen = ({ navigation }) => {
       return;
     }
 
-    try {
-      const response = await api.post('auth/register/', {
-        email,
-        username: username.toLowerCase().trim(), // Lo mandamos en minúsculas y sin espacios
-        first_name: firstName,
-        last_name: lastName,
-        password,
-      });
+    // Cancela cualquier petición anterior pendiente
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
 
-      // Guardamos los tokens
+    setIsLoading(true);
+
+    try {
+      const response = await api.post(
+        'auth/register/',
+        {
+          email,
+          username: username.toLowerCase().trim(),
+          first_name: firstName,
+          last_name: lastName,
+          password,
+        },
+        { signal: abortControllerRef.current.signal },
+      );
+
       await saveAuthData(response.data);
-      
-      // ⚡ Le avisamos a App.js que ya hay sesión y entramos directo a Home
       signIn(response.data.access);
 
     } catch (error) {
+      // No mostramos error si el usuario canceló intencionalmente
+      if (error.name === 'CanceledError' || error.name === 'AbortError') return;
+
       const backendData = error.response?.data;
       let message = 'No se pudo registrar. Verifica los datos.';
 
@@ -53,13 +78,13 @@ const RegisterScreen = ({ navigation }) => {
         if (backendData.detail) {
           message = backendData.detail;
         } else if (typeof backendData === 'object') {
-          message = Object.values(backendData)
-            .flat()
-            .join(' ');
+          message = Object.values(backendData).flat().join(' ');
         }
       }
 
       Alert.alert('Registro Fallido', String(message));
+    } finally {
+      setIsLoading(false);
     }
   };
 

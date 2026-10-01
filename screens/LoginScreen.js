@@ -1,45 +1,61 @@
-import React, { useState, useContext } from 'react'; // ⚡ IMPORTAMOS useContext
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
+import React, { useState, useContext, useRef, useEffect } from 'react';
+import { View, Text, TextInput, Button, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import api, { saveAuthData } from '../api';
 import { AuthContext } from '../App';
 
-// Ya no necesitamos recibir onLoginSuccess como prop, usamos el Contexto
-const LoginScreen = ({ navigation }) => { 
+const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  // ⚡ Obtenemos signIn del Contexto Global
   const { signIn } = useContext(AuthContext);
 
+  // AbortController: cancela la petición si el usuario sale antes de que responda
+  const abortControllerRef = useRef(null);
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
   const handleLogin = async () => {
+    // Bloquea doble-tap accidental
+    if (isLoading) return;
+
     if (!email || !password) {
       Alert.alert('Error', 'Email y contraseña son obligatorios.');
       return;
     }
 
+    // Cancela cualquier petición anterior pendiente
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    setIsLoading(true);
+
     try {
-      const payload = {
-        password,
-      };
+      const payload = { password };
       if (email.includes('@')) {
         payload.email = email;
       } else {
-        payload.username = email; // Ensure username is sent if it's not an email
+        payload.username = email;
       }
 
-      console.log('Login payload:', payload);
+      const response = await api.post('auth/login/', payload, {
+        signal: abortControllerRef.current.signal,
+      });
 
-      const response = await api.post('auth/login/', payload);
-      
-      // Guardas los tokens en el teléfono
       await saveAuthData(response.data);
-      
-      // ⚡ Le avisas a App.js que ya hay sesión
-      // Esto montará AuthenticatedTabs automáticamente sin usar navigation.reset()
-      signIn(response.data.access); 
+      signIn(response.data.access);
 
     } catch (error) {
-      // Tu lógica para manejar errores de Django (intacta)
+      // No mostramos error si el usuario canceló intencionalmente
+      if (error.name === 'CanceledError' || error.name === 'AbortError') return;
+
       const backendData = error.response?.data;
       let message = 'No se pudo iniciar sesión. Revisa tus credenciales.';
 
@@ -49,13 +65,13 @@ const LoginScreen = ({ navigation }) => {
         } else if (backendData.non_field_errors?.length) {
           message = backendData.non_field_errors[0];
         } else if (typeof backendData === 'object') {
-          message = Object.values(backendData)
-            .flat()
-            .join(' ');
+          message = Object.values(backendData).flat().join(' ');
         }
       }
 
       Alert.alert('Login fallido', String(message));
+    } finally {
+      setIsLoading(false);
     }
   };
 

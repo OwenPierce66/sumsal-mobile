@@ -3,10 +3,10 @@ import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import SecureStorage from './secureStorage';
 import { Ionicons } from '@expo/vector-icons';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import api, { clearAuthData } from './api'; // Importamos tu función de limpieza
+import api, { clearAuthData, authInterceptorController } from './api';
 
 // Configuración global del cliente de caché TanStack Query
 export const queryClient = new QueryClient({
@@ -210,18 +210,13 @@ export default function App() {
   const refreshCurrentUser = useCallback(async () => {
     const response = await api.get('users/me/');
     setCurrentUser(response.data);
-    await AsyncStorage.setItem('user', JSON.stringify(response.data));
     return response.data;
   }, []);
 
   useEffect(() => {
     const bootstrapAsync = async () => {
-      const token = await AsyncStorage.getItem('accessToken');
+      const token = await SecureStorage.getItem('accessToken');
       if (token) {
-        const storedUser = await AsyncStorage.getItem('user');
-        if (storedUser) {
-          setCurrentUser(JSON.parse(storedUser));
-        }
         try {
           await refreshCurrentUser();
         } catch (error) {
@@ -232,6 +227,17 @@ export default function App() {
     };
     bootstrapAsync();
   }, [refreshCurrentUser]);
+
+  // Conecta el interceptor de api.js al dispatch de React para que pueda
+  // cerrar la sesión limpiamente desde fuera sin dependencia circular.
+  useEffect(() => {
+    authInterceptorController.signOut = () => {
+      dispatch({ type: 'SIGN_OUT' });
+    };
+    return () => {
+      authInterceptorController.signOut = null;
+    };
+  }, []);
   // ⚡ 2. DEFINIMOS LAS FUNCIONES DEL CONTROL REMOTO
   const authContext = useMemo(() => ({
     signIn: async (token) => {

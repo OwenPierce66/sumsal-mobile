@@ -1,16 +1,27 @@
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import SecureStorage from './secureStorage';
 import { Platform } from 'react-native';
 
-// ⚡ TU IP LOCAL EXACTA (192.168.0.108)
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIGURACIÓN DE URL
+// ─────────────────────────────────────────────────────────────────────────────
 const LOCAL_IP = '192.168.0.108';
+const API_URL =
+  Platform.OS === 'web'
+    ? 'http://localhost:8001/api/'
+    : `http://${LOCAL_IP}:8001/api/`;
 
-// Usa 'localhost' en Web y tu IP local en móvil (Android / iOS)
-const API_URL = Platform.OS === 'web' ? 'http://localhost:8001/api/' : `http://${LOCAL_IP}:8001/api/`;
-
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: Construye la URL de medios correctamente sin importar el entorno
+// ─────────────────────────────────────────────────────────────────────────────
 export const getImageUrl = (path) => {
   if (!path) return null;
-  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
+  if (
+    path.startsWith('http') &&
+    !path.includes('localhost') &&
+    !path.includes('127.0.0.1') &&
+    !path.includes('192.168.')
+  ) {
     return path;
   }
   const IP = Platform.OS === 'web' ? 'localhost' : LOCAL_IP;
@@ -21,6 +32,41 @@ export const getImageUrl = (path) => {
   return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STORAGE CIFRADO (Android Keystore / iOS Keychain)
+// Reemplaza AsyncStorage (texto plano) por almacenamiento cifrado por hardware.
+// Los tokens son inaccesibles incluso en dispositivos rooteados.
+// ─────────────────────────────────────────────────────────────────────────────
+export const saveAuthData = async (data) => {
+  try {
+    await SecureStorage.setItem('accessToken', data.access);
+    await SecureStorage.setItem('refreshToken', data.refresh);
+  } catch (error) {
+    console.error('[Auth] Error guardando tokens cifrados:', error);
+  }
+};
+
+export const clearAuthData = async () => {
+  try {
+    await SecureStorage.removeItem('accessToken');
+    await SecureStorage.removeItem('refreshToken');
+  } catch (error) {
+    console.error('[Auth] Error limpiando tokens:', error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTROLADOR DEL INTERCEPTOR
+// Permite que App.js conecte sus funciones de estado React al interceptor
+// sin acoplamiento directo (sin importar App.js desde aquí).
+// ─────────────────────────────────────────────────────────────────────────────
+export const authInterceptorController = {
+  signOut: null, // App.js conecta esta función en un useEffect
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLIENTE HTTP PRINCIPAL
+// ─────────────────────────────────────────────────────────────────────────────
 const api = axios.create({
   baseURL: API_URL,
   timeout: 10000,
@@ -29,71 +75,83 @@ const api = axios.create({
   },
 });
 
-// ⚡ 1. INTERCEPTOR DE PETICIÓN (Inyectar Token y manejar FormData)
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERCEPTOR DE PETICIÓN
+// Inyecta el token de acceso cifrado en cada petición saliente.
+// Detecta FormData y elimina Content-Type para que Axios ponga
+// el boundary correcto de multipart automáticamente.
+// ─────────────────────────────────────────────────────────────────────────────
 api.interceptors.request.use(
   async (config) => {
     if (config.data instanceof FormData) {
-      if (config.headers) {
-        delete config.headers['Content-Type'];
-      }
+      delete config.headers['Content-Type'];
     }
-    const token = await AsyncStorage.getItem('accessToken');
+
+    const token = await SecureStorage.getItem('accessToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 );
 
-// ⚡ 2. INTERCEPTOR DE RESPUESTA (Refresh Token Automático)
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERCEPTOR DE RESPUESTA — SILENT REFRESH
+// Si una petición devuelve 401, renueva el access token en segundo plano
+// usando el refresh token cifrado. Si el refresh también expiró, limpia la
+// sesión y llama a signOut() para redirigir al login sin un error crudo.
+// ─────────────────────────────────────────────────────────────────────────────
 api.interceptors.response.use(
-  (response) => response, 
+  (response) => response,
+
   async (error) => {
     const originalRequest = error.config;
 
+    // Solo intentamos el refresh una vez por petición (_retry evita bucles)
     if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true; 
+      originalRequest._retry = true;
 
       try {
-        const refreshToken = await AsyncStorage.getItem('refreshToken');
-        
-        const refreshResponse = await axios.post(`${API_URL}auth/refresh/`, {
-          refresh: refreshToken,
-        });
+        const refreshToken = await SecureStorage.getItem('refreshToken');
+
+        if (!refreshToken) {
+          throw new Error('[Auth] No refresh token disponible');
+        }
+
+        // Petición directa (sin interceptores) para renovar el token
+        const refreshResponse = await axios.post(
+          `${API_URL}auth/refresh/`,
+          { refresh: refreshToken },
+        );
 
         const newAccessToken = refreshResponse.data.access;
-        await AsyncStorage.setItem('accessToken', newAccessToken);
+        await SecureStorage.setItem('accessToken', newAccessToken);
 
+        // Si el backend rota el refresh token, también lo guardamos
+        if (refreshResponse.data.refresh) {
+          await SecureStorage.setItem('refreshToken', refreshResponse.data.refresh);
+        }
+
+        // Reintenta la petición original con el token renovado
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         return api(originalRequest);
-        
+
       } catch (refreshError) {
+        // Refresh falló: limpia tokens y desloguea limpiamente
         await clearAuthData();
+
+        if (authInterceptorController.signOut) {
+          authInterceptorController.signOut();
+        }
+
         return Promise.reject(refreshError);
       }
     }
+
     return Promise.reject(error);
-  }
+  },
 );
-
-// ⚡ FUNCIONES EXPORTADAS PARA LOGIN/LOGOUT
-export const saveAuthData = async (data) => {
-  try {
-    await AsyncStorage.setItem('accessToken', data.access);
-    await AsyncStorage.setItem('refreshToken', data.refresh);
-  } catch (error) {
-    console.error("Error guardando tokens:", error);
-  }
-};
-
-export const clearAuthData = async () => {
-  try {
-    await AsyncStorage.removeItem('accessToken');
-    await AsyncStorage.removeItem('refreshToken');
-  } catch (error) {
-    console.error("Error limpiando tokens:", error);
-  }
-};
 
 export default api;
