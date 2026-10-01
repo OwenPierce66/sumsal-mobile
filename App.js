@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, createContext } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, createContext } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -6,7 +6,9 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import SecureStorage from './secureStorage';
 import { Ionicons } from '@expo/vector-icons';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import NetInfo from '@react-native-community/netinfo';
 import api, { clearAuthData, authInterceptorController } from './api';
+import GlobalError from '@components/GlobalError';
 
 // Configuración global del cliente de caché TanStack Query
 export const queryClient = new QueryClient({
@@ -44,8 +46,9 @@ import { NotificationsProvider } from './contexts/NotificationsContext';
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
-// ⚡ 1. CREAMOS EL CONTEXTO GLOBAL
+// Contextos globales
 export const AuthContext = createContext();
+export const GlobalErrorContext = createContext();
 
 const TasksStackNavigator = () => {
   return (
@@ -207,6 +210,36 @@ export default function App() {
     { isLoading: true, userToken: null }
   );
 
+  // ─── Estado de conectividad ───────────────────────────────────────────────
+  const [isConnected, setIsConnected] = useState(true);
+  const [wasDisconnected, setWasDisconnected] = useState(false);
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((netState) => {
+      const connected = netState.isConnected && netState.isInternetReachable !== false;
+
+      // En el primer render no mostramos el banner verde aunque haya conexión
+      if (isFirstRender.current) {
+        isFirstRender.current = false;
+        setIsConnected(connected);
+        return;
+      }
+
+      if (!connected) {
+        setWasDisconnected(true);
+        setIsConnected(false);
+      } else {
+        setIsConnected(true);
+        // wasDisconnected se mantiene en true para que el banner verde aparezca
+        // Se resetea después de que la animación termine (2s en GlobalError)
+        setTimeout(() => setWasDisconnected(false), 3000);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   const refreshCurrentUser = useCallback(async () => {
     const response = await api.get('users/me/');
     setCurrentUser(response.data);
@@ -249,9 +282,23 @@ export default function App() {
       }
     },
     signOut: async () => {
-      await clearAuthData(); // Borra los tokens físicamente
-      setCurrentUser(null);
-      dispatch({ type: 'SIGN_OUT' });
+      try {
+        // Obtiene el refresh token cifrado y lo envía al servidor para blacklistearlo.
+        // Esto invalida la sesión en la BD — aunque alguien robe el token, ya no sirve.
+        const refreshToken = await SecureStorage.getItem('refreshToken');
+        if (refreshToken) {
+          await api.post('auth/logout/', { refresh: refreshToken });
+        }
+      } catch (error) {
+        // Si el servidor no responde (sin conexión, token ya expirado, etc.)
+        // el logout local sigue adelante — el usuario nunca queda bloqueado.
+        console.warn('[Auth] Logout en servidor fallido, procediendo con logout local:', error?.message);
+      } finally {
+        // Siempre limpia tokens locales y reinicia el estado
+        await clearAuthData();
+        setCurrentUser(null);
+        dispatch({ type: 'SIGN_OUT' });
+      }
     },
     refreshCurrentUser,
     user: currentUser,
@@ -267,24 +314,25 @@ export default function App() {
   }
 
   return (
-    // ⚡ ENVOLVEMOS LA APP CON TANSTACK QUERY Y CONTEXTO
     <QueryClientProvider client={queryClient}>
-      <AuthContext.Provider value={authContext}>
-        <NavigationContainer linking={linking}>
-          <Stack.Navigator screenOptions={{ headerShown: false }}>{
-            state.userToken == null ? (
-              // ⚡ EL ARREGLO: Agrupamos Login y Register para los que no tienen sesión
-              <>
-                <Stack.Screen name="Login" component={LoginScreen} />
-                <Stack.Screen name="Register" component={RegisterScreen} />
-              </>
-            ) : (
-              // Si hay token, cargan las tabs.
-              <Stack.Screen name="Home" component={AuthenticatedTabs} />
-            )}
-          </Stack.Navigator>
-        </NavigationContainer>
-      </AuthContext.Provider>
+      <GlobalErrorContext.Provider value={{ isConnected, wasDisconnected }}>
+        <AuthContext.Provider value={authContext}>
+          <NavigationContainer linking={linking}>
+            {/* Banner flotante de conectividad — flota sobre toda la app */}
+            <GlobalError />
+            <Stack.Navigator screenOptions={{ headerShown: false }}>{
+              state.userToken == null ? (
+                <>
+                  <Stack.Screen name="Login" component={LoginScreen} />
+                  <Stack.Screen name="Register" component={RegisterScreen} />
+                </>
+              ) : (
+                <Stack.Screen name="Home" component={AuthenticatedTabs} />
+              )}
+            </Stack.Navigator>
+          </NavigationContainer>
+        </AuthContext.Provider>
+      </GlobalErrorContext.Provider>
     </QueryClientProvider>
   );
 }

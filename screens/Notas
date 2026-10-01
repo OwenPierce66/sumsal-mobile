@@ -144,4 +144,4 @@ export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
 
 listo ahora ya podemos pasar a la tarea mas importante,
 
-sabiendo ya como funciona la nueva aplicacion sumsal-frontend y sabiendo como funciona toda la app de aportaciones que es practicamente toda la carpeta de owen antes de tener sumsal-backend, que puesdes decir tu que le podriamos agregar o le falta a la app de aportaciones de sumsal-frontend, mayormente se sompararia sumsal-mobile ya que ambos se alimentan de un sumsal-backed
+app para seguridad para notificar
