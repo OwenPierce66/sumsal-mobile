@@ -100,6 +100,37 @@ export function useMyTasksInfinite(extraParams = {}) {
   });
 }
 
+/**
+ * Tareas de un perfil — propias (users/me/tasks/) o de otro usuario (tasks/?user_id=).
+ * Resuelve el problema de hooks condicionales en ProfileScreen.
+ *
+ * @param {boolean} isCurrentUser - true → endpoint propio, false → endpoint general
+ * @param {string}  userId        - ID del usuario ajeno (ignorado cuando isCurrentUser=true)
+ * @param {object}  extraParams   - Filtros adicionales (category, etc.)
+ */
+export function useProfileTasksInfinite(isCurrentUser, userId, extraParams = {}) {
+  return useInfiniteQuery({
+    queryKey: ['profileTasks', isCurrentUser ? 'me' : userId, extraParams],
+    queryFn: async ({ pageParam = 1 }) => {
+      const endpoint = isCurrentUser ? 'users/me/tasks/' : 'tasks/';
+      const params = {
+        page: pageParam,
+        ...extraParams,
+        ...(isCurrentUser ? {} : { user_id: userId }),
+      };
+      const res = await api.get(endpoint, { params });
+      return res.data;
+    },
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.next) return undefined;
+      const url = new URL(lastPage.next);
+      return Number(url.searchParams.get('page'));
+    },
+    staleTime: STALE_TIME,
+    gcTime: GC_TIME,
+  });
+}
+
 // ─── Like de tarea ────────────────────────────────────────────────────────────
 
 /**
@@ -226,6 +257,60 @@ export function useMe() {
       return res.data;
     },
     staleTime: 5 * 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
+ * Categorías del perfil: propias del usuario + categorías de la app presentes
+ * en sus tareas + visibilidad del filtro personal (solo para usuario actual).
+ *
+ * @param {string} userId  - ID del usuario, o 'me' para el usuario actual.
+ * @param {boolean} isMe   - true si es el perfil del usuario autenticado.
+ * @param {string|null} ownerId - ID real del usuario (resuelto tras cargar me).
+ */
+export function useProfileCategories(userId, isMe, ownerId) {
+  return useQuery({
+    queryKey: ['profileCategories', userId, ownerId],
+    queryFn: async () => {
+      const profileEndpoint = isMe ? 'categories/' : `categories/user/${userId}/`;
+      const requests = [
+        api.get(profileEndpoint),
+        api.get('new-categories/', {
+          params: { include_approval: 'true', profile_user_id: ownerId },
+        }),
+      ];
+      if (isMe) requests.push(api.get('categories/visibility/'));
+
+      const [profileRes, appRes, visibilityRes] = await Promise.all(requests);
+      return {
+        profileCategories: Array.isArray(profileRes.data) ? profileRes.data : [],
+        appCategories: Array.isArray(appRes.data) ? appRes.data : [],
+        personalFilterPublic: isMe ? Boolean(visibilityRes?.data?.personal_filter_public) : false,
+      };
+    },
+    enabled: Boolean(ownerId), // Espera a tener el ID real del usuario
+    staleTime: 10 * 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
+ * Colección de tareas favoritas del usuario.
+ * Solo se lanza cuando enabled=true (al abrir el menú de favoritos).
+ */
+export function useFavoritesFeed(enabled = false) {
+  return useQuery({
+    queryKey: ['favoritesFeed'],
+    queryFn: async () => {
+      const res = await api.get('favorites/collection/');
+      const tasks = Array.isArray(res.data?.tasks)
+        ? res.data.tasks.map((item) => item.task).filter(Boolean)
+        : [];
+      return tasks;
+    },
+    enabled,
+    staleTime: 2 * 60 * 1000,
     gcTime: GC_TIME,
   });
 }

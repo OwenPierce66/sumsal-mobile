@@ -1,139 +1,150 @@
-import React, { useEffect, useState, useCallback, useContext } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl, Platform, Modal, Alert, ScrollView, useWindowDimensions } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useState, useCallback, useContext, useMemo } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, FlatList,
+  ActivityIndicator, RefreshControl, Platform, Modal, Alert,
+  ScrollView, useWindowDimensions,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
-import api from '../api';
-import { Image } from 'expo-image'; 
-import { getImageUrl } from '../api';
+import { Image } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
-import { AuthContext } from '../App';
-import PersonalCategoryFilter from '../components/PersonalCategoryFilter';
-import CategoryHierarchy from '../components/CategoryHierarchy';
+import { useQueryClient } from '@tanstack/react-query';
+
+import { getImageUrl } from '@api';
+import { AuthContext } from '@app';
+import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
+import CategoryHierarchy from '@components/CategoryHierarchy';
+import {
+  useMe,
+  useProfileTasksInfinite,
+  useProfileCategories,
+  useFavoritesFeed,
+} from '@hooks/useApi';
+
+// ─── Utilidades ───────────────────────────────────────────────────────────────
+
+/** Aplanar páginas de useInfiniteQuery → array plano de tareas */
+const flattenPages = (data) =>
+  data?.pages?.flatMap((p) => (Array.isArray(p) ? p : p.results ?? [])) ?? [];
+
+// ─── Componente ───────────────────────────────────────────────────────────────
 
 const ProfileScreen = ({ route, navigation }) => {
-  const { refreshCurrentUser, signOut } = useContext(AuthContext);
+  const { signOut } = useContext(AuthContext);
+  const queryClient = useQueryClient();
   const { width: screenWidth } = useWindowDimensions();
   const detailItemWidth = Math.max(240, screenWidth - 80);
-  const userId = route?.params?.userId || 'me';
-  const initialUserName = route?.params?.userName || '';
-  const initialUserAvatar = route?.params?.userAvatar || null;
 
-  const [user, setUser] = useState({ username: initialUserName, user_image: initialUserAvatar });
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const userId = route?.params?.userId || 'me';
+  const isCurrentUser = userId === 'me';
+
+  // ── Estado local (solo UI, no datos remotos) ──────────────────────────────
   const [selectedCategory, setSelectedCategory] = useState('');
-  const [profileCategories, setProfileCategories] = useState([]);
-  const [appCategories, setAppCategories] = useState([]);
-  const [personalFilterPublic, setPersonalFilterPublic] = useState(false);
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
   const [showFavoriteFeed, setShowFavoriteFeed] = useState(false);
-  const [favoriteFeedTasks, setFavoriteFeedTasks] = useState([]);
-  const [favoriteFeedLoading, setFavoriteFeedLoading] = useState(false);
+  const [favoriteFeedEnabled, setFavoriteFeedEnabled] = useState(false);
   const [viewMode, setViewMode] = useState('compact');
   const [visibleSections, setVisibleSections] = useState({});
 
-  const isCurrentUser = userId === 'me';
+  // ── Datos del usuario ─────────────────────────────────────────────────────
+  const {
+    data: me,
+    isLoading: meLoading,
+    refetch: refetchMe,
+  } = useMe();
 
-  const fetchUserData = async () => {
-    try {
-      const endpoint = isCurrentUser ? 'users/me/' : `massaging/users/`;
-      const response = isCurrentUser
-        ? { data: await refreshCurrentUser() }
-        : await api.get(endpoint);
-      
-      // ✅ DEBUG: Muestra en la consola de la app los datos que llegan del backend
-      console.log('[ProfileScreen] Datos recibidos en fetchUserData:', JSON.stringify(response.data, null, 2));
+  // Para perfiles ajenos, usamos los datos del route.params hasta tener algo mejor
+  const user = isCurrentUser
+    ? me
+    : { username: route?.params?.userName || '', user_image: route?.params?.userAvatar || null };
 
-      if (isCurrentUser) {
-        setUser(response.data);
-        await AsyncStorage.setItem('user', JSON.stringify(response.data));
-        return response.data?.id;
-      } else {
-        const foundUser = response.data.find(u => u.id === userId);
-        if (foundUser) {
-           setUser(foundUser);
-           return foundUser.id;
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching user data:", error);
-      if (isCurrentUser) {
-        const storedUser = await AsyncStorage.getItem('user');
-        if (storedUser) {
-          const stored = JSON.parse(storedUser);
-          setUser(stored);
-          return stored?.id;
-        }
-      }
-    }
-    return null;
+  // ownerId: el ID real del usuario para pasarlo a las categorías
+  const ownerId = isCurrentUser ? me?.id : userId;
+
+  // ── Tareas ────────────────────────────────────────────────────────────────
+  const tasksParams = useMemo(
+    () => (selectedCategory ? { category: selectedCategory } : {}),
+    [selectedCategory]
+  );
+
+  const {
+    data: tasksData,
+    isLoading: tasksLoading,
+    isFetchingNextPage,
+    fetchNextPage,
+    hasNextPage,
+    refetch: refetchTasks,
+  } = useProfileTasksInfinite(isCurrentUser, userId, tasksParams);
+
+  const tasks = flattenPages(tasksData);
+
+  // ── Categorías del perfil ─────────────────────────────────────────────────
+  const {
+    data: categoriesData,
+    refetch: refetchCategories,
+  } = useProfileCategories(userId, isCurrentUser, ownerId);
+
+  const profileCategories = categoriesData?.profileCategories ?? [];
+  const appCategories = categoriesData?.appCategories ?? [];
+  const personalFilterPublic = categoriesData?.personalFilterPublic ?? false;
+
+  const appCategoryNames = useMemo(
+    () => appCategories.map((c) => String(c.name || '').trim()).filter(Boolean),
+    [appCategories]
+  );
+
+  // ── Favoritos ─────────────────────────────────────────────────────────────
+  const {
+    data: favoriteFeedTasks = [],
+    isLoading: favoriteFeedLoading,
+  } = useFavoritesFeed(favoriteFeedEnabled);
+
+  // ── Refresh al enfocar la pantalla ────────────────────────────────────────
+  useFocusEffect(
+    useCallback(() => {
+      if (isCurrentUser) refetchMe();
+      refetchTasks();
+    }, [isCurrentUser])
+  );
+
+  // ── Acciones ──────────────────────────────────────────────────────────────
+
+  const onRefresh = useCallback(() => {
+    if (isCurrentUser) refetchMe();
+    refetchTasks();
+    refetchCategories();
+  }, [isCurrentUser]);
+
+  const loadMoreTasks = () => {
+    if (hasNextPage && !isFetchingNextPage) fetchNextPage();
   };
 
-  const fetchMyTasks = async (pageNumber = 1, categoryOverride = selectedCategory) => {
-    try {
-      if (pageNumber === 1) setLoading(true);
-      else setLoadingMore(true);
-
-      const endpoint = isCurrentUser ? 'users/me/tasks/' : 'tasks/';
-      const response = await api.get(endpoint, {
-        params: {
-          page: pageNumber,
-          user_id: isCurrentUser ? undefined : userId,
-          category: categoryOverride || undefined,
-        },
-      });
-      const newTasks = response.data.results || response.data || [];
-
-      if (pageNumber === 1) {
-        setTasks(newTasks);
-      } else {
-        setTasks(prev => [...prev, ...newTasks]);
-      }
-      
-      setHasMore(!!response.data.next);
-      setPage(pageNumber);
-    } catch (error) {
-      console.error("Error fetching user tasks:", error);
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-      setRefreshing(false);
-    }
+  const handleCategorySelect = (category) => {
+    setSelectedCategory(category);
   };
 
-  const fetchProfileAndAppCategories = async (ownerId = null) => {
-    try {
-      const profileEndpoint = isCurrentUser ? 'categories/' : `categories/user/${userId}/`;
-      const taskOwnerId = ownerId || (isCurrentUser ? user?.id : userId);
-      if (!taskOwnerId) return;
-      const requests = [
-        api.get(profileEndpoint),
-        api.get('new-categories/', {
-          params: { include_approval: 'true', profile_user_id: taskOwnerId },
-        }),
-      ];
-      if (isCurrentUser) requests.push(api.get('categories/visibility/'));
-      const [profileResponse, appResponse, visibilityResponse] = await Promise.all(requests);
-      setProfileCategories(Array.isArray(profileResponse.data) ? profileResponse.data : []);
-      setAppCategories(Array.isArray(appResponse.data) ? appResponse.data : []);
-      if (isCurrentUser) setPersonalFilterPublic(Boolean(visibilityResponse?.data?.personal_filter_public));
-    } catch (error) {
-      console.error('[ProfileScreen] Error cargando filtros del perfil:', error.response?.data || error.message);
-    }
+  const openFavoriteFeed = () => {
+    setFavoriteFeedEnabled(true);
+    setShowFavoriteFeed(true);
+    setProfileMenuVisible(false);
+  };
+
+  const exitFavoriteFeed = () => {
+    setShowFavoriteFeed(false);
+    setFavoriteFeedEnabled(false);
+    // Limpiar caché para que se recargue la próxima vez
+    queryClient.removeQueries({ queryKey: ['favoritesFeed'] });
   };
 
   const togglePersonalFilterVisibility = async () => {
     const nextValue = !personalFilterPublic;
     try {
+      const api = (await import('@api')).default;
       const response = await api.patch('categories/visibility/', {
         personal_filter_public: nextValue,
       });
-      setPersonalFilterPublic(Boolean(response.data?.personal_filter_public));
+      // Invalidar caché de categorías para reflejar el cambio
+      queryClient.invalidateQueries({ queryKey: ['profileCategories'] });
       setProfileMenuVisible(false);
       Alert.alert(
         'Mi filtro',
@@ -141,94 +152,25 @@ const ProfileScreen = ({ route, navigation }) => {
           ? 'Ahora aparece en toda la app, debajo del filtro de la app.'
           : 'Ahora solo aparece en tu perfil.'
       );
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'No se pudo cambiar la visibilidad del filtro.');
     }
   };
 
-  useFocusEffect(useCallback(() => {
-    let active = true;
-    const loadProfile = async () => {
-      const ownerId = await fetchUserData();
-      if (!active) return;
-      await Promise.all([
-        fetchMyTasks(1),
-        fetchProfileAndAppCategories(ownerId || (isCurrentUser ? userId : userId)),
-      ]);
-    };
-    loadProfile();
-    return () => { active = false; };
-  }, [isCurrentUser, userId]));
+  const handleLogout = () => signOut();
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    const refreshProfile = async () => {
-      const ownerId = await fetchUserData();
-      await Promise.all([
-        fetchMyTasks(1),
-        fetchProfileAndAppCategories(ownerId || userId),
-      ]);
-    };
-    refreshProfile();
-  };
+  // ── Renderizado de tarjetas ───────────────────────────────────────────────
 
-  const loadMoreTasks = () => {
-    if (hasMore && !loadingMore) {
-      fetchMyTasks(page + 1);
-    }
-  };
-
-  // ⚡ Filtro personal: igual criterio que TasksScreen (todas las etiquetas requeridas presentes)
-  const filteredTasks = tasks;
-
-  const loadFavoriteFeed = async () => {
-    setFavoriteFeedLoading(true);
-    try {
-      const response = await api.get('favorites/collection/');
-      const favoriteTasks = Array.isArray(response.data?.tasks)
-        ? response.data.tasks
-          .map((item) => item.task)
-          .filter(Boolean)
-        : [];
-      setFavoriteFeedTasks(favoriteTasks);
-      setShowFavoriteFeed(true);
-      setProfileMenuVisible(false);
-    } catch (error) {
-      console.error('[ProfileScreen] Error cargando favoritos:', error.response?.data || error.message);
-      Alert.alert('No se pudieron cargar', 'Intenta nuevamente.');
-    } finally {
-      setFavoriteFeedLoading(false);
-    }
-  };
-
-  const exitFavoriteFeed = () => {
-    setShowFavoriteFeed(false);
-    setFavoriteFeedTasks([]);
-  };
-
-  const handleCategorySelect = (category) => {
-    setSelectedCategory(category);
-    fetchMyTasks(1, category);
-  };
-
-  // El backend ya devuelve solo las categorías de la app presentes en este perfil.
-  const appCategoryNames = React.useMemo(
-    () => appCategories.map(category => String(category.name || '').trim()).filter(Boolean),
-    [appCategories]
-  );
-
-  const handleLogout = async () => {
-    await signOut();
+  const changeSection = (taskId, section) => {
+    setVisibleSections((prev) => ({ ...prev, [taskId]: section }));
   };
 
   const renderTask = ({ item }) => {
     const taskOwner = item.user || user;
     return (
-      <TouchableOpacity 
-        style={styles.taskCard} 
-        onPress={() => {
-          navigation.push('TaskDetail', { taskId: item.id });
-        }}
+      <TouchableOpacity
+        style={styles.taskCard}
+        onPress={() => navigation.push('TaskDetail', { taskId: item.id })}
         activeOpacity={0.9}
       >
         <View style={styles.taskHeader}>
@@ -238,24 +180,43 @@ const ProfileScreen = ({ route, navigation }) => {
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.taskTitle}>{item.title}</Text>
-            <Text style={styles.taskCreator}>Creada por {taskOwner?.username || [taskOwner?.first_name, taskOwner?.last_name].filter(Boolean).join(' ') || 'Usuario'}</Text>
+            <Text style={styles.taskCreator}>
+              Creada por{' '}
+              {taskOwner?.username ||
+                [taskOwner?.first_name, taskOwner?.last_name].filter(Boolean).join(' ') ||
+                'Usuario'}
+            </Text>
             <Text style={styles.taskDate}>{moment(item.created_at).fromNow()}</Text>
           </View>
         </View>
 
-        <Text style={styles.taskDescription} numberOfLines={3}>{item.description}</Text>
+        <Text style={styles.taskDescription} numberOfLines={3}>
+          {item.description}
+        </Text>
 
         {item.categories ? (
           <View style={styles.categoriesList}>
             {item.categories.split(',').map((cat, idx) => (
-              <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
+              <Text key={idx} style={styles.categoryBadge}>
+                {cat.trim()}
+              </Text>
             ))}
           </View>
         ) : null}
 
-        {(item.image || item.subtasks?.[0]?.image || item.subfactores?.[0]?.image || item.subfuentes?.[0]?.image) && (
+        {(item.image ||
+          item.subtasks?.[0]?.image ||
+          item.subfactores?.[0]?.image ||
+          item.subfuentes?.[0]?.image) && (
           <Image
-            source={{ uri: getImageUrl(item.image || item.subtasks?.[0]?.image || item.subfactores?.[0]?.image || item.subfuentes?.[0]?.image) }}
+            source={{
+              uri: getImageUrl(
+                item.image ||
+                  item.subtasks?.[0]?.image ||
+                  item.subfactores?.[0]?.image ||
+                  item.subfuentes?.[0]?.image
+              ),
+            }}
             style={styles.taskImage}
           />
         )}
@@ -280,11 +241,6 @@ const ProfileScreen = ({ route, navigation }) => {
     );
   };
 
-  const changeSection = (taskId, section) => {
-    setVisibleSections(prev => ({ ...prev, [taskId]: section }));
-  };
-
-  // Vista detallada: misma estructura de tarjeta que TasksScreen (secciones + carrusel).
   const renderDetailedTask = ({ item }) => {
     const currentSec = visibleSections[item.id] || 'subtasks';
     const content = Array.isArray(item[currentSec]) ? item[currentSec] : [];
@@ -299,25 +255,34 @@ const ProfileScreen = ({ route, navigation }) => {
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.taskTitle}>{item.title}</Text>
-            <Text style={styles.taskCreator}>Creada por {taskOwner?.username || [taskOwner?.first_name, taskOwner?.last_name].filter(Boolean).join(' ') || 'Usuario'}</Text>
+            <Text style={styles.taskCreator}>
+              Creada por{' '}
+              {taskOwner?.username ||
+                [taskOwner?.first_name, taskOwner?.last_name].filter(Boolean).join(' ') ||
+                'Usuario'}
+            </Text>
             <Text style={styles.taskDate}>{moment(item.created_at).fromNow()}</Text>
           </View>
         </View>
 
-        <TouchableOpacity activeOpacity={0.85} onPress={() => navigation.push('TaskDetail', { taskId: item.id })}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => navigation.push('TaskDetail', { taskId: item.id })}
+        >
           <Text style={styles.taskDescription}>{item.description}</Text>
-
           {item.categories ? (
             <View style={styles.categoriesList}>
               {item.categories.split(',').map((cat, idx) => (
-                <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
+                <Text key={idx} style={styles.categoryBadge}>
+                  {cat.trim()}
+                </Text>
               ))}
             </View>
           ) : null}
         </TouchableOpacity>
 
         <View style={styles.sectionTabs}>
-          {['subtasks', 'subfactores', 'subfuentes'].map(section => (
+          {['subtasks', 'subfactores', 'subfuentes'].map((section) => (
             <TouchableOpacity
               key={section}
               onPress={() => changeSection(item.id, section)}
@@ -334,16 +299,34 @@ const ProfileScreen = ({ route, navigation }) => {
           {content.length === 0 ? (
             <Text style={styles.noContent}>Sin datos en esta sección</Text>
           ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carouselRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.carouselRow}
+            >
               {content.map((sub, idx) => (
-                <View key={sub.id || `${currentSec}-${idx}`} style={[styles.subItem, { width: detailItemWidth }]}>
+                <View
+                  key={sub.id || `${currentSec}-${idx}`}
+                  style={[styles.subItem, { width: detailItemWidth }]}
+                >
                   <Text style={styles.subItemEyebrow}>
-                    {currentSec === 'subtasks' ? 'APORTACIÓN' : currentSec === 'subfactores' ? 'FACTOR' : 'FUENTE'} {idx + 1}
+                    {currentSec === 'subtasks'
+                      ? 'APORTACIÓN'
+                      : currentSec === 'subfactores'
+                      ? 'FACTOR'
+                      : 'FUENTE'}{' '}
+                    {idx + 1}
                   </Text>
                   {sub.title ? <Text style={styles.subItemTitle}>{sub.title}</Text> : null}
-                  {sub.description ? <Text style={styles.subItemDesc}>{sub.description}</Text> : null}
+                  {sub.description ? (
+                    <Text style={styles.subItemDesc}>{sub.description}</Text>
+                  ) : null}
                   {sub.image ? (
-                    <Image source={{ uri: getImageUrl(sub.image) }} style={styles.subMedia} contentFit="cover" />
+                    <Image
+                      source={{ uri: getImageUrl(sub.image) }}
+                      style={styles.subMedia}
+                      contentFit="cover"
+                    />
                   ) : null}
                 </View>
               ))}
@@ -372,21 +355,19 @@ const ProfileScreen = ({ route, navigation }) => {
   };
 
   const renderHeader = () => (
-    // ✅ DEBUG: Muestra en la consola el estado del usuario justo antes de renderizar
-    console.log('[ProfileScreen] Renderizando header con usuario:', JSON.stringify(user, null, 2)),
-
     <View style={styles.profileHeader}>
       <View style={styles.profileInfoContainer}>
-        <Image 
-          source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }} 
-          style={styles.profileAvatar} 
+        <Image
+          source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }}
+          style={styles.profileAvatar}
         />
         <View style={styles.profileTextContainer}>
           <Text style={styles.profileName}>
-            {user?.first_name ? `${user.first_name} ${user.last_name || ''}` : user?.username || 'Usuario'}
+            {user?.first_name
+              ? `${user.first_name} ${user.last_name || ''}`
+              : user?.username || 'Usuario'}
           </Text>
           <Text style={styles.profileEmail}>{user?.email}</Text>
-          {/* ✅ AÑADIDO: Mostrar la insignia de admin si el usuario actual es staff o superuser */}
           {isCurrentUser && (user?.is_staff || user?.is_superuser) ? (
             <View style={styles.adminBadge}>
               <Ionicons name="shield-checkmark" size={14} color="#fff" />
@@ -397,13 +378,15 @@ const ProfileScreen = ({ route, navigation }) => {
           ) : null}
         </View>
       </View>
-      
+
       <View style={styles.divider} />
       <View style={styles.sectionTitleRow}>
         <Text style={styles.sectionTitle}>
           {showFavoriteFeed
             ? 'Tareas favoritas'
-            : (isCurrentUser ? 'Mis Publicaciones' : `Publicaciones de ${user?.username || ''}`)}
+            : isCurrentUser
+            ? 'Mis Publicaciones'
+            : `Publicaciones de ${user?.username || ''}`}
         </Text>
         {showFavoriteFeed ? (
           <TouchableOpacity style={styles.exitFavoritesButton} onPress={exitFavoriteFeed}>
@@ -415,12 +398,19 @@ const ProfileScreen = ({ route, navigation }) => {
     </View>
   );
 
+  // ── Loading inicial ───────────────────────────────────────────────────────
+  const isInitialLoading = (isCurrentUser && meLoading) || (tasksLoading && !tasksData);
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
+      {/* Barra superior */}
       <View style={styles.topBar}>
         {(navigation.canGoBack() || !isCurrentUser) && (
-          <TouchableOpacity 
-            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('HomeMain')} 
+          <TouchableOpacity
+            onPress={() =>
+              navigation.canGoBack() ? navigation.goBack() : navigation.navigate('HomeMain')
+            }
             style={styles.backBtn}
           >
             <Ionicons name="arrow-back" size={24} color="#333" />
@@ -438,32 +428,40 @@ const ProfileScreen = ({ route, navigation }) => {
         ) : null}
       </View>
 
+      {/* Menú de opciones */}
       <Modal
         visible={profileMenuVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setProfileMenuVisible(false)}
       >
-        <TouchableOpacity style={styles.profileMenuOverlay} activeOpacity={1} onPress={() => setProfileMenuVisible(false)}>
+        <TouchableOpacity
+          style={styles.profileMenuOverlay}
+          activeOpacity={1}
+          onPress={() => setProfileMenuVisible(false)}
+        >
           <View style={styles.profileMenuCard}>
-            <TouchableOpacity style={styles.profileMenuOption} onPress={() => {
-              setProfileMenuVisible(false);
-              loadFavoriteFeed();
-            }}>
+            <TouchableOpacity style={styles.profileMenuOption} onPress={openFavoriteFeed}>
               <Ionicons name="star-outline" size={20} color="#f59f00" />
               <Text style={styles.profileMenuText}>Favoritos</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.profileMenuOption} onPress={() => {
-              setProfileMenuVisible(false);
-              navigation.navigate('Favorites', { mode: 'organize' });
-            }}>
+            <TouchableOpacity
+              style={styles.profileMenuOption}
+              onPress={() => {
+                setProfileMenuVisible(false);
+                navigation.navigate('Favorites', { mode: 'organize' });
+              }}
+            >
               <Ionicons name="options-outline" size={20} color="#845ef7" />
               <Text style={styles.profileMenuText}>Ordenar favoritos</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.profileMenuOption} onPress={() => {
-              setProfileMenuVisible(false);
-              navigation.navigate('EditProfile', { user });
-            }}>
+            <TouchableOpacity
+              style={styles.profileMenuOption}
+              onPress={() => {
+                setProfileMenuVisible(false);
+                navigation.navigate('EditProfile', { user });
+              }}
+            >
               <Ionicons name="pencil-outline" size={20} color="#4dabf7" />
               <Text style={styles.profileMenuText}>Editar perfil</Text>
             </TouchableOpacity>
@@ -471,16 +469,26 @@ const ProfileScreen = ({ route, navigation }) => {
               <Ionicons name="log-out-outline" size={20} color="#ff6b6b" />
               <Text style={styles.profileMenuText}>Cerrar sesión</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.profileMenuOption} onPress={togglePersonalFilterVisibility}>
-              <Ionicons name={personalFilterPublic ? 'eye-off-outline' : 'eye-outline'} size={20} color="#4dabf7" />
+            <TouchableOpacity
+              style={styles.profileMenuOption}
+              onPress={togglePersonalFilterVisibility}
+            >
+              <Ionicons
+                name={personalFilterPublic ? 'eye-off-outline' : 'eye-outline'}
+                size={20}
+                color="#4dabf7"
+              />
               <Text style={styles.profileMenuText}>
-                {personalFilterPublic ? 'Usar mi filtro solo en mi perfil' : 'Usar mi filtro en toda la app'}
+                {personalFilterPublic
+                  ? 'Usar mi filtro solo en mi perfil'
+                  : 'Usar mi filtro en toda la app'}
               </Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
 
+      {/* Filtros */}
       <View style={styles.appFilterSection}>
         <Text style={styles.appFilterTitle}>Filtro de la app</Text>
         {appCategories.length > 0 ? (
@@ -490,7 +498,9 @@ const ProfileScreen = ({ route, navigation }) => {
             onSelect={handleCategorySelect}
           />
         ) : (
-          <Text style={styles.emptyFilterText}>No hay categorías disponibles para este perfil.</Text>
+          <Text style={styles.emptyFilterText}>
+            No hay categorías disponibles para este perfil.
+          </Text>
         )}
       </View>
 
@@ -500,7 +510,7 @@ const ProfileScreen = ({ route, navigation }) => {
           title="Mi filtro"
           excludeNames={appCategoryNames}
           onSelect={handleCategorySelect}
-          onCategoriesChanged={fetchProfileAndAppCategories}
+          onCategoriesChanged={refetchCategories}
         />
       ) : (
         <PersonalCategoryFilter
@@ -512,39 +522,63 @@ const ProfileScreen = ({ route, navigation }) => {
         />
       )}
 
+      {/* Selector de vista */}
       <View style={styles.viewModeRow}>
         <TouchableOpacity
           style={[styles.viewModeBtn, viewMode === 'compact' && styles.viewModeBtnActive]}
           onPress={() => setViewMode('compact')}
         >
-          <Ionicons name="list-outline" size={16} color={viewMode === 'compact' ? '#fff' : '#4dabf7'} />
-          <Text style={[styles.viewModeText, viewMode === 'compact' && styles.viewModeTextActive]}>Compacta</Text>
+          <Ionicons
+            name="list-outline"
+            size={16}
+            color={viewMode === 'compact' ? '#fff' : '#4dabf7'}
+          />
+          <Text style={[styles.viewModeText, viewMode === 'compact' && styles.viewModeTextActive]}>
+            Compacta
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.viewModeBtn, viewMode === 'detailed' && styles.viewModeBtnActive]}
           onPress={() => setViewMode('detailed')}
         >
-          <Ionicons name="albums-outline" size={16} color={viewMode === 'detailed' ? '#fff' : '#4dabf7'} />
-          <Text style={[styles.viewModeText, viewMode === 'detailed' && styles.viewModeTextActive]}>Detallada</Text>
+          <Ionicons
+            name="albums-outline"
+            size={16}
+            color={viewMode === 'detailed' ? '#fff' : '#4dabf7'}
+          />
+          <Text
+            style={[styles.viewModeText, viewMode === 'detailed' && styles.viewModeTextActive]}
+          >
+            Detallada
+          </Text>
         </TouchableOpacity>
       </View>
 
       {selectedCategory ? (
-        <TouchableOpacity style={styles.clearFilterChip} onPress={() => setSelectedCategory('')}>
+        <TouchableOpacity
+          style={styles.clearFilterChip}
+          onPress={() => setSelectedCategory('')}
+        >
           <Ionicons name="close-circle" size={16} color="#4dabf7" />
           <Text style={styles.clearFilterText}>Quitar filtro: {selectedCategory}</Text>
         </TouchableOpacity>
       ) : null}
 
-      {(loading && page === 1) || favoriteFeedLoading ? (
+      {/* Lista de tareas */}
+      {isInitialLoading || favoriteFeedLoading ? (
         <ActivityIndicator size="large" color="#4dabf7" style={{ marginTop: 50 }} />
       ) : (
         <FlatList
-          data={showFavoriteFeed ? favoriteFeedTasks : filteredTasks}
-          keyExtractor={(item) => item.id.toString()}
+          data={showFavoriteFeed ? favoriteFeedTasks : tasks}
+          keyExtractor={(item) => item.id?.toString()}
           renderItem={viewMode === 'detailed' ? renderDetailedTask : renderTask}
           ListHeaderComponent={renderHeader}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={tasksLoading && Boolean(tasksData)}
+              onRefresh={onRefresh}
+            />
+          }
           onEndReached={loadMoreTasks}
           onEndReachedThreshold={0.5}
           contentContainerStyle={styles.listContent}
@@ -552,13 +586,17 @@ const ProfileScreen = ({ route, navigation }) => {
             <Text style={styles.emptyText}>Aún no has publicado nada.</Text>
           }
           ListFooterComponent={
-            loadingMore ? <ActivityIndicator size="small" color="#4dabf7" style={{ marginVertical: 20 }} /> : null
+            isFetchingNextPage ? (
+              <ActivityIndicator size="small" color="#4dabf7" style={{ marginVertical: 20 }} />
+            ) : null
           }
         />
       )}
     </View>
   );
 };
+
+// ─── Estilos ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5' },
@@ -594,7 +632,6 @@ const styles = StyleSheet.create({
   noContent: { fontSize: 12, color: '#bbb', fontStyle: 'italic', textAlign: 'center', paddingVertical: 10 },
   clearFilterChip: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: '#e7f5ff', gap: 4 },
   clearFilterText: { color: '#4dabf7', fontSize: 12, fontWeight: '700' },
-  
   profileHeader: { padding: 20, backgroundColor: '#fff', marginBottom: 10 },
   profileInfoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   profileAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#eee', marginRight: 15 },
@@ -603,30 +640,17 @@ const styles = StyleSheet.create({
   profileEmail: { fontSize: 14, color: '#666', marginTop: 4 },
   adminBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, backgroundColor: '#d9534f' },
   adminBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-  
   actionButtonsContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', gap: 10 },
-  actionBtn: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    paddingVertical: 8, 
-    paddingHorizontal: 15, 
-    borderRadius: 20, 
-    backgroundColor: '#e7f5ff',
-    borderWidth: 1,
-    borderColor: '#d0ebff'
-  },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 20, backgroundColor: '#e7f5ff', borderWidth: 1, borderColor: '#d0ebff' },
   logoutBtn: { backgroundColor: '#ffe3e3', borderColor: '#ffc9c9' },
   actionBtnText: { color: '#4dabf7', fontWeight: 'bold', marginLeft: 5, fontSize: 14 },
   actionBtnTextLogout: { color: '#ff6b6b', fontWeight: 'bold', marginLeft: 5, fontSize: 14 },
-  
   divider: { height: 1, backgroundColor: '#eee', marginVertical: 20 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   exitFavoritesButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: '#fff4d6' },
   exitFavoritesText: { color: '#d97706', fontSize: 12, fontWeight: '700' },
-  
   listContent: { paddingBottom: 30 },
-  
   taskCard: { backgroundColor: '#fff', marginHorizontal: 12, marginBottom: 15, borderRadius: 16, padding: 16, elevation: 2 },
   taskHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, backgroundColor: '#eee' },
@@ -637,13 +661,11 @@ const styles = StyleSheet.create({
   categoriesList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, marginBottom: 10 },
   categoryBadge: { backgroundColor: '#e3f2fd', color: '#4dabf7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, fontSize: 11, fontWeight: '600' },
   taskImage: { width: '100%', height: 150, borderRadius: 10, marginTop: 8, backgroundColor: '#f0f0f0' },
-  
   taskFooter: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
   statsContainer: { flexDirection: 'row', gap: 20 },
   stat: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statText: { fontSize: 13, color: '#666', fontWeight: '600' },
-  
-  emptyText: { textAlign: 'center', color: '#999', marginTop: 30, fontSize: 15, fontStyle: 'italic' }
+  emptyText: { textAlign: 'center', color: '#999', marginTop: 30, fontSize: 15, fontStyle: 'italic' },
 });
 
 export default ProfileScreen;
