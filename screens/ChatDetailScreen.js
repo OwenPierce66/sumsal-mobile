@@ -6,12 +6,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
-import api from '../api';
+import api from '@api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
-import TouchableUsername from '../components/TouchableUsername';
+import TouchableUsername from '@components/TouchableUsername';
+import { useMe } from '@hooks/useApi';
 
 const STORY_REPLY_PREFIX = '↪ Respuesta a tu historia:';
 const TASK_SHARE_PREFIX = '↪ Publicación compartida:';
@@ -254,8 +255,9 @@ const ChatDetailScreen = ({ route, navigation }) => {
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [selectedMessageForMenu, setSelectedMessageForMenu] = useState(null);
   const [isMessageMenuVisible, setIsMessageMenuVisible] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [currentUser, setCurrentUser] = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  // currentUser ahora viene de React Query en lugar de api.get('users/me/')
+  const { data: currentUser } = useMe();
   
   // Secondary features state
   const [selectedImage, setSelectedImage] = useState(null);
@@ -275,16 +277,12 @@ const ChatDetailScreen = ({ route, navigation }) => {
   const fetchMessages = useCallback(async () => {
     try {
       setLoading(true);
-      const userRes = await api.get('users/me/');
-      setCurrentUser(userRes.data);
-
       let res;
       if (type === 'direct') {
         res = await api.get(`massaging/messages/?user_id=${chatId}`);
       } else {
         res = await api.get(`massaging/groupss/${chatId}/messages/`);
       }
-      
       const msgs = Array.isArray(res.data) ? res.data : [];
       setMessages(msgs);
     } catch (error) {
