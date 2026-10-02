@@ -4,9 +4,10 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import 'moment/locale/es';
-import api, { getImageUrl } from '../api';
+import api, { getImageUrl } from '@api';
 import { Image } from 'expo-image';
-import TouchableUsername from '../components/TouchableUsername';
+import TouchableUsername from '@components/TouchableUsername';
+import { usePostDetail, useMe } from '@hooks/useApi';
 
 moment.locale('es');
 
@@ -108,16 +109,36 @@ const PostDetailScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { postId } = route.params;
-  const [post, setPost] = useState(null);
-  const [replies, setReplies] = useState([]);
+
+  // ─── React Query ───────────────────────────────────────────────────────────
+  const { data: postData, refetch: refetchPost } = usePostDetail(postId);
+  const { data: me } = useMe();
+
+  // Estado local para edición inline y replies (deben mantenerse locales
+  // porque la estructura de replies anidadas es un árbol mutable complejo)
+  const [post,            setPost]           = useState(null);
+  const [replies,         setReplies]        = useState([]);
   const [expandedReplyIds, setExpandedReplyIds] = useState([]);
-  const [newReply, setNewReply] = useState('');
-  const [liking, setLiking] = useState(false);
-  const [replyingTo, setReplyingTo] = useState(null);
-  const [creatingReply, setCreatingReply] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [editingPost, setEditingPost] = useState(false);
-  const [editingReplyId, setEditingReplyId] = useState(null);
+  const [newReply,        setNewReply]       = useState('');
+  const [liking,          setLiking]         = useState(false);
+  const [replyingTo,      setReplyingTo]     = useState(null);
+  const [creatingReply,   setCreatingReply]  = useState(false);
+  const [editingPost,     setEditingPost]    = useState(false);
+  const [editingReplyId,  setEditingReplyId] = useState(null);
+
+  // Sincronizar datos del hook al estado local
+  const currentUserId = me?.id ?? null;
+
+  useEffect(() => {
+    if (postData) {
+      setPost(postData);
+      setReplies(postData.replies || []);
+    }
+  }, [postData]);
+
+  const fetchPost = async () => {
+    await refetchPost();
+  };
 
   const countReplies = (items) => {
     return items.reduce((total, item) => total + 1 + countReplies(item.replies || []), 0);
@@ -145,21 +166,6 @@ const PostDetailScreen = () => {
       }
     }
     return 'Anónimo';
-  };
-
-  useEffect(() => {
-    fetchPost();
-    api.get('users/me/').then(response => setCurrentUserId(response.data.id)).catch(() => {});
-  }, [postId]);
-
-  const fetchPost = async () => {
-    try {
-      const response = await api.get(`posts/${postId}/`);
-      setPost(response.data);
-      setReplies(response.data.replies || []);
-    } catch (error) {
-      Alert.alert('Error', 'No se pudo cargar el post');
-    }
   };
 
   const toggleLike = async () => {

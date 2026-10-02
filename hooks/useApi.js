@@ -459,6 +459,22 @@ export function usePostMutations() {
 }
 
 /**
+ * Detalle de un post del foro (con replies anidadas).
+ */
+export function usePostDetail(postId) {
+  return useQuery({
+    queryKey: ['post', postId],
+    queryFn: async () => {
+      const res = await api.get(`posts/${postId}/`);
+      return res.data;
+    },
+    enabled: !!postId,
+    staleTime: STALE_TIME,
+    gcTime:    GC_TIME,
+  });
+}
+
+/**
  * Like optimista en tareas compartidas (para SharedTasksScreen).
  */
 export function useLikeSharedTask() {
