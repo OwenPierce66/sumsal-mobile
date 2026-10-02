@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,8 +11,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useFocusEffect } from '@react-navigation/native';
-import api, { getImageUrl } from '../api';
+import { getImageUrl } from '@api';
+import {
+  useFavoritesCollection,
+  usePinFavorite,
+  useReorderFavorites,
+} from '@hooks/useApi';
 
 const getName = (user) => (
   user?.username
@@ -21,56 +25,42 @@ const getName = (user) => (
 );
 
 const FavoritesScreen = ({ navigation, route }) => {
-  const userId = route?.params?.userId;
+  const userId   = route?.params?.userId;
   const organize = route?.params?.mode === 'organize';
-  const [collection, setCollection] = useState({ profiles: [], tasks: [], visibility: {} });
+  const isOwner  = !userId;
+
   const [activeType, setActiveType] = useState('profiles');
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchCollection = useCallback(async ({ refresh = false } = {}) => {
-    if (refresh) setRefreshing(true);
-    else setLoading(true);
-    try {
-      const endpoint = userId ? `favorites/collection/${userId}/` : 'favorites/collection/';
-      const response = await api.get(endpoint);
-      setCollection({
-        profiles: Array.isArray(response.data?.profiles) ? response.data.profiles : [],
-        tasks: Array.isArray(response.data?.tasks) ? response.data.tasks : [],
-        visibility: response.data?.visibility || {},
-      });
-    } catch (error) {
-      console.error('[FavoritesScreen] No se pudo cargar la colección:', error.response?.data || error.message);
-      Alert.alert('No se pudo cargar', 'Intenta nuevamente.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [userId]);
+  // ─── React Query ────────────────────────────────────────────────────────────
+  const {
+    data: collection,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useFavoritesCollection(userId);
 
-  useFocusEffect(useCallback(() => {
-    fetchCollection();
-  }, [fetchCollection]));
+  const pinMutation      = usePinFavorite(userId);
+  const reorderMutation  = useReorderFavorites(userId);
 
-  const items = collection[activeType] || [];
-  const isOwner = !userId;
+  const profiles    = collection?.profiles ?? [];
+  const tasks       = collection?.tasks    ?? [];
+  const items       = activeType === 'profiles' ? profiles : tasks;
+  const refreshing  = isFetching && !isLoading;
 
+  // ─── Handlers ───────────────────────────────────────────────────────────────
   const persistOrder = async (nextItems) => {
-    const normalizedItems = nextItems.map((item, index) => ({
+    const normalized = nextItems.map((item, index) => ({
       ...item,
       is_pinned: index < 5,
-      position: index,
+      position:  index,
     }));
-    setCollection((current) => ({ ...current, [activeType]: normalizedItems }));
     if (!isOwner) return;
     try {
-      await api.patch('favorites/collection/', {
-        type: activeType,
-        order: normalizedItems.map((item) => item.id),
+      await reorderMutation.mutateAsync({
+        type:  activeType,
+        order: normalized.map((item) => item.id),
       });
-    } catch (error) {
-      console.error('[FavoritesScreen] No se pudo guardar el orden:', error.response?.data || error.message);
-      fetchCollection({ refresh: true });
+    } catch {
       Alert.alert('No se pudo ordenar', 'Intenta nuevamente.');
     }
   };
@@ -88,18 +78,18 @@ const FavoritesScreen = ({ navigation, route }) => {
   const togglePin = async (item) => {
     if (!isOwner) return;
     try {
-      await api.post('favorites/pin/', {
-        type: activeType === 'profiles' ? 'profile' : 'task',
-        id: item.id,
+      await pinMutation.mutateAsync({
+        type:      activeType === 'profiles' ? 'profile' : 'task',
+        id:        item.id,
         is_pinned: !item.is_pinned,
       });
-      fetchCollection({ refresh: true });
     } catch (error) {
       const message = error.response?.data?.is_pinned?.[0] || 'No se pudo actualizar el anclaje.';
       Alert.alert('No se pudo actualizar', message);
     }
   };
 
+  // ─── Renders ─────────────────────────────────────────────────────────────────
   const renderProfile = (item, index) => {
     const profile = item.profile || {};
     return (
@@ -107,8 +97,8 @@ const FavoritesScreen = ({ navigation, route }) => {
         <TouchableOpacity
           style={styles.cardMain}
           onPress={() => navigation.navigate('UserProfile', {
-            userId: profile.id,
-            userName: getName(profile),
+            userId:     profile.id,
+            userName:   getName(profile),
             userAvatar: getImageUrl(profile.user_image),
           })}
         >
@@ -192,9 +182,7 @@ const FavoritesScreen = ({ navigation, route }) => {
           </View>
           {item.is_pinned ? <Ionicons name="pin" size={18} color="#845ef7" /> : null}
         </View>
-        <Text style={styles.creatorText}>
-          Creada por {getName(task.user)}
-        </Text>
+        <Text style={styles.creatorText}>Creada por {getName(task.user)}</Text>
         <Text style={styles.feedDescription} numberOfLines={4}>{task.description || 'Sin descripción'}</Text>
         {task.categories ? (
           <View style={styles.feedCategories}>
@@ -224,7 +212,7 @@ const FavoritesScreen = ({ navigation, route }) => {
       <View style={styles.tabs}>
         {[
           ['profiles', 'Perfiles', 'people-outline'],
-          ['tasks', 'Tareas', 'document-text-outline'],
+          ['tasks',    'Tareas',   'document-text-outline'],
         ].map(([type, label, icon]) => (
           <TouchableOpacity
             key={type}
@@ -241,11 +229,11 @@ const FavoritesScreen = ({ navigation, route }) => {
           Usa las flechas para ordenar y el pin para colocar hasta 5 elementos al inicio.
         </Text>
       ) : null}
-      {loading ? (
+      {isLoading ? (
         <ActivityIndicator size="large" color="#4dabf7" style={styles.loader} />
       ) : (
         <ScrollView
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchCollection({ refresh: true })} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
           contentContainerStyle={styles.list}
         >
           {items.length === 0 ? (
@@ -260,35 +248,35 @@ const FavoritesScreen = ({ navigation, route }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, backgroundColor: '#fff' },
-  backButton: { width: 32 },
+  container:   { flex: 1, backgroundColor: '#f8f9fa' },
+  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, backgroundColor: '#fff' },
+  backButton:  { width: 32 },
   headerTitle: { color: '#212529', fontSize: 18, fontWeight: '700' },
-  tabs: { flexDirection: 'row', gap: 8, padding: 12, backgroundColor: '#fff' },
-  tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: '#e7f5ff' },
-  tabActive: { backgroundColor: '#4dabf7' },
-  tabText: { color: '#1864ab', fontWeight: '700' },
+  tabs:        { flexDirection: 'row', gap: 8, padding: 12, backgroundColor: '#fff' },
+  tab:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: '#e7f5ff' },
+  tabActive:   { backgroundColor: '#4dabf7' },
+  tabText:     { color: '#1864ab', fontWeight: '700' },
   tabTextActive: { color: '#fff' },
-  helper: { paddingHorizontal: 14, paddingVertical: 10, color: '#868e96', fontSize: 12 },
-  list: { padding: 12, gap: 10 },
-  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, padding: 12, gap: 8 },
-  cardMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#e9ecef' },
-  taskIcon: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#e7f5ff' },
-  cardText: { flex: 1 },
-  cardTitle: { color: '#212529', fontSize: 15, fontWeight: '700' },
+  helper:      { paddingHorizontal: 14, paddingVertical: 10, color: '#868e96', fontSize: 12 },
+  list:        { padding: 12, gap: 10 },
+  card:        { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, padding: 12, gap: 8 },
+  cardMain:    { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatar:      { width: 46, height: 46, borderRadius: 23, backgroundColor: '#e9ecef' },
+  taskIcon:    { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#e7f5ff' },
+  cardText:    { flex: 1 },
+  cardTitle:   { color: '#212529', fontSize: 15, fontWeight: '700' },
   creatorText: { color: '#4dabf7', fontSize: 12, marginTop: 3 },
   cardSubtitle: { color: '#868e96', fontSize: 12, marginTop: 3 },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  loader: { marginTop: 40 },
-  empty: { textAlign: 'center', color: '#868e96', marginTop: 40 },
-  feedCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 4 },
-  feedHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  loader:      { marginTop: 40 },
+  empty:       { textAlign: 'center', color: '#868e96', marginTop: 40 },
+  feedCard:    { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 4 },
+  feedHeader:  { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   feedDescription: { color: '#495057', fontSize: 14, lineHeight: 20 },
-  feedCategories: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
-  feedCategory: { color: '#1864ab', backgroundColor: '#e7f5ff', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4, fontSize: 12 },
-  feedStats: { flexDirection: 'row', gap: 18, marginTop: 14 },
-  feedStat: { color: '#868e96', fontSize: 12 },
+  feedCategories:  { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
+  feedCategory:    { color: '#1864ab', backgroundColor: '#e7f5ff', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4, fontSize: 12 },
+  feedStats:   { flexDirection: 'row', gap: 18, marginTop: 14 },
+  feedStat:    { color: '#868e96', fontSize: 12 },
 });
 
 export default FavoritesScreen;

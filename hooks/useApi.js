@@ -336,3 +336,135 @@ export function useSharedTasksInfinite(filters = {}) {
     gcTime: GC_TIME,
   });
 }
+
+// ─── Favoritos ────────────────────────────────────────────────────────────────
+
+/**
+ * Colección de favoritos (perfiles + tareas) de un usuario.
+ * Si userId es null/undefined, trae la colección del usuario autenticado.
+ */
+export function useFavoritesCollection(userId) {
+  return useQuery({
+    queryKey: ['favorites', userId ?? 'me'],
+    queryFn: async () => {
+      const endpoint = userId ? `favorites/collection/${userId}/` : 'favorites/collection/';
+      const res = await api.get(endpoint);
+      return {
+        profiles: Array.isArray(res.data?.profiles) ? res.data.profiles : [],
+        tasks:    Array.isArray(res.data?.tasks)    ? res.data.tasks    : [],
+        visibility: res.data?.visibility || {},
+      };
+    },
+    staleTime: STALE_TIME,
+    gcTime:    GC_TIME,
+  });
+}
+
+/**
+ * Mutación: anclaje / desanclaje de un favorito.
+ */
+export function usePinFavorite(userId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ type, id, is_pinned }) =>
+      api.post('favorites/pin/', { type, id, is_pinned }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['favorites', userId ?? 'me'] }),
+  });
+}
+
+/**
+ * Mutación: reordenar favoritos.
+ */
+export function useReorderFavorites(userId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ type, order }) => api.patch('favorites/collection/', { type, order }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['favorites', userId ?? 'me'] }),
+  });
+}
+
+// ─── Foro ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Lista de posts del foro.
+ */
+export function usePosts() {
+  return useQuery({
+    queryKey: ['posts'],
+    queryFn: async () => {
+      const res = await api.get('posts/');
+      return res.data.results ?? res.data ?? [];
+    },
+    staleTime: STALE_TIME,
+    gcTime:    GC_TIME,
+  });
+}
+
+/**
+ * Mutaciones del foro: crear, editar, eliminar, dar like a un post.
+ */
+export function usePostMutations() {
+  const queryClient = useQueryClient();
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['posts'] });
+
+  const createPost = useMutation({
+    mutationFn: ({ title, content }) => api.post('posts/', { title, content }),
+    onSuccess: invalidate,
+  });
+
+  const editPost = useMutation({
+    mutationFn: ({ id, title, content }) => api.patch(`posts/${id}/`, { title, content }),
+    onSuccess: invalidate,
+  });
+
+  const deletePost = useMutation({
+    mutationFn: (postId) => api.delete(`posts/${postId}/`),
+    onMutate: async (postId) => {
+      await queryClient.cancelQueries({ queryKey: ['posts'] });
+      const prev = queryClient.getQueryData(['posts']);
+      queryClient.setQueryData(['posts'], (old) => (old ?? []).filter((p) => p.id !== postId));
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => queryClient.setQueryData(['posts'], ctx?.prev),
+    onSuccess: invalidate,
+  });
+
+  const likePost = useMutation({
+    mutationFn: (postId) => api.post(`posts/${postId}/like/`),
+    onMutate: async (postId) => {
+      await queryClient.cancelQueries({ queryKey: ['posts'] });
+      const prev = queryClient.getQueryData(['posts']);
+      queryClient.setQueryData(['posts'], (old) =>
+        (old ?? []).map((p) =>
+          p.id === postId
+            ? { ...p, has_liked: !p.has_liked, likes_count: p.likes_count + (p.has_liked ? -1 : 1) }
+            : p
+        )
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => queryClient.setQueryData(['posts'], ctx?.prev),
+    onSuccess: (data, postId) => {
+      queryClient.setQueryData(['posts'], (old) =>
+        (old ?? []).map((p) =>
+          p.id === postId
+            ? { ...p, likes_count: data.data.likes_count, has_liked: data.data.liked }
+            : p
+        )
+      );
+    },
+  });
+
+  return { createPost, editPost, deletePost, likePost };
+}
+
+/**
+ * Like optimista en tareas compartidas (para SharedTasksScreen).
+ */
+export function useLikeSharedTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sharedTaskId) => api.post(`shared-tasks/${sharedTaskId}/like/`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sharedTasks'] }),
+  });
+}

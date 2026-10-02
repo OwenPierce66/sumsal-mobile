@@ -1,103 +1,66 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   RefreshControl, TextInput, Platform, ActivityIndicator, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment';
 import 'moment/locale/es';
-import api, { getImageUrl } from '../api';
+import { getImageUrl } from '@api';
 import { Image } from 'expo-image';
-import TouchableUsername from '../components/TouchableUsername';
+import TouchableUsername from '@components/TouchableUsername';
+import { usePosts, usePostMutations, useMe } from '@hooks/useApi';
 
 moment.locale('es');
 
 const ForumScreen = ({ navigation }) => {
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [newPostTitle, setNewPostTitle] = useState('');
+  const [modalVisible,   setModalVisible]   = useState(false);
+  const [newPostTitle,   setNewPostTitle]   = useState('');
   const [newPostContent, setNewPostContent] = useState('');
-  const [isCreatingPost, setIsCreatingPost] = useState(false);
-  const [likingPostId, setLikingPostId] = useState(null);
-  const [editingPost, setEditingPost] = useState(null);
-  const [currentUserId, setCurrentUserId] = useState(null);
+  const [editingPost,    setEditingPost]    = useState(null);
 
-  useEffect(() => {
-    api.get('users/me/').then(response => setCurrentUserId(response.data.id)).catch(() => {});
-  }, []);
+  // ─── React Query ────────────────────────────────────────────────────────────
+  const { data: posts = [], isLoading, isFetching, refetch } = usePosts();
+  const { data: me } = useMe();
+  const currentUserId = me?.id ?? null;
 
+  const { createPost, editPost, deletePost, likePost } = usePostMutations();
+
+  const refreshing = isFetching && !isLoading;
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
   const getPostAuthorName = (post) => {
-    const userObj = post.user;
-    
-    if (userObj) {
-      if (userObj.first_name) {
-        return `${userObj.first_name} ${userObj.last_name || ''}`.trim();
-      }
-      if (userObj.username) {
-        return userObj.username;
-      }
-      if (userObj.email) {
-        return userObj.email.split('@')[0];
-      }
-    }
+    const u = post.user;
+    if (!u) return 'Anónimo';
+    if (u.first_name) return `${u.first_name} ${u.last_name || ''}`.trim();
+    if (u.username)   return u.username;
+    if (u.email)      return u.email.split('@')[0];
     return 'Anónimo';
   };
 
-  const countNestedReplies = (replies = []) => {
-    return replies.reduce((total, reply) => total + 1 + countNestedReplies(reply.replies || []), 0);
-  };
+  const countNestedReplies = (replies = []) =>
+    replies.reduce((total, reply) => total + 1 + countNestedReplies(reply.replies || []), 0);
 
-  const fetchPosts = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await api.get('posts/');
-      const data = response.data.results || response.data || [];
-      setPosts(data);
-    } catch (error) {
-      console.error('Error fetching posts:', error.response?.data || error.message);
-      Alert.alert('Error', 'No se pudieron cargar los posts');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchPosts();
-  }, [fetchPosts]);
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchPosts();
-  };
-
+  // ─── Handlers ────────────────────────────────────────────────────────────────
   const handleCreatePost = async () => {
     if (!newPostTitle.trim() || !newPostContent.trim()) {
       Alert.alert('Error', 'Título y contenido son requeridos');
       return;
     }
-
-    setIsCreatingPost(true);
     try {
       if (editingPost) {
-        await api.patch(`posts/${editingPost.id}/`, { title: newPostTitle, content: newPostContent });
+        await editPost.mutateAsync({ id: editingPost.id, title: newPostTitle, content: newPostContent });
       } else {
-        await api.post('posts/', { title: newPostTitle, content: newPostContent });
+        await createPost.mutateAsync({ title: newPostTitle, content: newPostContent });
       }
       setModalVisible(false);
       setEditingPost(null);
       setNewPostTitle('');
       setNewPostContent('');
       Alert.alert('Éxito', editingPost ? 'Post actualizado correctamente' : 'Post creado correctamente');
-      fetchPosts();
     } catch (error) {
-      console.error('Error creating post:', error.response?.data || error.message);
-      Alert.alert('Error', 'No se pudo crear el post');
-    } finally {
-      setIsCreatingPost(false);
+      console.error('Error creating/editing post:', error.response?.data || error.message);
+      Alert.alert('Error', 'No se pudo guardar el post');
     }
   };
 
@@ -108,42 +71,23 @@ const ForumScreen = ({ navigation }) => {
     setModalVisible(true);
   };
 
-  const deletePost = (postId) => {
-    const execute = async () => {
-      try {
-        await api.delete(`posts/${postId}/`);
-        setPosts(current => current.filter(post => post.id !== postId));
-      } catch (error) {
-        Alert.alert('Error', 'No se pudo eliminar el post');
-      }
-    };
-    if (Platform.OS === 'web' ? window.confirm('¿Eliminar este post?') : true) {
-      if (Platform.OS === 'web') execute();
-      else Alert.alert('Eliminar post', '¿Deseas eliminarlo?', [{ text: 'Cancelar', style: 'cancel' }, { text: 'Eliminar', style: 'destructive', onPress: execute }]);
+  const handleDeletePost = (postId) => {
+    const execute = () => deletePost.mutate(postId);
+    if (Platform.OS === 'web') {
+      if (window.confirm('¿Eliminar este post?')) execute();
+    } else {
+      Alert.alert('Eliminar post', '¿Deseas eliminarlo?', [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: execute },
+      ]);
     }
   };
 
-  const handleTogglePostLike = async (postId) => {
-    setLikingPostId(postId);
-    try {
-      const response = await api.post(`posts/${postId}/like/`);
-      const updatedPosts = posts.map((post) =>
-        post.id === postId
-          ? {
-              ...post,
-              likes_count: response.data.likes_count,
-              has_liked: response.data.liked }
-          : post
-      );
-      setPosts(updatedPosts);
-    } catch (error) {
-      console.error('Error liking post:', error.response?.data || error.message);
-      Alert.alert('Error', 'No se pudo actualizar el like');
-    } finally {
-      setLikingPostId(null);
-    }
-  };
+  const handleTogglePostLike = (postId) => likePost.mutate(postId);
 
+  const isSaving = createPost.isPending || editPost.isPending;
+
+  // ─── Render ──────────────────────────────────────────────────────────────────
   const renderPost = ({ item }) => (
     <TouchableOpacity
       style={styles.postCard}
@@ -171,15 +115,19 @@ const ForumScreen = ({ navigation }) => {
       <Text style={styles.postContent} numberOfLines={2}>{item.content}</Text>
       {currentUserId === item.user?.id && (
         <View style={{ flexDirection: 'row', gap: 16, marginBottom: 8 }}>
-          <TouchableOpacity onPress={() => openEditPost(item)}><Ionicons name="pencil-outline" size={17} color="#4dabf7" /></TouchableOpacity>
-          <TouchableOpacity onPress={() => deletePost(item.id)}><Ionicons name="trash-outline" size={17} color="#ff6b6b" /></TouchableOpacity>
+          <TouchableOpacity onPress={() => openEditPost(item)}>
+            <Ionicons name="pencil-outline" size={17} color="#4dabf7" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => handleDeletePost(item.id)}>
+            <Ionicons name="trash-outline" size={17} color="#ff6b6b" />
+          </TouchableOpacity>
         </View>
       )}
       <View style={styles.postFooter}>
         <TouchableOpacity
           style={styles.likeButton}
           onPress={() => handleTogglePostLike(item.id)}
-          disabled={likingPostId === item.id}
+          disabled={likePost.isPending}
         >
           <Ionicons
             name={item.has_liked ? 'heart' : 'heart-outline'}
@@ -205,10 +153,7 @@ const ForumScreen = ({ navigation }) => {
           </TouchableOpacity>
         )}
         <Text style={styles.headerTitle}>Foro</Text>
-        <TouchableOpacity
-          style={styles.createBtn}
-          onPress={() => setModalVisible(true)}
-        >
+        <TouchableOpacity style={styles.createBtn} onPress={() => setModalVisible(true)}>
           <Ionicons name="add" size={24} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -217,10 +162,10 @@ const ForumScreen = ({ navigation }) => {
         data={posts}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderPost}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
-          !loading && (
+          !isLoading && (
             <View style={{ alignItems: 'center', marginTop: 50 }}>
               <Ionicons name="chatbox-outline" size={60} color="#ccc" />
               <Text style={{ marginTop: 16, color: '#999' }}>No hay posts aún</Text>
@@ -229,7 +174,7 @@ const ForumScreen = ({ navigation }) => {
         }
       />
 
-      {loading && (
+      {isLoading && (
         <View style={styles.loader}>
           <ActivityIndicator size="large" color="#4dabf7" />
         </View>
@@ -244,7 +189,6 @@ const ForumScreen = ({ navigation }) => {
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
-
             <TextInput
               style={styles.input}
               placeholder="Título del post"
@@ -252,7 +196,6 @@ const ForumScreen = ({ navigation }) => {
               onChangeText={setNewPostTitle}
               placeholderTextColor="#999"
             />
-
             <TextInput
               style={[styles.input, { height: 120, textAlignVertical: 'top' }]}
               placeholder="Contenido del post"
@@ -261,13 +204,12 @@ const ForumScreen = ({ navigation }) => {
               multiline
               placeholderTextColor="#999"
             />
-
             <TouchableOpacity
-              style={[styles.submitBtn, isCreatingPost && { opacity: 0.6 }]}
+              style={[styles.submitBtn, isSaving && { opacity: 0.6 }]}
               onPress={handleCreatePost}
-              disabled={isCreatingPost}
+              disabled={isSaving}
             >
-              {isCreatingPost ? (
+              {isSaving ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Text style={styles.submitBtnText}>{editingPost ? 'Guardar cambios' : 'Crear Post'}</Text>
@@ -281,35 +223,31 @@ const ForumScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FEF6F5' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
-  headerTitle: { fontSize: 24, fontWeight: '800', color: '#333' },
-  backBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  createBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
-  
-  listContent: { paddingHorizontal: 12, paddingVertical: 10 },
-  likeButton: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  postCard: { backgroundColor: '#fff', marginBottom: 12, borderRadius: 12, padding: 12, elevation: 2 },
-  postHeader: { flexDirection: 'row', marginBottom: 12, gap: 10 },
-  avatar: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#eee' },
-  postTitle: { fontSize: 16, fontWeight: 'bold', color: '#000', flex: 1 },
-  postAuthor: { fontSize: 12, color: '#4dabf7', fontWeight: '600', marginTop: 2 },
-  postDate: { fontSize: 11, color: '#999', marginTop: 2 },
-  
-  postContent: { fontSize: 13, color: '#555', lineHeight: 18, marginBottom: 10 },
-  postFooter: { flexDirection: 'row', gap: 15, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
-  stat: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  statText: { fontSize: 12, color: '#666', fontWeight: '600' },
-  
-  loader: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.8)' },
-  
-  modal: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  container:    { flex: 1, backgroundColor: '#FEF6F5' },
+  header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  headerTitle:  { fontSize: 24, fontWeight: '800', color: '#333' },
+  backBtn:      { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  createBtn:    { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
+  listContent:  { paddingHorizontal: 12, paddingVertical: 10 },
+  likeButton:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  postCard:     { backgroundColor: '#fff', marginBottom: 12, borderRadius: 12, padding: 12, elevation: 2 },
+  postHeader:   { flexDirection: 'row', marginBottom: 12, gap: 10 },
+  avatar:       { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#eee' },
+  postTitle:    { fontSize: 16, fontWeight: 'bold', color: '#000', flex: 1 },
+  postAuthor:   { fontSize: 12, color: '#4dabf7', fontWeight: '600', marginTop: 2 },
+  postDate:     { fontSize: 11, color: '#999', marginTop: 2 },
+  postContent:  { fontSize: 13, color: '#555', lineHeight: 18, marginBottom: 10 },
+  postFooter:   { flexDirection: 'row', gap: 15, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
+  stat:         { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  statText:     { fontSize: 12, color: '#666', fontWeight: '600' },
+  loader:       { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.8)' },
+  modal:        { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 30 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-  
-  input: { borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 14, color: '#333' },
-  submitBtn: { backgroundColor: '#4dabf7', borderRadius: 8, padding: 14, alignItems: 'center' },
-  submitBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 } });
+  modalHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle:   { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  input:        { borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 14, color: '#333' },
+  submitBtn:    { backgroundColor: '#4dabf7', borderRadius: 8, padding: 14, alignItems: 'center' },
+  submitBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+});
 
 export default ForumScreen;
