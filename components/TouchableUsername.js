@@ -19,7 +19,6 @@ const TouchableUsername = ({
   const [isLoading, setIsLoading] = useState(false);
 
   const handlePress = () => {
-   console.log('[TouchableUsername] handlePress', { userId, username, userImage, hasOnNavigate: !!onNavigate, hasNavigation: !!navigation });
    if (onNavigate) {
      onNavigate(userId, username, userImage);
      return;
@@ -35,7 +34,6 @@ const TouchableUsername = ({
   };
 
   const handleLongPress = () => {
-   console.log('[TouchableUsername] handleLongPress', { userId, username });
    if (!userId) return;
    setMenuVisible(true);
   };

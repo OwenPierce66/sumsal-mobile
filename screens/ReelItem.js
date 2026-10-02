@@ -265,11 +265,6 @@ const ReelItemComponent = ({
               <TouchableOpacity
                 style={styles.userInfo}
                 onPress={() => {
-                  console.log('[ReelItem] username pressed', {
-                    userId: userItem?.id,
-                    username: userItem?.username,
-                    userImage: getImageUrl(userItem?.user_image),
-                  });
                   navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) });
                 }}
               >
@@ -309,15 +304,9 @@ const ReelItemComponent = ({
               <TouchableOpacity 
                 style={styles.iconButton} 
                 onPress={() => {
-                  console.log('[ReelItem] avatar pressed', {
-                    userId: userItem?.id,
-                    username: userItem?.username,
-                    userImage: getImageUrl(userItem?.user_image),
-                  });
                   navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) });
                 }}
                 onLongPress={() => {
-                  console.log('[ReelItem] avatar longPress', { userId: userItem?.id, username: userItem?.username });
                   handleShowProfileLikes(userItem?.id);
                 }}
               > 

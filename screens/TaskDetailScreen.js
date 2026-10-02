@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useCallback, useEffect, useRef } from 'react';
+﻿import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Modal,
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView, Dimensions
@@ -428,11 +428,7 @@ const fetchComments = useCallback(async () => {
     try {
       const response = await api.get(`tasks/${taskId}/comments/`);
       const allComments = response.data.results ?? response.data ?? [];
-      
-      // âš¡ LOG DE DEBUGEO: Imprimimos el primer comentario si existe
-      if (allComments.length > 0) {
-        console.log("ðŸ› DATA DEL PRIMER COMENTARIO:", JSON.stringify(allComments[0], null, 2));
-      }
+
 
       const parentComments = allComments.filter(c => c.is_parent || !c.parent);
       setComments(parentComments);
@@ -447,7 +443,6 @@ const fetchComments = useCallback(async () => {
       const response = await api.get(`tasks/${taskId}/`, { params: { _ts: Date.now() } });
       
       // âš¡ LOG DE DEBUGEO: Imprimimos toda la estructura de la tarea
-      console.log("ðŸ› DATA DE LA TAREA:", JSON.stringify(response.data, null, 2));
 
       setTask(response.data);
       setPodcastInvitationStatus(response.data?.podcast_invitation_status || null);

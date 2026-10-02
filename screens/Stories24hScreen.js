@@ -219,7 +219,6 @@ const Stories24hScreen = ({ route }) => {
       // Obtener lista de perfiles favoritos del usuario actual
       const response = await api.get('pfavoritos/listar/');
       
-      console.log('[Stories24hScreen] fetchFavorites RAW response:', response.data);
       
       // El endpoint retorna un array directo de usuarios (SimpleUserSerializer)
       let data = response.data;
@@ -227,11 +226,9 @@ const Stories24hScreen = ({ route }) => {
         data = data.results;
       }
       
-      console.log('[Stories24hScreen] fetchFavorites parsed data:', data);
       
       const favoritesList = Array.isArray(data)
         ? data.map(item => {
-            console.log('[Stories24hScreen] favorite item:', item);
             return {
               id: item.id,
               username: item.username || 'Usuario',
@@ -240,10 +237,8 @@ const Stories24hScreen = ({ route }) => {
           })
         : [];
       
-      console.log('[Stories24hScreen] fetchFavorites loaded', favoritesList.length, 'favorites:', favoritesList);
       setFavorites(favoritesList);
     } catch (error) {
-      console.log('[Stories24hScreen] fetchFavorites error:', error.message);
     }
   }, []);
 
@@ -878,7 +873,6 @@ const Stories24hScreen = ({ route }) => {
       formData.append('receiver', favoriteUserId);
       
       // Enviar el mensaje directo al favorito seleccionado
-      console.log('[Stories24hScreen] Sending DM to favorite', favoriteUserId, 'with content:', messageContent);
       
       const response = await api.post('massaging/messages/', formData, {
         headers: {
@@ -886,7 +880,6 @@ const Stories24hScreen = ({ route }) => {
         },
       });
       
-      console.log('[Stories24hScreen] DM sent successfully', response.data);
       
       // Cerrar el modal y limpiar
       closeShareModal();
@@ -895,8 +888,6 @@ const Stories24hScreen = ({ route }) => {
       
       Alert.alert('Enviado', 'Historia enviada al favorito');
     } catch (error) {
-      console.log('[Stories24hScreen] Error sending DM:', error.message);
-      console.log('[Stories24hScreen] Error response:', error.response?.data);
       Alert.alert('Error', 'No se pudo enviar el mensaje: ' + (error.response?.data?.detail || error.message));
     }
   }, [activeStory, shareToStoryCaption, closeShareModal]);

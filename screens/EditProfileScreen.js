@@ -29,7 +29,6 @@ const EditProfileScreen = ({ navigation, route }) => {
     });
 
     if (!result.canceled) {
-      console.log('[DEBUG] Imagen seleccionada:', JSON.stringify(result.assets[0], null, 2));
       setImage(result.assets[0]);
     }
   };
@@ -38,7 +37,6 @@ const EditProfileScreen = ({ navigation, route }) => {
     if (loading) return;
     setLoading(true);
 
-    console.log('[DEBUG] Iniciando guardado de perfil...');
 
     const formData = new FormData();
     formData.append('first_name', firstName);
@@ -46,13 +44,11 @@ const EditProfileScreen = ({ navigation, route }) => {
     formData.append('username', username);
 
     if (image) {
-      console.log('[DEBUG] Adjuntando imagen al FormData...');
       if (Platform.OS === 'web') {
         const response = await fetch(image.uri);
         const blob = await response.blob();
         const ext = blob.type.split('/')[1] || 'jpg';
         formData.append('user_image', blob, `profile.${ext}`);
-        console.log('[DEBUG] Imagen (web) añadida como blob.');
       } else {
         const uriParts = image.uri.split('.');
         const fileType = uriParts[uriParts.length - 1] || 'jpg';
@@ -61,14 +57,12 @@ const EditProfileScreen = ({ navigation, route }) => {
           name: `profile.${fileType}`,
           type: `image/${fileType === 'jpg' ? 'jpeg' : fileType}`,
         });
-        console.log('[DEBUG] Imagen (nativo) añadida con uri:', image.uri);
       }
     }
 
     try {
       // Para depurar, es útil ver qué contiene el FormData.
       // Nota: console.log(formData) no muestra los datos directamente en muchos entornos.
-      console.log('[DEBUG] Enviando FormData al endpoint /api/users/me/');
       // Usamos PATCH para actualizar parcialmente el perfil
       await api.patch('users/me/', formData);
 

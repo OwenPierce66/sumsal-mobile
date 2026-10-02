@@ -359,7 +359,6 @@ const CreateTaskScreen = ({ navigation, route }) => {
   const handleCreate = async () => {
     if (loading) return; 
 
-    console.log('[CreateTaskScreen] Guardar pulsado:', { editing: Boolean(editTask), taskId: editTask?.id });
 
     if (!title.trim()) {
       return Alert.alert("Falta información", "El título principal es obligatorio.");
@@ -424,18 +423,7 @@ const CreateTaskScreen = ({ navigation, route }) => {
         await appendEditBlocks(subfactores, 'subfactores');
         await appendEditBlocks(subfuentes, 'subfuentes');
 
-        console.log('[CreateTaskScreen] Actualizando tarea con multipart:', editTask.id);
         const response = await api.patch(`tasks/${editTask.id}/`, updateFormData);
-        console.log('[CreateTaskScreen] Tarea actualizada:', {
-          id: response.data?.id,
-          title: response.data?.title,
-          description: response.data?.description,
-          pch: response.data?.pch,
-          categories: response.data?.categories,
-          subtasks: response.data?.subtasks?.length,
-          subfactores: response.data?.subfactores?.length,
-          subfuentes: response.data?.subfuentes?.length,
-        });
         await syncTaskTags(editTask.id);
         Alert.alert("¡Éxito!", "Aportación actualizada correctamente.");
         navigation.goBack();

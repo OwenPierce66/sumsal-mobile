@@ -7,10 +7,8 @@ import { Text, TouchableOpacity, StyleSheet } from 'react-native';
 const UsernameLink = (props) => {
   try {
     const { username, userId, navigation, style, textStyle } = props;
-    console.log('[UsernameLink] RENDERING:', username, userId);
 
     const handlePress = () => {
-      console.log('[UsernameLink] TAP on', username);
       try {
         navigation?.navigate('UserProfile', {
           userId,

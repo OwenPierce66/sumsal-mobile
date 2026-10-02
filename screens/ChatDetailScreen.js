@@ -414,14 +414,6 @@ const ChatDetailScreen = ({ route, navigation }) => {
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const asset = result.assets[0];
-      console.log('[ChatDetail] Multimedia seleccionada:', {
-        type: asset.type,
-        mimeType: asset.mimeType,
-        fileName: asset.fileName,
-        name: asset.name,
-        uri: asset.uri,
-        isVideo: isVideoAsset(asset),
-      });
       setSelectedImage(asset);
     }
   };
@@ -530,13 +522,6 @@ const ChatDetailScreen = ({ route, navigation }) => {
         const finalType = sourceMimeType.startsWith(isVideo ? 'video/' : 'image/')
           ? sourceMimeType
           : (isVideo ? 'video/mp4' : 'image/jpeg');
-        console.log('[ChatDetail] Preparando multimedia:', {
-          isVideo,
-          sourceMimeType,
-          fileType,
-          finalType,
-          uri: selectedImage.uri,
-        });
         
         if (Platform.OS === 'web') {
           const response = await fetch(selectedImage.uri);
@@ -563,23 +548,11 @@ const ChatDetailScreen = ({ route, navigation }) => {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         setMessages(prev => [res.data, ...prev]);
-        console.log('[ChatDetail] Mensaje multimedia enviado:', {
-          id: res.data?.id,
-          image: res.data?.image,
-          video: res.data?.video,
-          attachments: res.data?.attachments,
-        });
       } else {
         const res = await api.post(`massaging/groupss/${chatId}/send_message/`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         setMessages(prev => [res.data, ...prev]);
-        console.log('[ChatDetail] Mensaje grupal multimedia enviado:', {
-          id: res.data?.id,
-          image: res.data?.image,
-          video: res.data?.video,
-          attachments: res.data?.attachments,
-        });
       }
 
       setNewMessage('');
