@@ -5,23 +5,11 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import api from '../api';
+import api, { getImageUrl } from '@api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { Video } from 'expo-av';
-
-const getImageUrl = (path) => {
-  if (!path) return null;
-  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
-    return path;
-  }
-  const IP = Platform.OS === 'web' ? 'localhost' : '192.168.0.115';
-  let cleanPath = path;
-  if (cleanPath.startsWith('http')) {
-    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
-  }
-  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
-};
+import { useCreateTaskCategories, useIsAdmin } from '@hooks/useApi';
 
 // ⚡ DICCIONARIO INTELIGENTE DE SUBTEMAS
 const PREDEFINED_SUBTEMAS = {
@@ -148,27 +136,23 @@ const CreateTaskScreen = ({ navigation, route }) => {
     loadTree();
   }, []);
 
+  // ─── React Query para categorías y admin ────────────────────────────────────
+  const { appCategories, myCategories: myCategoriesQuery } = useCreateTaskCategories(tema, isAdminUser);
+  const { data: adminData } = useIsAdmin();
+
+  // Sincronizar React Query → estado local (para compatibilidad con mutaciones)
   useEffect(() => {
-    const fetchCategories = async () => {
-      try {
-        // ⚡ Cada PCH tiene sus propias categorías (más las globales) + las del usuario
-        const [appResponse, mineResponse] = await Promise.all([
-          api.get('new-categories/', { params: { pch: tema } }),
-          api.get('categories/'),
-        ]);
-        const cats = appResponse.data || [];
-        const mine = mineResponse.data || [];
-        setAvailableCategories(cats);
-        setMyCategories(mine);
-        // Al cambiar de PCH solo descartamos lo que no existe ni en la app ni en tu filtro
-        const validNames = new Set([...cats, ...mine].map(c => c.name));
-        setSelectedCategories(prev => prev.filter(name => validNames.has(name)));
-      } catch (error) {
-        console.error('Error fetching categories:', error);
-      }
-    };
-    fetchCategories();
-  }, [tema, isAdminUser]);
+    const cats = appCategories.data ?? [];
+    const mine = myCategoriesQuery.data ?? [];
+    setAvailableCategories(cats);
+    setMyCategories(mine);
+    const validNames = new Set([...cats, ...mine].map(c => c.name));
+    setSelectedCategories(prev => prev.filter(name => validNames.has(name)));
+  }, [appCategories.data, myCategoriesQuery.data]);
+
+  useEffect(() => {
+    if (adminData) setIsAdminUser(adminData.isAdmin);
+  }, [adminData]);
 
   // Crea la categoría en tu filtro personal y la deja seleccionada al instante.
   const handleAddOwnCategory = async () => {
@@ -292,18 +276,6 @@ const CreateTaskScreen = ({ navigation, route }) => {
   const removeBlock = (state, setState, indexToRemove) => {
     setState(state.filter((_, index) => index !== indexToRemove));
   };
-
-  useEffect(() => {
-    const checkAdmin = async () => {
-      try {
-        const { data } = await api.get('verify-admin/');
-        setIsAdminUser(Boolean(data?.is_admin));
-      } catch (error) {
-        setIsAdminUser(false);
-      }
-    };
-    checkAdmin();
-  }, []);
 
   const handleToggleApprove = async () => {
     if (!editTask?.id || loadingApprove) return;

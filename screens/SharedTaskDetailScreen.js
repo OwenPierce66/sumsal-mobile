@@ -10,11 +10,12 @@ import {
   Platform } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import moment from 'moment'; 
-import api, { getImageUrl } from '../api';
+import api, { getImageUrl } from '@api';
 import { Image } from 'expo-image';
-import ShareModal from '../components/ShareModal';
-import LikesListModal from '../components/LikesListModal';
-import TouchableUsername from '../components/TouchableUsername';
+import ShareModal from '@components/ShareModal';
+import LikesListModal from '@components/LikesListModal';
+import TouchableUsername from '@components/TouchableUsername';
+import { useSharedTaskDetail, useMe } from '@hooks/useApi';
 
 moment.locale('es');
 
@@ -160,25 +161,41 @@ const SharedCommentItem = ({
 const SharedTaskDetailScreen = ({ route, navigation }) => {
   const { sharedTaskId } = route.params;
 
-  const [sharedTask, setSharedTask] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [newCommentText, setNewCommentText] = useState('');
-  const [replyingTo, setReplyingTo] = useState(null);
-  const [editingCommentId, setEditingCommentId] = useState(null);
+  // ─── React Query ────────────────────────────────────────────────────────────
+  const { data: sharedTaskData, isLoading: loading, refetch } = useSharedTaskDetail(sharedTaskId);
+  const { data: me } = useMe();
+
+  // Estado local (para edición de comentarios y UI mutable)
+  const [sharedTask,         setSharedTask]         = useState(null);
+  const [newCommentText,     setNewCommentText]     = useState('');
+  const [replyingTo,         setReplyingTo]         = useState(null);
+  const [editingCommentId,   setEditingCommentId]   = useState(null);
   const [editingDescription, setEditingDescription] = useState(false);
-  const [descriptionText, setDescriptionText] = useState('');
-  const [submittingComment, setSubmittingComment] = useState(false);
+  const [descriptionText,    setDescriptionText]    = useState('');
+  const [submittingComment,  setSubmittingComment]  = useState(false);
   const [expandedCommentIds, setExpandedCommentIds] = useState([]);
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [liking, setLiking] = useState(null);
+  const [liking,             setLiking]             = useState(null);
 
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
-  const [likesModalUrl, setLikesModalUrl] = useState('');
+  const [likesModalUrl,     setLikesModalUrl]     = useState('');
 
   // Modal de compartir
   const [shareModalVisible, setShareModalVisible] = useState(false);
-  const [taskToShare, setTaskToShare] = useState(null);
+  const [taskToShare,       setTaskToShare]       = useState(null);
+
+  // Sincronizar el query al estado local mutable
+  const currentUserId = me?.id ?? null;
+
+  useEffect(() => {
+    if (sharedTaskData) {
+      setSharedTask(sharedTaskData);
+    }
+  }, [sharedTaskData]);
+
+  const fetchSharedTask = async (_showLoader = true) => {
+    await refetch();
+  };
 
   const handleShowSharedTaskLikes = () => {
     setLikesModalUrl(`shared-tasks/${sharedTaskId}/users-who-liked/`);
@@ -188,32 +205,6 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
   const handleShowCommentLikes = (commentId) => {
     setLikesModalUrl(`shared-tasks/comments/${commentId}/users-who-liked/`);
     setLikesModalVisible(true);
-  };
-
-  useEffect(() => {
-    fetchSharedTask();
-    getCurrentUser();
-  }, []);
-
-  const getCurrentUser = async () => {
-    try {
-      const response = await api.get('users/me/');
-      setCurrentUserId(response.data.id);
-    } catch (error) {
-      console.error('Error getting current user:', error.response?.data || error.message);
-    }
-  };
-
-  const fetchSharedTask = async (showLoader = true) => {
-    try {
-      if (showLoader) setLoading(true);
-      const response = await api.get(`shared-tasks/${sharedTaskId}/`);
-      setSharedTask(response.data);
-    } catch (error) {
-      console.error('Error fetching shared task:', error);
-    } finally {
-      if (showLoader) setLoading(false);
-    }
   };
 
   const toggleCommentExpansion = (commentId) => {

@@ -1,4 +1,4 @@
-﻿import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Modal,
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView, Dimensions
@@ -7,14 +7,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment'; 
 import 'moment/locale/es'; 
-import api, { getImageUrl } from '../api';
+import api, { getImageUrl } from '@api';
 import { Image } from 'expo-image';
 import { Video } from 'expo-av';
-import ShareModal from '../components/ShareModal';
+import ShareModal from '@components/ShareModal';
 import TieredLikesModal from './TieredLikesModal';
 import Slider from '@react-native-community/slider';
-import TouchableUsername from '../components/TouchableUsername';
-import CategoryHierarchy from '../components/CategoryHierarchy';
+import TouchableUsername from '@components/TouchableUsername';
+import CategoryHierarchy from '@components/CategoryHierarchy';
+import { useTaskDetail, useTaskComments, useMe, useIsAdmin } from '@hooks/useApi';
 
 moment.locale('es');
 
@@ -269,27 +270,26 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
 // =====================================================================
 const TaskDetailScreen = ({ route, navigation }) => {
   const { taskId } = route.params;
-  const [task, setTask] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [comments, setComments] = useState([]);
-  const [commentText, setCommentText] = useState('');
+  const [task,             setTask]             = useState(null);
+  const [comments,         setComments]         = useState([]);
+  const [commentText,      setCommentText]      = useState('');
   const [isCreatingComment, setIsCreatingComment] = useState(false);
-  const [replyingTo, setReplyingTo] = useState(null);
+  const [replyingTo,       setReplyingTo]       = useState(null);
   const [editingCommentId, setEditingCommentId] = useState(null);
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [currentUserId,    setCurrentUserId]    = useState(null);
+  const [isAdmin,          setIsAdmin]          = useState(false);
   const [podcastInvitationStatus, setPodcastInvitationStatus] = useState(null);
-  const [respondingToPodcast, setRespondingToPodcast] = useState(false);
+  const [respondingToPodcast,     setRespondingToPodcast]     = useState(false);
   const [expandedCommentIds, setExpandedCommentIds] = useState([]);
 
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
-  const [likesModalUrl, setLikesModalUrl] = useState('');
-  const [likesModalTitle, setLikesModalTitle] = useState('Likes');
-  
+  const [likesModalUrl,     setLikesModalUrl]     = useState('');
+  const [likesModalTitle,   setLikesModalTitle]   = useState('Likes');
+
   // Modal de compartir
   const [shareModalVisible, setShareModalVisible] = useState(false);
-  const [taskToShare, setTaskToShare] = useState(null);
+  const [taskToShare,       setTaskToShare]       = useState(null);
   // Modal de acciones
   const [actionModalVisible, setActionModalVisible] = useState(false);
 
@@ -424,49 +424,50 @@ const TaskDetailScreen = ({ route, navigation }) => {
     );
   };
 
-const fetchComments = useCallback(async () => {
-    try {
-      const response = await api.get(`tasks/${taskId}/comments/`);
-      const allComments = response.data.results ?? response.data ?? [];
+  // ─── React Query para data inicial ─────────────────────────────────────────
+  const { data: taskData, isLoading: loading, refetch: refetchTask } = useTaskDetail(taskId);
+  const { data: commentsData, refetch: refetchComments } = useTaskComments(taskId);
+  const { data: me } = useMe();
+  const { data: adminData } = useIsAdmin();
 
-
-      const parentComments = allComments.filter(c => c.is_parent || !c.parent);
-      setComments(parentComments);
-    } catch (error) {
-      console.error('Error fetching comments:', error.response?.data || error.message);
+  // Sincronizar React Query → estado local
+  useEffect(() => {
+    if (taskData) {
+      setTask(taskData);
+      setPodcastInvitationStatus(taskData?.podcast_invitation_status || null);
     }
-  }, [taskId]);
+  }, [taskData]);
+
+  useEffect(() => {
+    if (commentsData) {
+      const parentComments = commentsData.filter(c => c.is_parent || !c.parent);
+      setComments(parentComments);
+    }
+  }, [commentsData]);
+
+  useEffect(() => {
+    if (me?.id) setCurrentUserId(me.id);
+  }, [me]);
+
+  useEffect(() => {
+    if (adminData) setIsAdmin(adminData.isAdmin || adminData.isStaff);
+  }, [adminData]);
+
+  // fetchTaskDetail y fetchComments como wrappers del refetch para no romper handlers existentes
+  const fetchComments = useCallback(async () => {
+    await refetchComments();
+  }, [refetchComments]);
 
   const fetchTaskDetail = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await api.get(`tasks/${taskId}/`, { params: { _ts: Date.now() } });
-      
-      // âš¡ LOG DE DEBUGEO: Imprimimos toda la estructura de la tarea
-
-      setTask(response.data);
-      setPodcastInvitationStatus(response.data?.podcast_invitation_status || null);
-      await fetchComments();
-    } catch (error) {
-      console.error('Error fetching task:', error.response?.data || error.message);
-      Alert.alert('Error', 'No se pudo cargar la tarea');
-    } finally {
-      setLoading(false);
-    }
-  }, [taskId, fetchComments]);
-
+    await refetchTask();
+    await refetchComments();
+  }, [refetchTask, refetchComments]);
 
   useFocusEffect(
     useCallback(() => {
-      api.get('users/me/')
-         .then(res => setCurrentUserId(res.data.id))
-         .catch(err => console.error("Error al obtener usuario:", err));
-      api.get('verify-admin/')
-        .then(res => setIsAdmin(Boolean(res.data?.is_admin || res.data?.is_staff)))
-        .catch(() => setIsAdmin(false));
-
-      fetchTaskDetail();
-    }, [fetchTaskDetail])
+      refetchTask();
+      refetchComments();
+    }, [refetchTask, refetchComments])
   );
 
   const handleAddComment = async () => {

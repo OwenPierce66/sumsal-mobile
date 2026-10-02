@@ -484,3 +484,101 @@ export function useLikeSharedTask() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sharedTasks'] }),
   });
 }
+
+// ─── Detalle de Tarea Compartida ──────────────────────────────────────────────
+
+/**
+ * Detalle completo de una tarea compartida (incluye comentarios embebidos).
+ */
+export function useSharedTaskDetail(sharedTaskId) {
+  return useQuery({
+    queryKey: ['sharedTask', sharedTaskId],
+    queryFn: async () => {
+      const res = await api.get(`shared-tasks/${sharedTaskId}/`);
+      return res.data;
+    },
+    enabled: !!sharedTaskId,
+    staleTime: STALE_TIME,
+    gcTime:    GC_TIME,
+  });
+}
+
+// ─── Detalle de Tarea propia ──────────────────────────────────────────────────
+
+/**
+ * Detalle completo de una tarea propia (sin comentarios).
+ */
+export function useTaskDetail(taskId) {
+  return useQuery({
+    queryKey: ['taskDetail', taskId],
+    queryFn: async () => {
+      const res = await api.get(`tasks/${taskId}/`, { params: { _ts: Date.now() } });
+      return res.data;
+    },
+    enabled: !!taskId,
+    staleTime: STALE_TIME,
+    gcTime:    GC_TIME,
+  });
+}
+
+/**
+ * Lista de comentarios de una tarea.
+ */
+export function useTaskComments(taskId) {
+  return useQuery({
+    queryKey: ['taskComments', taskId],
+    queryFn: async () => {
+      const res = await api.get(`tasks/${taskId}/comments/`);
+      return Array.isArray(res.data) ? res.data : res.data?.results ?? [];
+    },
+    enabled: !!taskId,
+    staleTime: STALE_TIME,
+    gcTime:    GC_TIME,
+  });
+}
+
+/**
+ * Verifica si el usuario es admin/staff.
+ */
+export function useIsAdmin() {
+  return useQuery({
+    queryKey: ['isAdmin'],
+    queryFn: async () => {
+      const res = await api.get('verify-admin/');
+      return { isAdmin: !!res.data.is_admin, isStaff: !!res.data.is_staff };
+    },
+    staleTime: 10 * 60 * 1000, // 10 min — el rol no cambia frecuentemente
+    gcTime:    GC_TIME,
+  });
+}
+
+// ─── Categorías ───────────────────────────────────────────────────────────────
+
+/**
+ * Categorías del app filtradas por PCH + categorías propias del usuario.
+ * Devuelve { appCategories, myCategories }.
+ */
+export function useCreateTaskCategories(tema, isAdminUser) {
+  const appCats = useQuery({
+    queryKey: ['newCategories', tema],
+    queryFn: async () => {
+      const res = await api.get('new-categories/', { params: { pch: tema } });
+      return res.data?.results ?? res.data ?? [];
+    },
+    enabled: !!tema,
+    staleTime: STALE_TIME,
+    gcTime:    GC_TIME,
+  });
+
+  const myCats = useQuery({
+    queryKey: ['myCategories'],
+    queryFn: async () => {
+      const res = await api.get('categories/');
+      return res.data?.results ?? res.data ?? [];
+    },
+    staleTime: STALE_TIME,
+    gcTime:    GC_TIME,
+  });
+
+  return { appCategories: appCats, myCategories: myCats };
+}
