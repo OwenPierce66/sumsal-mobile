@@ -6,8 +6,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
-import api, { getImageUrl } from '../api';
-import { AuthContext } from '../App';
+import api, { getImageUrl } from '@api';
+import { AuthContext } from '@app';
 
 const EditProfileScreen = ({ navigation, route }) => {
   const { user: initialUser } = route.params;
