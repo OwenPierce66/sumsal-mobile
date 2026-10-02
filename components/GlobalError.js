@@ -24,6 +24,9 @@ import { GlobalErrorContext } from '../App';
 // Altura del banner (ajusta si cambias el padding)
 const BANNER_HEIGHT = 48;
 
+// useNativeDriver no está disponible en web — usamos JS-based animation
+const USE_NATIVE_DRIVER = Platform.OS !== 'web';
+
 const GlobalError = () => {
   const { isConnected, wasDisconnected } = useContext(GlobalErrorContext);
 
@@ -36,7 +39,7 @@ const GlobalError = () => {
       // Sin conexión → deslizar hacia abajo (mostrar)
       Animated.spring(slideAnim, {
         toValue: 1,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
         tension: 80,
         friction: 10,
       }).start();
@@ -45,14 +48,14 @@ const GlobalError = () => {
       Animated.sequence([
         Animated.spring(slideAnim, {
           toValue: 1,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
           tension: 80,
           friction: 10,
         }),
         Animated.delay(2000),
         Animated.spring(slideAnim, {
           toValue: 0,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
           tension: 80,
           friction: 10,
         }),
@@ -61,7 +64,7 @@ const GlobalError = () => {
       // Conectado desde el inicio → mantener oculto
       Animated.spring(slideAnim, {
         toValue: 0,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
         tension: 80,
         friction: 10,
       }).start();
@@ -90,9 +93,10 @@ const GlobalError = () => {
           backgroundColor,
           transform: [{ translateY }],
           top: topOffset,
+          // pointerEvents como style (props.pointerEvents está deprecado en RN Web)
+          pointerEvents: 'none',
         },
       ]}
-      pointerEvents="none"
     >
       <Text style={styles.icon}>{icon}</Text>
       <Text style={styles.message}>{message}</Text>
@@ -113,10 +117,16 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     elevation: 20,
     // Sombra sutil para que se vea sobre el contenido
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    // boxShadow para web, shadow* para nativo (StyleSheet los maneja ambos)
+    ...Platform.select({
+      web: { boxShadow: '0px 2px 4px rgba(0,0,0,0.25)' },
+      default: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+      },
+    }),
   },
   icon: {
     color: '#fff',

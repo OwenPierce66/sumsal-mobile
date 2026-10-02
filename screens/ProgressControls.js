@@ -18,12 +18,34 @@ const ProgressControls = ({ status, onSeek }) => (
 );
 
 const styles = StyleSheet.create({
-    progressContainer: { position: 'absolute', bottom: Platform.OS === 'ios' ? 95 : 75, left: 15, right: 15, zIndex: 20, pointerEvents: 'box-auto' },
+    progressContainer: {
+        position: 'absolute',
+        bottom: Platform.OS === 'ios' ? 95 : 75,
+        left: 15,
+        right: 15,
+        zIndex: 20,
+        pointerEvents: 'box-auto',
+    },
     progressBar: { width: '100%', height: 20 },
-    // ✅ CORRECCIÓN: Se usa la sintaxis correcta para textShadow en React Native
-    progressText: { position: 'absolute', right: 5, top: 15, color: '#fff', fontSize: 11, fontWeight: 'bold', 
-        textShadowColor: 'rgba(0, 0, 0, 0.7)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2,
-        paddingHorizontal: 4, borderRadius: 4, pointerEvents: 'none' 
+    progressText: {
+        position: 'absolute',
+        right: 5,
+        top: 15,
+        color: '#fff',
+        fontSize: 11,
+        fontWeight: 'bold',
+        paddingHorizontal: 4,
+        borderRadius: 4,
+        pointerEvents: 'none',
+        // textShadow: shorthand para web, propiedades individuales para nativo
+        ...Platform.select({
+            web: { textShadow: '0px 1px 2px rgba(0,0,0,0.7)' },
+            default: {
+                textShadowColor: 'rgba(0, 0, 0, 0.7)',
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 2,
+            },
+        }),
     },
 });
 
