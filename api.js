@@ -1,15 +1,19 @@
 import axios from 'axios';
 import SecureStorage from './secureStorage';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CONFIGURACIÓN DE URL
+// CONFIGURACIÓN DE URL — leída desde .env via app.config.js → expo-constants
 // ─────────────────────────────────────────────────────────────────────────────
-const LOCAL_IP = '192.168.0.108';
+const extra    = Constants.expoConfig?.extra ?? {};
+const LOCAL_IP = extra.apiLocalIp ?? '192.168.0.108';
+const API_PORT = extra.apiPort    ?? '8001';
+
 const API_URL =
   Platform.OS === 'web'
-    ? 'http://localhost:8001/api/'
-    : `http://${LOCAL_IP}:8001/api/`;
+    ? `http://localhost:${API_PORT}/api/`
+    : `http://${LOCAL_IP}:${API_PORT}/api/`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: Construye la URL de medios correctamente sin importar el entorno
@@ -29,7 +33,7 @@ export const getImageUrl = (path) => {
   if (cleanPath.startsWith('http')) {
     cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
   }
-  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
+  return `http://${IP}:${API_PORT}${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
