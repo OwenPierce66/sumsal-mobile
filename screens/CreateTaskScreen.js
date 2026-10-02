@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { Video } from 'expo-av';
 import { useCreateTaskCategories, useIsAdmin } from '@hooks/useApi';
+import { compressImage } from '../utils/compressImage';
 
 // ⚡ DICCIONARIO INTELIGENTE DE SUBTEMAS
 const PREDEFINED_SUBTEMAS = {
@@ -249,21 +250,24 @@ const CreateTaskScreen = ({ navigation, route }) => {
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       // ⚡ FIX: Aseguramos que la edición y calidad también apliquen a videos
       allowsEditing: Platform.OS !== 'web', // La edición en web puede ser problemática con videos
-      quality: 0.7,
+      quality: 1, // Pedimos calidad máxima al picker y comprimimos imágenes nosotros
       videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720, // Calidad de exportación para videos
     });
 
     if (!result.canceled) {
       const asset = result.assets[0];
-      const newState = [...state];
-      newState[index].image = asset.uri;
-      
+
       // ⚡ Detección mejorada para saber si es video en la Web
       let isVideo = asset.type === 'video' || 
                     (asset.mimeType && asset.mimeType.startsWith('video')) ||
                     (asset.uri && asset.uri.startsWith('data:video')) ||
                     (asset.uri && /\.(mp4|mov|avi|mkv|webm)$/i.test(asset.uri));
-                    
+
+      // Comprimir solo imágenes (los videos ya van con preset H264_1280x720)
+      const finalAsset = isVideo ? asset : await compressImage(asset);
+
+      const newState = [...state];
+      newState[index].image = finalAsset.uri;
       newState[index].mediaType = isVideo ? 'video' : 'image';
       setState(newState);
     }

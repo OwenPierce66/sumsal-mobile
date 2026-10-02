@@ -8,6 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import api, { getImageUrl } from '@api';
 import { AuthContext } from '@app';
+import { compressImage } from '../utils/compressImage';
 
 const EditProfileScreen = ({ navigation, route }) => {
   const { user: initialUser } = route.params;
@@ -25,11 +26,13 @@ const EditProfileScreen = ({ navigation, route }) => {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 1, // Pedimos calidad máxima al picker y comprimimos nosotros
     });
 
     if (!result.canceled) {
-      setImage(result.assets[0]);
+      // Comprimir a ≤1280px / JPEG 82% antes de guardar en estado
+      const compressed = await compressImage(result.assets[0]);
+      setImage(compressed);
     }
   };
 
