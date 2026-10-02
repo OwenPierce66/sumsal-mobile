@@ -40,13 +40,10 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
     if (visible) {
       setActiveTier(initialTier); // Reset to initial tier every time it opens
       if (apiUrl) {
-        console.log(`[TieredLikesModal] MODAL OPEN - Fetching users from apiUrl: ${apiUrl}`);
         fetchUsers();
       } else {
-        console.log('[TieredLikesModal] MODAL OPEN - Missing apiUrl');
       }
     } else {
-      console.log('[TieredLikesModal] MODAL CLOSED - Clearing users');
       setUsers([]); // Limpiar al cerrar
       setStoryActivityCounts({ views: 0, likes: 0 });
     }
@@ -56,15 +53,9 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
     setLoading(true);
     try {
       const response = await api.get(apiUrl);
-      console.log(`[TieredLikesModal] FETCH SUCCESS - API Response Status: ${response.status}`);
       const fetchedUsers = Array.isArray(response.data)
         ? response.data
         : (response.data.results || response.data.users || []);
-      console.log('[TieredLikesModal] FETCH USERS', {
-        apiUrl,
-        count: fetchedUsers.length,
-        userIds: fetchedUsers.map(user => user?.id),
-      });
       setUsers(fetchedUsers); 
       if (isViewersList) {
         setStoryActivityCounts({

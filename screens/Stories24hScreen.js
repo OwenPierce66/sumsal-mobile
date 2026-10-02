@@ -537,7 +537,6 @@ const Stories24hScreen = ({ route }) => {
           await viewerVideoRef.current.playAsync();
         }
       } catch (error) {
-        console.warn('[Stories24hScreen] No se pudo sincronizar la pausa del video:', error);
       }
     };
 

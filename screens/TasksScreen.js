@@ -1442,7 +1442,6 @@ const TasksScreen = ({ navigation }) => {
     const currentSec = visibleSections[item.id] || 'subtasks';
     
     // ✅ DEBUG: Muestra en la consola los datos del usuario de cada tarea
-    console.log(`[TasksScreen] Renderizando tarea de: ${item.user?.username}, is_staff: ${item.user?.is_staff}`);
 
     return (
       <View style={styles.taskCard}>
@@ -1959,7 +1958,6 @@ const TasksScreen = ({ navigation }) => {
                 )}
                 {isAdmin && (
                   // ✅ DEBUG: Si isAdmin es true, esto se imprimirá en la consola
-                  console.log(`[TasksScreen] Renderizando botones de admin para la tarea: ${selectedActionTask?.id}`),
 
                   // 🪵 LOG DE DIAGNÓSTICO: Confirmamos que se intenta renderizar
                   <>
