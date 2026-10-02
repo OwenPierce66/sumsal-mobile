@@ -6,21 +6,22 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import moment from 'moment'; 
-import api, { getImageUrl } from '../api';
-import { Image } from 'expo-image'; 
+import moment from 'moment';
+import api, { getImageUrl } from '@api';
+import { Image } from 'expo-image';
 import TieredLikesModal from './TieredLikesModal';
-import FilterModal from '../components/FilterModal';
-import SavedFiltersModal from '../components/SavedFiltersModal';
+import FilterModal from '@components/FilterModal';
+import SavedFiltersModal from '@components/SavedFiltersModal';
 import { Video } from 'expo-av';
-import ShareModal from '../components/ShareModal';
-import { AuthContext } from '../App';
-import ShareActionMenu from './ShareActionMenu'; // Importa el nuevo menú
-import TouchableUsername from '../components/TouchableUsername';
-import CategoryHierarchy from '../components/CategoryHierarchy';
-import PersonalCategoryFilter from '../components/PersonalCategoryFilter';
+import ShareModal from '@components/ShareModal';
+import { AuthContext } from '@app';
+import ShareActionMenu from './ShareActionMenu';
+import TouchableUsername from '@components/TouchableUsername';
+import CategoryHierarchy from '@components/CategoryHierarchy';
+import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import Slider from '@react-native-community/slider';
 import { useQueryClient } from '@tanstack/react-query';
+import { useTasksInfinite, useSharedTasksInfinite, useCategories } from '@hooks/useApi';
 
 const TASK_VIDEO_AUTOPLAY_DELAY_MS = 500;
 
@@ -39,22 +40,17 @@ const TaskVideoPreview = ({ uri, onOpenReel }) => {
     setIsReadyToPlay(false);
     if (isVisible) {
       visibleSinceRef.current = Date.now();
-      console.log('[TasksScreen][TaskVideoPreview] Video visible, iniciando contador:', uri);
     } else {
       visibleSinceRef.current = null;
       lastVisibilityLogRef.current = null;
       setIsPausedByUser(false);
-      console.log('[TasksScreen][TaskVideoPreview] Video fuera de pantalla, contador reiniciado:', uri);
     }
   }, [isVisible]);
 
   useEffect(() => {
     if (!isReadyToPlay || !isVisible) return undefined;
 
-    console.log('[TasksScreen][TaskVideoPreview] Autoplay despues de', TASK_VIDEO_AUTOPLAY_DELAY_MS, 'ms:', uri);
-    playerRef.current?.playAsync().catch((error) => {
-      console.warn('[TasksScreen][TaskVideoPreview] No se pudo iniciar autoplay:', error);
-    });
+    playerRef.current?.playAsync().catch(() => {});
     return undefined;
   }, [isReadyToPlay, isVisible, uri]);
 
@@ -76,18 +72,12 @@ const TaskVideoPreview = ({ uri, onOpenReel }) => {
       videoRef.current?.measureInWindow((x, y, width, height) => {
         const viewport = Dimensions.get('window');
         const visible = x + width > 0 && x < viewport.width && y + height > 0 && y < viewport.height;
-        setIsVisible((previous) => {
-          if (previous !== visible) {
-            console.log('[TasksScreen][TaskVideoPreview] Cambio de visibilidad:', { visible, uri });
-          }
-          return visible;
-        });
+        setIsVisible((previous) => visible);
 
         if (visible && visibleSinceRef.current) {
           const elapsed = Date.now() - visibleSinceRef.current;
           if (elapsed - (lastVisibilityLogRef.current || 0) >= 350) {
             lastVisibilityLogRef.current = elapsed;
-            console.log('[TasksScreen][TaskVideoPreview] Tiempo visible:', `${elapsed} ms`, uri);
           }
           if (elapsed >= TASK_VIDEO_AUTOPLAY_DELAY_MS) {
             setIsReadyToPlay(true);
@@ -144,18 +134,14 @@ const TasksScreen = ({ navigation }) => {
   const { width: screenWidth } = useWindowDimensions();
   const carouselWidth = Math.max(280, screenWidth - 56);
 
-  // ✅ OBTENEMOS EL USUARIO Y ADMIN STATUS DEL CONTEXTO GLOBAL
+  // Obtenemos el estado de admin del contexto global
   const { user, isAdmin: isAdminFromContext } = useContext(AuthContext);
   const currentUserId = user?.id;
-  // ✅ DEBUG: Muestra en la consola el estado de admin que viene del contexto global
-  console.log(`[TasksScreen] isAdmin del Contexto: ${isAdminFromContext}`);
 
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
 
   const [tasks, setTasks] = useState([]);
   const [sharedTasks, setSharedTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [searchTasks, setSearchTasks] = useState([]);
@@ -235,10 +221,8 @@ const TasksScreen = ({ navigation }) => {
           const response = await api.get("verify-admin/");
           const isAdminResponse = response.data?.is_admin || response.data?.is_staff;
           setIsAdmin(isAdminResponse);
-          // ✅ DEBUG: Muestra el resultado de la verificación manual
-          console.log(`[TasksScreen] Resultado de la verificación manual de admin: ${isAdminResponse}`);
         } catch (error) {
-          console.error("[TasksScreen] Error en la verificación manual de admin:", error);
+          console.error("[TasksScreen] Error en la verificación de admin:", error);
           setIsAdmin(false);
         }
       }
@@ -671,187 +655,107 @@ const TasksScreen = ({ navigation }) => {
   // ⚡ GESTOR DE CACHÉ TANSTACK QUERY
   const queryClient = useQueryClient();
 
-  const getTasksCacheKey = useCallback((pchTema, catFilter = selectedCategory, statusFilter = selectedStatus) => [
-    'tasks-feed',
-    pchTema,
-    catFilter,
-    statusFilter,
-    selectedDateFilter,
-    selectedSortBy,
-    selectedFavoritesOnly,
-    selectedFavoriteUsersOnly,
-    selectedVerifiedUsersOnly,
-    selectedRecommendedUsersOnly,
-  ], [selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
-  const getSharedTasksCacheKey = useCallback((catFilter = selectedCategory, statusFilter = selectedStatus) => [
-    'shared-tasks-feed',
-    catFilter,
-    statusFilter,
-    selectedDateFilter,
-    selectedSortBy,
-    selectedFavoritesOnly,
-    selectedFavoriteUsersOnly,
-    selectedVerifiedUsersOnly,
-    selectedRecommendedUsersOnly,
-  ], [selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  // ─── Filtros activos como objeto (para React Query) ───────────────────────
+  const activeFilters = useMemo(() => ({
+    pch: tema,
+    category: selectedCategory,
+    status: selectedStatus,
+    date_filter: selectedDateFilter,
+    sort_by: selectedSortBy,
+    favorites_only: selectedFavoritesOnly,
+    favorite_users_only: selectedFavoriteUsersOnly,
+    verified_users_only: selectedVerifiedUsersOnly,
+    recommended_users_only: selectedRecommendedUsersOnly,
+  }), [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy,
+      selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
-  // ⚡ NUEVOS ESTADOS PARA EL INFINITE SCROLL
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [sharedPage, setSharedPage] = useState(1);
-  const [sharedHasMore, setSharedHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  // ─── React Query: Tareas ─────────────────────────────────────────────────
+  const {
+    data: tasksQueryData,
+    isLoading: tasksQueryLoading,
+    isFetchingNextPage: tasksFetchingMore,
+    fetchNextPage: tasksFetchNext,
+    hasNextPage: tasksHasNext,
+    refetch: tasksRefetch,
+    isRefetching: tasksRefetching,
+  } = useTasksInfinite(activeFilters);
 
-  // Modificamos fetchTasks para que acepte el número de página y use TanStack Query
-  const fetchTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
-    const currentCatFilter = overrideFilters ? overrideFilters.category : selectedCategory;
-    const currentStatusFilter = overrideFilters ? overrideFilters.status : selectedStatus;
-    const cacheKey = getTasksCacheKey(tema, currentCatFilter, currentStatusFilter);
+  // ─── React Query: Tareas compartidas ─────────────────────────────────────
+  const {
+    data: sharedQueryData,
+    isFetchingNextPage: sharedFetchingMore,
+    fetchNextPage: sharedFetchNext,
+    hasNextPage: sharedHasNext,
+    refetch: sharedRefetch,
+    isRefetching: sharedRefetching,
+  } = useSharedTasksInfinite(activeFilters);
 
-    // ⚡ 1. RECUPERACIÓN INSTANTÁNEA DESDE TANSTACK QUERY (0 ms de espera)
-    if (pageNumber === 1) {
-      const cachedData = queryClient.getQueryData(cacheKey);
-      if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
-        setTasks(cachedData);
-        setLoading(false); // No mostramos spinner si ya hay datos en memoria
-      } else {
-        setLoading(true);
-      }
-    } else {
-      setLoadingMore(true);
-    }
+  // ─── Estado local derivado de React Query ────────────────────────────────
+  // Se mantiene para poder hacer actualizaciones optimistas en mutaciones
+  // (like, share, delete, approve, verify) sin esperar round-trip al servidor.
+  const freshTasks = useMemo(
+    () => tasksQueryData?.pages?.flatMap(p => p.results ?? (Array.isArray(p) ? p : [])) ?? [],
+    [tasksQueryData]
+  );
+  const freshSharedTasks = useMemo(
+    () => sharedQueryData?.pages?.flatMap(p => p.results ?? (Array.isArray(p) ? p : [])) ?? [],
+    [sharedQueryData]
+  );
 
-    try {
-      const response = await api.get('tasks/', { 
-        params: {
-          pch: tema, 
-          page: pageNumber,
-          category: currentCatFilter,
-          search: '',
-          status: currentStatusFilter,
-          date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
-          sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
-          favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
-          favorite_users_only: overrideFilters ? overrideFilters.favorite_users_only : selectedFavoriteUsersOnly,
-          verified_users_only: overrideFilters ? overrideFilters.verified_users_only : selectedVerifiedUsersOnly,
-          recommended_users_only: overrideFilters ? overrideFilters.recommended_users_only : selectedRecommendedUsersOnly,
-          _ts: Date.now(),
-        }
-      });
-      const data = response.data.results ?? response.data ?? [];
-
-      if (pageNumber === 1) {
-        setTasks(data);
-        // ⚡ Guardamos en la memoria caché de TanStack Query
-        queryClient.setQueryData(cacheKey, data);
-      } else {
-        setTasks(prev => [...prev, ...data]);
-      }
-
-      setPage(pageNumber);
-      setHasMore(!!response.data.next);
-
-      const sections = {};
-      data.forEach(t => { sections[t.id] = 'subtasks'; });
-      setVisibleSections(prev => pageNumber === 1 ? sections : { ...prev, ...sections });
-
-    } catch (error) {
-      if (error.response && error.response.status === 404) {
-        setHasMore(false);
-        return;
-      }
-      console.error('Error fetching tasks:', error.response?.data || error.message);
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-      setRefreshing(false);
-    }
-  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly, getTasksCacheKey, queryClient]);
-
-  const fetchSharedTasks = useCallback(async (pageNumber = 1, overrideFilters = null) => {
-    const currentCatFilter = overrideFilters ? overrideFilters.category : selectedCategory;
-    const currentStatusFilter = overrideFilters ? overrideFilters.status : selectedStatus;
-    const cacheKey = getSharedTasksCacheKey(currentCatFilter, currentStatusFilter);
-
-    if (pageNumber === 1) {
-      const cachedData = queryClient.getQueryData(cacheKey);
-      if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
-        setSharedTasks(cachedData);
-      }
-    }
-
-    try {
-      const response = await api.get('shared-tasks/', { 
-        params: {
-          page: pageNumber,
-          category: currentCatFilter,
-          search: '',
-          status: currentStatusFilter,
-          date_filter: overrideFilters ? overrideFilters.date_filter : selectedDateFilter,
-          sort_by: overrideFilters ? overrideFilters.sort_by : selectedSortBy,
-          favorites_only: overrideFilters ? overrideFilters.favorites_only : selectedFavoritesOnly,
-          favorite_users_only: overrideFilters ? overrideFilters.favorite_users_only : selectedFavoriteUsersOnly,
-          verified_users_only: overrideFilters ? overrideFilters.verified_users_only : selectedVerifiedUsersOnly,
-          recommended_users_only: overrideFilters ? overrideFilters.recommended_users_only : selectedRecommendedUsersOnly,
-        }
-      });
-      const data = response.data.results ?? response.data ?? [];
-
-      if (pageNumber === 1) {
-        setSharedTasks(data);
-        queryClient.setQueryData(cacheKey, data);
-      } else {
-        setSharedTasks(prev => [...prev, ...data]);
-      }
-
-      setSharedHasMore(!!response.data.next);
-      setSharedPage(pageNumber);
-    } catch (error) {
-      if (error.response && error.response.status === 404) {
-        setSharedHasMore(false);
-        return;
-      }
-      console.error('Error fetching shared tasks:', error.response?.data || error.message);
-    }
-  }, [selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly, getSharedTasksCacheKey, queryClient]);
-
-  // ✅ CORRECCIÓN: Usamos un useEffect que reacciona a los filtros, en lugar de a cada foco.
-  // Esto reduce drásticamente las llamadas a la API.
-  useFocusEffect(useCallback(() => {
-    fetchTasks(1);
-    fetchSharedTasks(1);
-  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
-
-  // ⚡ PREFETCH INTELIGENTE EN SEGUNDO PLANO (TanStack Query)
-  // Precarga silenciosamente las otras pestañas PCH para que al cambiar de pestaña ya estén listas en memoria
+  // Sincronizar con estado local al recibir datos frescos del servidor
   useEffect(() => {
-    const otherTemas = ['consejos', 'peticiones', 'historias'].filter(t => t !== tema);
-    otherTemas.forEach(t => {
-      const key = getTasksCacheKey(t);
-      queryClient.prefetchQuery({
-        queryKey: key,
-        queryFn: async () => {
-          const res = await api.get('tasks/', {
-            params: {
-              pch: t,
-              page: 1,
-              category: selectedCategory,
-              status: selectedStatus,
-              date_filter: selectedDateFilter,
-              sort_by: selectedSortBy,
-              favorites_only: selectedFavoritesOnly,
-              favorite_users_only: selectedFavoriteUsersOnly,
-              verified_users_only: selectedVerifiedUsersOnly,
-              recommended_users_only: selectedRecommendedUsersOnly,
-            }
-          });
-          return res.data.results ?? res.data ?? [];
-        },
-        staleTime: 1000 * 60 * 5,
-      });
-    });
-  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly, getTasksCacheKey, queryClient]);
+    if (freshTasks.length > 0) {
+      setTasks(freshTasks);
+      const sections = {};
+      freshTasks.forEach(t => { sections[t.id] = visibleSections[t.id] || 'subtasks'; });
+      setVisibleSections(prev => ({ ...sections, ...prev }));
+    }
+  }, [freshTasks]);
+
+  useEffect(() => {
+    if (freshSharedTasks.length > 0) {
+      setSharedTasks(freshSharedTasks);
+    }
+  }, [freshSharedTasks]);
+
+  // Estado de loading unificado
+  const loading = tasksQueryLoading;
+  const loadingMore = tasksFetchingMore || sharedFetchingMore;
+  const refreshing = tasksRefetching || sharedRefetching;
+  const hasMore = tasksHasNext ?? false;
+  const sharedHasMore = sharedHasNext ?? false;
+
+  const loadMoreTasks = useCallback(() => {
+    if (tasksHasNext && !tasksFetchingMore) tasksFetchNext();
+    if (sharedHasNext && !sharedFetchingMore) sharedFetchNext();
+  }, [tasksHasNext, tasksFetchingMore, tasksFetchNext, sharedHasNext, sharedFetchingMore, sharedFetchNext]);
+
+  // Refresh al enfocar la pantalla (solo revalida, no spinner)
+  useFocusEffect(useCallback(() => {
+    tasksRefetch();
+    sharedRefetch();
+  }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy,
+      selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
+
+  const onRefresh = useCallback(() => {
+    tasksRefetch();
+    sharedRefetch();
+  }, [tasksRefetch, sharedRefetch]);
+
+  // Aplicar filtros del FilterModal — invalida queries para forzar refetch
+  const applyFilters = useCallback((newFilters) => {
+    setSelectedCategory(newFilters.category ?? '');
+    setSelectedStatus(newFilters.status ?? '');
+    setSelectedDateFilter(newFilters.date_filter ?? '');
+    setSelectedSortBy(newFilters.sort_by ?? 'all');
+    setSelectedFavoritesOnly(newFilters.favorites_only ?? false);
+    setSelectedFavoriteUsersOnly(newFilters.favorite_users_only ?? false);
+    setSelectedVerifiedUsersOnly(newFilters.verified_users_only ?? false);
+    setSelectedRecommendedUsersOnly(newFilters.recommended_users_only ?? false);
+    setFilterModalVisible(false);
+  }, []);
+
 
   const fetchSearchResults = useCallback(async (query) => {
     const normalizedQuery = query.trim();
@@ -930,14 +834,7 @@ const TasksScreen = ({ navigation }) => {
     return () => clearTimeout(timer);
   }, [fetchSearchResults, searchExpanded, searchHasStarted, searchText, searchCategory]);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    setPage(1);
-    setSharedPage(1);
-    setHasMore(true);
-    setSharedHasMore(true);
-    Promise.all([fetchTasks(1), fetchSharedTasks(1)]).finally(() => setRefreshing(false));
-  };
+
 
   const normalizeCategoryValue = (value) => String(value || '').trim().replace(/\s+/g, ' ');
   const searchCategoryPath = searchCategory.split(',').map(normalizeCategoryValue).filter(Boolean);
@@ -1047,10 +944,10 @@ const TasksScreen = ({ navigation }) => {
     resetMainFeedOnCloseRef.current = true;
     setSelectedCategory(nextCategory);
     setSelectedStatus(searchStatus);
-    setPage(1);
-    setSharedPage(1);
-    setHasMore(true);
-    setSharedHasMore(true);
+
+
+
+
     closeSearch();
   };
 
@@ -1075,10 +972,6 @@ const TasksScreen = ({ navigation }) => {
       const finalTask = { ...updatedTask, user_has_liked: liked, likes_count: likes_count };
       setTasks(prev => prev.map(t => t.id === task.id ? finalTask : t));
       setSharedTasks(prev => prev.map(s => s.task?.id === task.id ? { ...s, task: finalTask } : s));
-      queryClient.setQueryData(getTasksCacheKey(tema), (old) => {
-        if (!Array.isArray(old)) return old;
-        return old.map(t => t.id === task.id ? finalTask : t);
-      });
     } catch (error) {
       console.error(`[TasksScreen | handleLikeTask] ERROR - API call failed:`, error.response?.data || error);
       // 4. Reversión en caso de error.
@@ -1130,14 +1023,9 @@ const TasksScreen = ({ navigation }) => {
           }
           return t;
         }));
-        queryClient.setQueryData(getTasksCacheKey(tema), (old) => {
-          if (!Array.isArray(old)) return old;
-          return old.map(t => t.id === originalTaskId ? { ...t, user_has_liked: liked, likes_count: likes_count_original } : t);
-        });
       }
     } catch (error) {
-      console.error(`[TasksScreen | handleLikeSharedTask] ERROR - API call failed:`, error.response?.data || error.message);
-      console.error('Error liking shared task:', error.response?.data || error.message);
+      console.error('[TasksScreen] Error liking shared task:', error.response?.data || error.message);
       onRefresh(); // Revertir si hay error
     }
   };
@@ -1166,19 +1054,12 @@ const TasksScreen = ({ navigation }) => {
     return 2;
   };
 
-  // ⚡ FUNCIÓN PARA CARGAR MÁS DATOS AL BAJAR
-  const loadMoreTasks = () => {
+  // Cargar más al llegar al final del feed (delegado a useInfiniteQuery)
+  const handleLoadMore = useCallback(() => {
     if (searchExpanded) return;
-    if (!loadingMore && (hasMore || sharedHasMore)) {
-      setLoadingMore(true);
-      const promises = [];
+    loadMoreTasks();
+  }, [searchExpanded, loadMoreTasks]);
 
-      if (hasMore) promises.push(fetchTasks(page + 1));
-      if (sharedHasMore) promises.push(fetchSharedTasks(sharedPage + 1));
-
-      Promise.all(promises).finally(() => setLoadingMore(false));
-    }
-  };
 
   const changeSection = (taskId, section) => {
     setVisibleSections(prev => ({ ...prev, [taskId]: section }));
@@ -1799,14 +1680,6 @@ const TasksScreen = ({ navigation }) => {
               if (tema === t) return;
               // ⚡ CAMBIO INSTANTÁNEO EN 0 MS GRACIAS A TANSTACK QUERY
               // Si ya tenemos las tareas de esa pestaña en la memoria caché, las mostramos de inmediato
-              const nextCacheKey = getTasksCacheKey(t);
-              const cached = queryClient.getQueryData(nextCacheKey);
-              if (cached && Array.isArray(cached) && cached.length > 0) {
-                setTasks(cached);
-                setLoading(false); // Cero parpadeo ni spinners
-              }
-              setPage(1);
-              setHasMore(true);
               setTema(t);
             }}
           >
@@ -1838,10 +1711,10 @@ const TasksScreen = ({ navigation }) => {
               if (isDescendant(selectedPath)) {
                 const nextPath = selectedPath.slice(0, value.searchPath.length - 1);
                 setSelectedCategory(nextPath.join(','));
-                setPage(1);
-                setSharedPage(1);
-                setHasMore(true);
-                setSharedHasMore(true);
+
+
+
+
               }
             }
             return;
@@ -1860,10 +1733,10 @@ const TasksScreen = ({ navigation }) => {
             setSearchStatus(status);
           } else {
             setSelectedStatus(status);
-            setPage(1);
-            setSharedPage(1);
-            setHasMore(true);
-            setSharedHasMore(true);
+
+
+
+
           }
         }}
         onSelect={(category) => {
@@ -1883,8 +1756,8 @@ const TasksScreen = ({ navigation }) => {
             }
           }
           if (!searchExpanded) {
-            setPage(1);
-            setHasMore(true);
+
+
           }
         }}
       />
@@ -1902,8 +1775,8 @@ const TasksScreen = ({ navigation }) => {
               setSearchCategoryLevel(nextPath.length - 1);
             } else {
               setSelectedCategory(category);
-              setPage(1);
-              setHasMore(true);
+
+
             }
           }}
         />
@@ -1928,7 +1801,7 @@ const TasksScreen = ({ navigation }) => {
         contentContainerStyle={styles.listContent}
         
         // ⚡ LAS PROPS MÁGICAS DE RENDIMIENTO Y SCROLL INFINITO
-        onEndReached={loadMoreTasks}
+        onEndReached={handleLoadMore}
         onEndReachedThreshold={0.7} // Carga más cuando falta el 70% de la pantalla
         removeClippedSubviews={Platform.OS === 'android'} // Mejora el uso de memoria en Android
         maxToRenderPerBatch={10} // Renderiza en lotes más pequeños
@@ -2000,20 +1873,7 @@ const TasksScreen = ({ navigation }) => {
         // ⚡ PCH activo para que el modal muestre/cree categorías de este tema
         currentPch={tema}
         onApply={(filters) => {
-          setSelectedCategory(filters.category);
-          setSelectedStatus(filters.status || '');
-          setSelectedDateFilter(filters.date_filter);
-          setSelectedSortBy(filters.sort_by);
-          setSelectedFavoritesOnly(filters.favorites_only);
-          setSelectedFavoriteUsersOnly(filters.favorite_users_only);
-          setSelectedVerifiedUsersOnly(filters.verified_users_only);
-          setSelectedRecommendedUsersOnly(filters.recommended_users_only);
-          setPage(1);
-          setSharedPage(1);
-          setHasMore(true);
-          setSharedHasMore(true);
-          fetchTasks(1, filters);
-          fetchSharedTasks(1, filters);
+          applyFilters(filters);
         }}
       />
 
@@ -2032,20 +1892,7 @@ const TasksScreen = ({ navigation }) => {
           recommended_users_only: selectedRecommendedUsersOnly,
         }}
         onApplyFilter={(filters) => {
-          setSelectedCategory(filters.category || '');
-          setSelectedStatus(filters.status || '');
-          setSelectedDateFilter(filters.date_filter || '');
-          setSelectedSortBy(filters.sort_by || 'all');
-          setSelectedFavoritesOnly(filters.favorites_only || false);
-          setSelectedFavoriteUsersOnly(filters.favorite_users_only || false);
-          setSelectedVerifiedUsersOnly(filters.verified_users_only || false);
-          setSelectedRecommendedUsersOnly(filters.recommended_users_only || false);
-          setPage(1);
-          setSharedPage(1);
-          setHasMore(true);
-          setSharedHasMore(true);
-          fetchTasks(1, filters);
-          fetchSharedTasks(1, filters);
+          applyFilters(filters);
         }}
       />
 
