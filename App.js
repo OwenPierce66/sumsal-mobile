@@ -9,6 +9,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import api, { clearAuthData, authInterceptorController } from './api';
 import GlobalError from '@components/GlobalError';
+import ErrorBoundary from '@components/ErrorBoundary';
+import { ToastProvider } from '@contexts/ToastContext';
 
 // Configuración global del cliente de caché TanStack Query
 export const queryClient = new QueryClient({
@@ -314,25 +316,29 @@ export default function App() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <GlobalErrorContext.Provider value={{ isConnected, wasDisconnected }}>
-        <AuthContext.Provider value={authContext}>
-          <NavigationContainer linking={linking}>
-            {/* Banner flotante de conectividad — flota sobre toda la app */}
-            <GlobalError />
-            <Stack.Navigator screenOptions={{ headerShown: false }}>{
-              state.userToken == null ? (
-                <>
-                  <Stack.Screen name="Login" component={LoginScreen} />
-                  <Stack.Screen name="Register" component={RegisterScreen} />
-                </>
-              ) : (
-                <Stack.Screen name="Home" component={AuthenticatedTabs} />
-              )}
-            </Stack.Navigator>
-          </NavigationContainer>
-        </AuthContext.Provider>
-      </GlobalErrorContext.Provider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <GlobalErrorContext.Provider value={{ isConnected, wasDisconnected }}>
+            <AuthContext.Provider value={authContext}>
+              <NavigationContainer linking={linking}>
+                {/* Banner flotante de conectividad - flota sobre toda la app */}
+                <GlobalError />
+                <Stack.Navigator screenOptions={{ headerShown: false }}>{
+                  state.userToken == null ? (
+                    <>
+                      <Stack.Screen name="Login" component={LoginScreen} />
+                      <Stack.Screen name="Register" component={RegisterScreen} />
+                    </>
+                  ) : (
+                    <Stack.Screen name="Home" component={AuthenticatedTabs} />
+                  )}
+                </Stack.Navigator>
+              </NavigationContainer>
+            </AuthContext.Provider>
+          </GlobalErrorContext.Provider>
+        </ToastProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
