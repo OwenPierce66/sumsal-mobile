@@ -27,6 +27,10 @@ module.exports = async function (env, argv) {
     '@components': path.resolve(__dirname, 'components'),
     '@contexts':   path.resolve(__dirname, 'contexts'),
     '@hooks':      path.resolve(__dirname, 'hooks'),
+
+    // Módulos nativos incompatibles con webpack — redirigir a stubs vacíos
+    // @sentry/react-native usa TurboModuleRegistry y JSX sin transpilar
+    '@sentry/react-native': path.resolve(__dirname, 'sentry.web.stub.js'),
   };
 
   return config;
