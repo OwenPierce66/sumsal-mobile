@@ -21,6 +21,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { captureError } from '../sentry';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -38,8 +39,9 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    // En producción aquí iría Sentry / Crashlytics
     this.setState({ errorInfo });
+    // Reportar a Sentry en producción
+    captureError(error, { boundary: 'ErrorBoundary', componentStack: errorInfo?.componentStack?.slice(0, 200) ?? '' });
   }
 
   handleReset = () => {

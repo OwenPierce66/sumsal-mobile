@@ -13,6 +13,10 @@ import api, { clearAuthData, authInterceptorController } from './api';
 import GlobalError from '@components/GlobalError';
 import ErrorBoundary from '@components/ErrorBoundary';
 import { ToastProvider } from '@contexts/ToastContext';
+import * as SentryService from './sentry';
+
+// Inicializar Sentry al arrancar el módulo (antes del primer render)
+SentryService.init();
 
 // Configuración global del cliente de caché TanStack Query
 export const queryClient = new QueryClient({

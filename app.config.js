@@ -11,8 +11,9 @@
  */
 
 // Expo ya carga .env automáticamente en SDK 49+ cuando existe app.config.js
-const LOCAL_IP  = process.env.LOCAL_IP  || '192.168.0.108';
-const API_PORT  = process.env.API_PORT  || '8001';
+const LOCAL_IP  = process.env.LOCAL_IP   || '192.168.0.108';
+const API_PORT  = process.env.API_PORT   || '8001';
+const SENTRY_DSN = process.env.SENTRY_DSN || '';
 
 module.exports = {
   expo: {
@@ -34,6 +35,8 @@ module.exports = {
       apiLocalIp: LOCAL_IP,
       /** Puerto del proxy nginx */
       apiPort: API_PORT,
+      /** DSN de Sentry para crash reporting (vacío = deshabilitado) */
+      sentryDsn: SENTRY_DSN,
     },
   },
 };
