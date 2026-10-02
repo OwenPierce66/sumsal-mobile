@@ -3,6 +3,9 @@
  *
  * Inicialización de Sentry para tracking de errores en producción.
  *
+ * ⚠️  @sentry/react-native NO es compatible con Expo Web (webpack).
+ *     Este módulo hace no-op en web automáticamente para no romper el bundle.
+ *
  * ┌─ SETUP ──────────────────────────────────────────────────────────────────┐
  * │ 1. Crea un proyecto en https://sentry.io → Project type: React Native   │
  * │ 2. Copia el DSN de: Settings → Projects → [tu proyecto] → Client Keys  │
@@ -15,18 +18,29 @@
  *   SentryService.captureMessage('Token refresh fallido', 'warning');
  */
 
-import * as Sentry from '@sentry/react-native';
+import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+
+// ⚠️  Sentry usa TurboModuleRegistry y JSX no transpilado — solo funciona en nativo.
+// En web usamos stubs vacíos para que webpack no falle al compilar.
+const IS_WEB = Platform.OS === 'web';
+
+// require() dinámico dentro del condicional evita que webpack resuelva el módulo en web
+let Sentry = null;
+if (!IS_WEB) {
+  // eslint-disable-next-line import/no-extraneous-dependencies
+  Sentry = require('@sentry/react-native');
+}
 
 const DSN     = Constants.expoConfig?.extra?.sentryDsn ?? '';
 const IS_PROD = !__DEV__;
 
 /**
  * Inicializa Sentry. Llamar UNA VEZ al arrancar la app (en App.js).
- * En desarrollo solo activa el tracing, pero NO envía eventos al servidor
- * a menos que SENTRY_DSN esté definido.
+ * En web es un no-op.
  */
 export function init() {
+  if (IS_WEB || !Sentry) return;
   if (!DSN) {
     if (__DEV__) console.warn('[Sentry] DSN no configurado — los errores no se enviarán a Sentry. Agrega SENTRY_DSN a .env');
     return;
@@ -55,7 +69,7 @@ export function init() {
  * @param {Record<string, string>} [context] - e.g. { screen: 'TasksScreen', action: 'delete' }
  */
 export function captureError(error, context = {}) {
-  if (!DSN || !IS_PROD) return;
+  if (IS_WEB || !Sentry || !DSN || !IS_PROD) return;
   Sentry.withScope((scope) => {
     Object.entries(context).forEach(([key, val]) => scope.setTag(key, String(val)));
     Sentry.captureException(error);
@@ -68,23 +82,24 @@ export function captureError(error, context = {}) {
  * @param {'info'|'warning'|'error'} level
  */
 export function captureMessage(message, level = 'info') {
-  if (!DSN || !IS_PROD) return;
+  if (IS_WEB || !Sentry || !DSN || !IS_PROD) return;
   Sentry.captureMessage(message, level);
 }
 
 /**
  * Identifica al usuario autenticado en Sentry para correlacionar crashes.
  * Llamar después de login exitoso.
- * @param {{ id: number|string, username: string }} user
+ * @param {{ id: number|string, username: string }|null} user
  */
 export function setUser(user) {
-  if (!DSN) return;
+  if (IS_WEB || !Sentry || !DSN) return;
   Sentry.setUser(user ? { id: String(user.id), username: user.username } : null);
 }
 
 /**
  * HOC que envuelve el componente raíz para capturar errores de render.
- * Úsalo si quieres reemplazar ErrorBoundary con la versión de Sentry
- * (que envía automáticamente los errores de boundary).
+ * En web devuelve un HOC transparente (identidad).
  */
-export const wrap = Sentry.wrap;
+export const wrap = IS_WEB
+  ? (Component) => Component
+  : (Sentry?.wrap ?? ((Component) => Component));
