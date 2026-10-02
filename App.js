@@ -5,7 +5,9 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import SecureStorage from './secureStorage';
 import { Ionicons } from '@expo/vector-icons';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { asyncStoragePersister, MAX_AGE_MS, shouldPersistQuery } from './persistence/queryPersister';
 import NetInfo from '@react-native-community/netinfo';
 import api, { clearAuthData, authInterceptorController } from './api';
 import GlobalError from '@components/GlobalError';
@@ -17,7 +19,7 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutos de datos frescos
-      gcTime: 1000 * 60 * 30,    // 30 minutos de persistencia en memoria
+      gcTime: MAX_AGE_MS,          // 24h — debe ser >= maxAge del persister
       refetchOnWindowFocus: false,
       retry: 1,
     },
@@ -317,7 +319,20 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister: asyncStoragePersister,
+          maxAge: MAX_AGE_MS,
+          dehydrateOptions: {
+            shouldDehydrateQuery: shouldPersistQuery,
+          },
+        }}
+        onSuccess={() => {
+          // Cache restaurado desde AsyncStorage — reanudar mutaciones pausadas
+          queryClient.resumePausedMutations();
+        }}
+      >
         <ToastProvider>
           <GlobalErrorContext.Provider value={{ isConnected, wasDisconnected }}>
             <AuthContext.Provider value={authContext}>
@@ -338,7 +353,7 @@ export default function App() {
             </AuthContext.Provider>
           </GlobalErrorContext.Provider>
         </ToastProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </ErrorBoundary>
   );
 }

@@ -29,7 +29,9 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Offset seguro sin depender de SafeAreaProvider
+const SAFE_TOP = Platform.OS === 'ios' ? 44 : Platform.OS === 'android' ? 24 : 0;
 
 // ─── Configuración ────────────────────────────────────────────────────────────
 
@@ -58,7 +60,6 @@ export function useToast() {
 // ─── Componente Toast individual ─────────────────────────────────────────────
 
 function ToastItem({ toast, onDismiss }) {
-  const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(-120)).current;
   const opacity    = useRef(new Animated.Value(0)).current;
   const timerRef   = useRef(null);
@@ -109,7 +110,7 @@ function ToastItem({ toast, onDismiss }) {
         {
           transform: [{ translateY }],
           opacity,
-          top: (insets.top || 0) + 12,
+          top: SAFE_TOP + 12,
         },
       ]}
       accessibilityRole="alert"
