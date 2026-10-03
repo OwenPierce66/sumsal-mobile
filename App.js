@@ -14,6 +14,7 @@ import GlobalError from '@components/GlobalError';
 import ErrorBoundary from '@components/ErrorBoundary';
 import { ToastProvider } from '@contexts/ToastContext';
 import * as SentryService from './sentry';
+import { usePushNotifications, registerForPush } from './hooks/usePushNotifications';
 
 // Inicializar Sentry al arrancar el módulo (antes del primer render)
 SentryService.init();
