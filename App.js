@@ -243,6 +243,9 @@ export default function App() {
   const [wasDisconnected, setWasDisconnected] = useState(false);
   const isFirstRender = useRef(true);
 
+  const navigationRef = useRef(null);
+usePushNotifications(navigationRef);
+
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((netState) => {
       const connected = netState.isConnected && netState.isInternetReachable !== false;
@@ -301,14 +304,15 @@ export default function App() {
   }, []);
   // ⚡ 2. DEFINIMOS LAS FUNCIONES DEL CONTROL REMOTO
   const authContext = useMemo(() => ({
-    signIn: async (token) => {
-      dispatch({ type: 'SIGN_IN', token });
-      try {
-        await refreshCurrentUser();
-      } catch (error) {
-        console.error('[App] No se pudo cargar el usuario después de iniciar sesión:', error.response?.data || error);
-      }
-    },
+signIn: async (token) => {
+  dispatch({ type: 'SIGN_IN', token });
+  try {
+    await refreshCurrentUser();
+  } catch (error) {
+    console.error('[App] No se pudo cargar el usuario después de iniciar sesión:', error.response?.data || error);
+  }
+  registerForPush(); // ← agregar esta línea
+},
     signOut: async () => {
       try {
         // Obtiene el refresh token cifrado y lo envía al servidor para blacklistearlo.
@@ -360,7 +364,7 @@ export default function App() {
         <ToastProvider>
           <GlobalErrorContext.Provider value={{ isConnected, wasDisconnected }}>
             <AuthContext.Provider value={authContext}>
-              <NavigationContainer linking={linking}>
+              <NavigationContainer linking={linking} ref={navigationRef}>
                 {/* Banner flotante de conectividad - flota sobre toda la app */}
                 <GlobalError />
                 <Stack.Navigator screenOptions={{ headerShown: false }}>{
