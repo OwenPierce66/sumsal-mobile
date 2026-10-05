@@ -1261,7 +1261,7 @@ const TasksScreen = ({ navigation }) => {
                 {finalUri && (
                   <Image
                     source={{ uri: finalUri }}
-                    style={styles.subMedia}
+                    style={styles.subImage}
                     contentFit="cover"
                   />
                 )}
@@ -2104,6 +2104,7 @@ const styles = StyleSheet.create({
   subShareText: { fontSize: 11, color: '#1f9d5a', fontWeight: '700' },
   subMediaWrapper: { width: '100%', height: 240, marginTop: 12, borderRadius: 14, overflow: 'hidden', backgroundColor: '#f1f3f5' },
   subMedia: { width: '100%', height: '100%', backgroundColor: '#f1f3f5' },
+  subImage: { width: '100%', height: 240, marginTop: 12, borderRadius: 14, backgroundColor: '#f1f3f5' },
   videoTouchSurface: { ...StyleSheet.absoluteFillObject },
   videoControls: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 58, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, backgroundColor: 'rgba(0,0,0,0.62)' },
   videoControlButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
