@@ -17,6 +17,8 @@ import { useMe } from '@hooks/useApi';
 const STORY_REPLY_PREFIX = '↪ Respuesta a tu historia:';
 const TASK_SHARE_PREFIX = '↪ Publicación compartida:';
 
+const CHAT_PAGE_SIZE = 30;
+
 const getMediaExtension = (mimeType, fallback = 'bin') => {
   const mime = String(mimeType || '').toLowerCase();
   if (mime.includes('mp4')) return 'mp4';
@@ -274,23 +276,59 @@ const ChatDetailScreen = ({ route, navigation }) => {
   const [users, setUsers] = useState([]);
   const [userSearchText, setUserSearchText] = useState('');
 
+  const [loadingMore, setLoadingMore] = useState(false);
+  const pageRef = useRef(1);
+  const hasMoreRef = useRef(true);
+  const loadingMoreRef = useRef(false);
+  const generationRef = useRef(0);
+
+  const messagesUrl = useCallback((page) => (
+    type === 'direct'
+      ? `massaging/messages/?user_id=${chatId}&page=${page}&page_size=${CHAT_PAGE_SIZE}`
+      : `massaging/groupss/${chatId}/messages/?page=${page}&page_size=${CHAT_PAGE_SIZE}`
+  ), [chatId, type]);
+
   const fetchMessages = useCallback(async () => {
+    const generation = ++generationRef.current;
     try {
       setLoading(true);
-      let res;
-      if (type === 'direct') {
-        res = await api.get(`massaging/messages/?user_id=${chatId}`);
-      } else {
-        res = await api.get(`massaging/groupss/${chatId}/messages/`);
-      }
+      const res = await api.get(messagesUrl(1));
+      if (generation !== generationRef.current) return;
       const msgs = Array.isArray(res.data) ? res.data : [];
+      pageRef.current = 1;
+      hasMoreRef.current = msgs.length >= CHAT_PAGE_SIZE;
       setMessages(msgs);
     } catch (error) {
       console.error('Error fetching messages:', error.response?.data || error.message);
     } finally {
-      setLoading(false);
+      if (generation === generationRef.current) setLoading(false);
     }
-  }, [chatId, type]);
+  }, [messagesUrl]);
+
+  // Mensajes más antiguos: se dispara al llegar al final de la lista invertida.
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMoreRef.current) return;
+    const generation = generationRef.current;
+    const nextPage = pageRef.current + 1;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const res = await api.get(messagesUrl(nextPage));
+      if (generation !== generationRef.current) return;
+      const older = Array.isArray(res.data) ? res.data : [];
+      pageRef.current = nextPage;
+      hasMoreRef.current = older.length >= CHAT_PAGE_SIZE;
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => m.id));
+        return [...prev, ...older.filter((m) => !seen.has(m.id))];
+      });
+    } catch (error) {
+      console.error('Error loading older messages:', error.response?.data || error.message);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [messagesUrl]);
 
   useFocusEffect(
     useCallback(() => {
@@ -663,6 +701,11 @@ const ChatDetailScreen = ({ route, navigation }) => {
           renderItem={renderMessage}
           inverted
           contentContainerStyle={styles.messagesList}
+          onEndReached={loadOlderMessages}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? <ActivityIndicator size="small" color="#4dabf7" style={{ marginVertical: 12 }} /> : null
+          }
         />
       )}
 
