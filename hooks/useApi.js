@@ -14,8 +14,11 @@
  *   const { data, isLoading, error, refetch } = useTasks({ pch: 'consejos' });
  */
 
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import api from '@api';
+import { getNextPageNumber, mapPostsPages, removePostFromPages } from '../utils/postsPages';
+import { getNextOffset, flattenCommentPages, getRemainingComments } from '../utils/commentsPages';
 
 // ─── Config compartida ────────────────────────────────────────────────────────
 
@@ -386,15 +389,19 @@ export function useReorderFavorites(userId) {
 // ─── Foro ─────────────────────────────────────────────────────────────────────
 
 /**
- * Lista de posts del foro.
+ * Lista paginada de posts del foro (scroll infinito).
+ * El backend devuelve 10 por página (StandardPagination); antes solo se leía
+ * la primera, por lo que los posts más antiguos nunca eran visibles.
  */
-export function usePosts() {
-  return useQuery({
+export function usePostsInfinite() {
+  return useInfiniteQuery({
     queryKey: ['posts'],
-    queryFn: async () => {
-      const res = await api.get('posts/');
-      return res.data.results ?? res.data ?? [];
+    queryFn: async ({ pageParam = 1 }) => {
+      const res = await api.get('posts/', { params: { page: pageParam } });
+      return res.data;
     },
+    initialPageParam: 1,
+    getNextPageParam: getNextPageNumber,
     staleTime: STALE_TIME,
     gcTime:    GC_TIME,
   });
@@ -402,6 +409,7 @@ export function usePosts() {
 
 /**
  * Mutaciones del foro: crear, editar, eliminar, dar like a un post.
+ * Las actualizaciones optimistas operan sobre `data.pages` (query infinita).
  */
 export function usePostMutations() {
   const queryClient = useQueryClient();
@@ -422,7 +430,7 @@ export function usePostMutations() {
     onMutate: async (postId) => {
       await queryClient.cancelQueries({ queryKey: ['posts'] });
       const prev = queryClient.getQueryData(['posts']);
-      queryClient.setQueryData(['posts'], (old) => (old ?? []).filter((p) => p.id !== postId));
+      queryClient.setQueryData(['posts'], (old) => removePostFromPages(old, postId));
       return { prev };
     },
     onError: (_err, _vars, ctx) => queryClient.setQueryData(['posts'], ctx?.prev),
@@ -435,7 +443,7 @@ export function usePostMutations() {
       await queryClient.cancelQueries({ queryKey: ['posts'] });
       const prev = queryClient.getQueryData(['posts']);
       queryClient.setQueryData(['posts'], (old) =>
-        (old ?? []).map((p) =>
+        mapPostsPages(old, (p) =>
           p.id === postId
             ? { ...p, has_liked: !p.has_liked, likes_count: p.likes_count + (p.has_liked ? -1 : 1) }
             : p
@@ -446,7 +454,7 @@ export function usePostMutations() {
     onError: (_err, _vars, ctx) => queryClient.setQueryData(['posts'], ctx?.prev),
     onSuccess: (data, postId) => {
       queryClient.setQueryData(['posts'], (old) =>
-        (old ?? []).map((p) =>
+        mapPostsPages(old, (p) =>
           p.id === postId
             ? { ...p, likes_count: data.data.likes_count, has_liked: data.data.liked }
             : p
@@ -522,19 +530,42 @@ export function useTaskDetail(taskId) {
 }
 
 /**
- * Lista de comentarios de una tarea.
+ * Lista paginada de comentarios raíz de una tarea (LimitOffset, 10 por página).
+ *
+ * Antes solo se leía la primera página: en tareas con más de 10 comentarios el
+ * resto era inaccesible. `data` conserva el contrato anterior (array plano), así
+ * que la pantalla no necesita cambiar cómo lo consume; además se exponen
+ * `fetchNextPage`, `hasNextPage`, `isFetchingNextPage` y `remaining`.
  */
 export function useTaskComments(taskId) {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: ['taskComments', taskId],
-    queryFn: async () => {
-      const res = await api.get(`tasks/${taskId}/comments/`);
-      return Array.isArray(res.data) ? res.data : res.data?.results ?? [];
+    queryFn: async ({ pageParam = 0 }) => {
+      const res = await api.get(`tasks/${taskId}/comments/`, {
+        params: { offset: pageParam },
+      });
+      // Tolerar un backend sin paginación (lista plana) como antes
+      if (Array.isArray(res.data)) {
+        return { count: res.data.length, next: null, previous: null, results: res.data };
+      }
+      return res.data;
     },
+    initialPageParam: 0,
+    getNextPageParam: getNextOffset,
     enabled: !!taskId,
     staleTime: STALE_TIME,
     gcTime:    GC_TIME,
   });
+
+  const comments = useMemo(() => flattenCommentPages(query.data), [query.data]);
+  const remaining = useMemo(() => getRemainingComments(query.data), [query.data]);
+
+  return {
+    ...query,
+    // undefined mientras carga (igual que useQuery) para no pisar el estado local
+    data: query.data ? comments : undefined,
+    remaining,
+  };
 }
 
 /**

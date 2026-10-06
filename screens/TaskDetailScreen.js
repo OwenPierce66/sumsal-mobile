@@ -426,7 +426,14 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
   // ─── React Query para data inicial ─────────────────────────────────────────
   const { data: taskData, isLoading: loading, refetch: refetchTask } = useTaskDetail(taskId);
-  const { data: commentsData, refetch: refetchComments } = useTaskComments(taskId);
+  const {
+    data: commentsData,
+    refetch: refetchComments,
+    fetchNextPage: fetchMoreComments,
+    hasNextPage: hasMoreComments,
+    isFetchingNextPage: isFetchingMoreComments,
+    remaining: remainingComments,
+  } = useTaskComments(taskId);
   const { data: me } = useMe();
   const { data: adminData } = useIsAdmin();
 
@@ -814,6 +821,24 @@ const TaskDetailScreen = ({ route, navigation }) => {
               />
             ))
           )}
+          {hasMoreComments && (
+            <TouchableOpacity
+              style={styles.loadMoreComments}
+              onPress={() => fetchMoreComments()}
+              disabled={isFetchingMoreComments}
+              activeOpacity={0.7}
+            >
+              {isFetchingMoreComments ? (
+                <ActivityIndicator size="small" color="#4dabf7" />
+              ) : (
+                <Text style={styles.loadMoreCommentsText}>
+                  {remainingComments > 0
+                    ? `Ver más comentarios (${remainingComments})`
+                    : 'Ver más comentarios'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
 
@@ -1004,6 +1029,8 @@ const styles = StyleSheet.create({
   commentsSection: { padding: 16, paddingBottom: 40 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 16 },
   noComments: { textAlign: 'center', color: '#999', marginTop: 20 },
+  loadMoreComments: { alignSelf: 'center', marginTop: 12, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, backgroundColor: '#eef6ff', minWidth: 190, alignItems: 'center' },
+  loadMoreCommentsText: { color: '#4dabf7', fontWeight: '700', fontSize: 13 },
   
   commentWrapper: { marginBottom: 16, borderColor: '#e0e0e0' },
   commentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },

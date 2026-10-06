@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   RefreshControl, TextInput, Platform, ActivityIndicator, Alert
@@ -9,7 +9,8 @@ import 'moment/locale/es';
 import { getImageUrl } from '@api';
 import { Image } from 'expo-image';
 import TouchableUsername from '@components/TouchableUsername';
-import { usePosts, usePostMutations, useMe } from '@hooks/useApi';
+import { usePostsInfinite, usePostMutations, useMe } from '@hooks/useApi';
+import { flattenPosts } from '../utils/postsPages';
 
 moment.locale('es');
 
@@ -20,13 +21,28 @@ const ForumScreen = ({ navigation }) => {
   const [editingPost,    setEditingPost]    = useState(null);
 
   // ─── React Query ────────────────────────────────────────────────────────────
-  const { data: posts = [], isLoading, isFetching, refetch } = usePosts();
+  const {
+    data,
+    isLoading,
+    isRefetching,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = usePostsInfinite();
+  const posts = useMemo(() => flattenPosts(data), [data]);
   const { data: me } = useMe();
   const currentUserId = me?.id ?? null;
 
   const { createPost, editPost, deletePost, likePost } = usePostMutations();
 
-  const refreshing = isFetching && !isLoading;
+  // isRefetching también es true mientras se carga la siguiente página;
+  // se excluye para que el spinner de pull-to-refresh no aparezca al hacer scroll.
+  const refreshing = isRefetching && !isFetchingNextPage;
+
+  const handleLoadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
   const getPostAuthorName = (post) => {
@@ -163,6 +179,13 @@ const ForumScreen = ({ navigation }) => {
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderPost}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <ActivityIndicator size="small" color="#4dabf7" style={{ marginVertical: 16 }} />
+          ) : null
+        }
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           !isLoading && (
