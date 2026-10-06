@@ -15,7 +15,13 @@ const DEFAULT_SUBTHEMES = {
 const normalize = value => String(value || '').trim();
 const keyFor = value => normalize(value).toLowerCase();
 
-const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemoveCategory, selectedStatus = '', onStatusSelect, showDescendants = false, selectedCategoryPath = [] }) => {
+// Referencia estable para el valor por defecto de `selectedCategoryPath`.
+// Con `= []` en la firma se crea un array nuevo en cada render; como un useEffect
+// depende de esa prop y hace setState con objetos nuevos, provocaba un bucle
+// infinito de renders ("Maximum update depth exceeded").
+const EMPTY_PATH = [];
+
+const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemoveCategory, selectedStatus = '', onStatusSelect, showDescendants = false, selectedCategoryPath = EMPTY_PATH }) => {
   const [tree, setTree] = useState(DEFAULT_SUBTHEMES);
   const [selectedPath, setSelectedPath] = useState([]);
   const [collapsedLevels, setCollapsedLevels] = useState(new Set());

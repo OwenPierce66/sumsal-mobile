@@ -5,7 +5,9 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import SecureStorage from './secureStorage';
 import { Ionicons } from '@expo/vector-icons';
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, onlineManager } from '@tanstack/react-query';
+import { isNetOnline } from './utils/network';
+import OfflineWriteNotifier from '@components/OfflineWriteNotifier';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { asyncStoragePersister, MAX_AGE_MS, shouldPersistQuery } from './persistence/queryPersister';
 import NetInfo from '@react-native-community/netinfo';
@@ -19,6 +21,13 @@ import { usePushNotifications, registerForPush } from './hooks/usePushNotificati
 // Inicializar Sentry al arrancar el módulo (antes del primer render)
 SentryService.init();
 
+// React Query en React Native no detecta la conectividad por sí solo (asume
+// siempre en línea). Se conecta a NetInfo para que, sin señal, las lecturas se
+// pausen y se sirvan desde la caché persistida en lugar de fallar y reintentar.
+onlineManager.setEventListener((setOnline) =>
+  NetInfo.addEventListener((netState) => setOnline(isNetOnline(netState)))
+);
+
 // Configuración global del cliente de caché TanStack Query
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,8 +37,28 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       retry: 1,
     },
+    mutations: {
+      // 'always': no pausar ni encolar escrituras sin conexión. Se ejecutan y
+      // fallan de inmediato (el usuario recibe un aviso) en vez de reenviarse
+      // solas más tarde, lo que podría duplicar likes, comentarios o posts.
+      networkMode: 'always',
+    },
   },
 });
+
+/**
+ * Borra el caché de datos del usuario (memoria + AsyncStorage). Debe llamarse
+ * al cerrar sesión: el caché persistido sobrevive al logout y, si no se borra,
+ * el siguiente usuario del dispositivo vería datos del anterior.
+ */
+const clearUserCache = async () => {
+  try {
+    queryClient.clear();
+    await asyncStoragePersister.removeClient();
+  } catch (error) {
+    console.warn('[Auth] No se pudo limpiar el caché local:', error?.message);
+  }
+};
 
 // ─── Pantallas principales — carga inmediata (necesarias en la primera pantalla) ────
 import HomeScreen from './screens/HomeScreen';
@@ -297,6 +326,7 @@ usePushNotifications(navigationRef);
   // cerrar la sesión limpiamente desde fuera sin dependencia circular.
   useEffect(() => {
     authInterceptorController.signOut = () => {
+      clearUserCache();
       dispatch({ type: 'SIGN_OUT' });
     };
     return () => {
@@ -329,6 +359,7 @@ signIn: async (token) => {
       } finally {
         // Siempre limpia tokens locales y reinicia el estado
         await clearAuthData();
+        await clearUserCache();
         setCurrentUser(null);
         dispatch({ type: 'SIGN_OUT' });
       }
@@ -363,6 +394,7 @@ signIn: async (token) => {
         }}
       >
         <ToastProvider>
+          <OfflineWriteNotifier />
           <GlobalErrorContext.Provider value={{ isConnected, wasDisconnected }}>
             <AuthContext.Provider value={authContext}>
               <NavigationContainer linking={linking} ref={navigationRef}>

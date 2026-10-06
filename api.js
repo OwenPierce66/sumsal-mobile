@@ -2,6 +2,8 @@ import axios from 'axios';
 import SecureStorage from './secureStorage';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import { isNetworkError } from './utils/network';
+import { emitOfflineWrite } from './utils/offlineEvents';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIGURACIÓN DE URL — leída desde .env via app.config.js → expo-constants
@@ -152,6 +154,13 @@ api.interceptors.response.use(
 
         return Promise.reject(refreshError);
       }
+    }
+
+    // Fallo de red en una ESCRITURA (POST/PATCH/PUT/DELETE): avisar al usuario.
+    // Las lecturas no avisan: se sirven desde la caché persistida.
+    const method = String(originalRequest?.method || 'get').toLowerCase();
+    if (method !== 'get' && isNetworkError(error)) {
+      emitOfflineWrite();
     }
 
     return Promise.reject(error);

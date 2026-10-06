@@ -52,6 +52,8 @@ const PERSISTABLE_KEYS = [
   'me',
   'profileCategories',
   'notifications',
+  'posts',
+  'taskComments',
 ];
 
 /**
