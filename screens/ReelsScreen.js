@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
+﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -8,6 +8,8 @@ import { Gesture, GestureDetector, Directions } from 'react-native-gesture-handl
 import Animated, { useSharedValue, runOnJS } from 'react-native-reanimated';
 import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
+import OfflineEmptyState from '../components/OfflineEmptyState';
+import { useIsOnline } from '../hooks/useIsOnline';
 import TieredLikesModal from './TieredLikesModal';
 import ReelItem from './ReelItem'; 
 
@@ -196,8 +198,10 @@ const ReelsScreen = ({ route }) => {
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
   const currentUserId = user?.id;
   const navigation = useNavigation();
+  const isOnline = useIsOnline();
   const [reels, setReels] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [tema, setTema] = useState('consejos');
@@ -285,9 +289,20 @@ const ReelsScreen = ({ route }) => {
     });
   }, [route?.params?.openTaskId, route?.params?.openMediaSrc, route?.params?.openMediaRequestId, reels, getReelTaskId]);
 
+  const fetchGenerationRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+
   const fetchReels = async (pageNumber = 1, filters = {}) => {
+    const isFirstPage = pageNumber === 1;
+    // Página 1 invalida cualquier carga anterior; las siguientes solo
+    // proceden si no hay otra en vuelo y siguen perteneciendo a la lista actual.
+    if (!isFirstPage && loadingMoreRef.current) return;
+    const generation = isFirstPage ? ++fetchGenerationRef.current : fetchGenerationRef.current;
+    if (!isFirstPage) loadingMoreRef.current = true;
+
     try {
-      if (pageNumber === 1) {
+      if (isFirstPage) {
+        setLoadError(false);
         setLoading(true);
         setReels([]); // Limpiamos al refrescar o cambiar filtros
       }
@@ -308,6 +323,7 @@ const ReelsScreen = ({ route }) => {
           recommended_users_only: filters.recommended_users_only !== undefined ? filters.recommended_users_only : selectedRecommendedUsersOnly
         }
       });
+      if (generation !== fetchGenerationRef.current) return; // respuesta obsoleta
       const data = response.data.results ?? response.data ?? [];
 
       // ✅ FILTRAMOS PARA MOSTRAR SOLO PUBLICACIONES (originales o compartidas) CON VIDEO
@@ -323,13 +339,21 @@ const ReelsScreen = ({ route }) => {
         return null;
       }).filter(Boolean);
 
-      setReels(prev => pageNumber === 1 ? validReels : [...prev, ...validReels]);
+      setReels(prev => {
+        if (isFirstPage) return validReels;
+        const seen = new Set(prev.map(r => r.id));
+        return [...prev, ...validReels.filter(r => !seen.has(r.id))];
+      });
 
       setHasMore(!!response.data.next);
       setPage(pageNumber);
     } catch (error) {
+      if (generation !== fetchGenerationRef.current) return;
+      console.warn('[ReelsScreen] Error cargando reels:', error?.response?.data || error?.message);
+      if (isFirstPage) setLoadError(true);
     } finally {
-      setLoading(false);
+      if (!isFirstPage) loadingMoreRef.current = false;
+      if (generation === fetchGenerationRef.current) setLoading(false);
     }
   };
 
@@ -858,6 +882,13 @@ const ReelsScreen = ({ route }) => {
         )}
         {loading && reels.length === 0 ? (
           <ActivityIndicator size="large" color="#fff" style={{flex: 1, justifyContent: 'center'}} />
+        ) : loadError && reels.length === 0 ? (
+          <OfflineEmptyState
+            dark
+            offline={!isOnline}
+            onRetry={() => fetchReels(1)}
+            message={isOnline ? 'No se pudieron cargar los reels. Inténtalo de nuevo.' : undefined}
+          />
         ) : (
           // ✅ FIX: Usamos un solo View con flex: 1 para contener una única FlatList.
           // Esto asegura que la lista ocupe el espacio correcto y la virtualización funcione.
