@@ -26,7 +26,9 @@ module.exports = {
     ios: {
       supportsTablet: true,
     },
-    android: {},
+    android: {
+      package: 'com.sumsal.aportaciones',
+    },
     web: {},
 
     // ─── Variables accesibles en runtime ──────────────────────────────────

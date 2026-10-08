@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ScrollView, ActivityIndicator, LogBox } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { Video } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -45,6 +46,7 @@ const ReelItemComponent = ({
   openActionModal,
   toggleProfileLike,
   tema,
+  mediaGesture,
 }) => {
   // ✅ FIX: Se mueven las definiciones al principio para evitar errores de "undefined".
   const contentItem = useMemo(() => (item.is_original ? item : item.task), [item]);
@@ -143,6 +145,7 @@ const ReelItemComponent = ({
   return (
     <View style={styles.reelContainer}>
       {/* 🔄 SWIPE HORIZONTAL NATIVO CLÁSICO */}
+      <GestureDetector gesture={mediaGesture}>
       <ScrollView
         horizontal
         pagingEnabled
@@ -159,7 +162,7 @@ const ReelItemComponent = ({
       >
         {list.length > 0 ? (
           list.map((entry, clipIdx) => (
-            <View key={`${item.id}-clip-${clipIdx}`} style={{ width: windowWidth, height: windowHeight }}>
+            <View key={`${item.id}-clip-${clipIdx}`} style={{ width: windowWidth, height: '100%' }}>
               {entry.type === 'image' ? (
                 <Image source={{ uri: getImageUrl(entry.src) }} style={styles.image} contentFit="cover" />
               ) : (
@@ -177,7 +180,7 @@ const ReelItemComponent = ({
             </View>
           ))
         ) : (
-          <View style={{ width: windowWidth, height: windowHeight }}> 
+          <View style={{ width: windowWidth, height: '100%' }}> 
             <Video // 🪵 LOG DE DIAGNÓSTICO: Fallback Video componente
               ref={videoRefs.current[0]} // ✅ Asignamos la primera referencia si no hay lista
               source={{ uri: getImageUrl(item._anyMedia) }}
@@ -191,6 +194,7 @@ const ReelItemComponent = ({
           </View>
         )}
       </ScrollView>
+      </GestureDetector>
 
       {isUIVisible ? (
         <> 
@@ -407,26 +411,26 @@ const ReelItemComponent = ({
 const ReelItem = React.memo(ReelItemComponent);
 
 const styles = StyleSheet.create({
-  reelContainer: { width: windowWidth, height: windowHeight },
+  reelContainer: { width: windowWidth, height: '100%' },
   video: { ...StyleSheet.absoluteFillObject },
   image: { ...StyleSheet.absoluteFillObject },
   sharedByContainer: { padding: 10, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12, marginBottom: 10, pointerEvents: 'auto' },
   sharedByRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sharedByAvatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#eee' },
   sharedByLabel: { flexShrink: 1 },
-  sharedByName: { color: '#fff', fontWeight: 'bold', fontSize: 13, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
-  favoriteSharerIndicator: { color: '#ffc9c9', fontWeight: 'bold', fontSize: 11, marginLeft: 8, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
+  sharedByName: { color: '#fff', fontWeight: 'bold', fontSize: 13, textShadowColor: 'rgba(0,0,0,0.7)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },
+  favoriteSharerIndicator: { color: '#ffc9c9', fontWeight: 'bold', fontSize: 11, marginLeft: 8, textShadowColor: 'rgba(0,0,0,0.7)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },
   sharedByExpanded: { marginTop: 4 },
-  sharedByDescription: { color: '#fff', fontSize: 13, marginTop: 4, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
+  sharedByDescription: { color: '#fff', fontSize: 13, marginTop: 4, textShadowColor: 'rgba(0,0,0,0.7)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },
   pausedSharedByLabel: { marginBottom: 6, alignSelf: 'flex-start', backgroundColor: 'rgba(0,0,0,0.35)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, pointerEvents: 'auto' },
-  pausedSharedByText: { color: '#fff', fontSize: 12, fontWeight: '700', textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
-  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'none' },
+  pausedSharedByText: { color: '#fff', fontSize: 12, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.7)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },
+  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'box-none' },
   publicationRow: { flexDirection: 'row', alignItems: 'flex-end', width: '100%', paddingHorizontal: 10 },
   bottomSection: { flex: 1, minWidth: 0, padding: 10, paddingRight: 16, justifyContent: 'flex-end' },
   userInfo: { marginBottom: 10, pointerEvents: 'auto' },
-  username: { color: '#fff', fontSize: 16, fontWeight: 'bold', textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
-  title: { color: '#fff', fontSize: 15, fontWeight: '600', marginBottom: 6, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
-  description: { color: '#fff', fontSize: 14, marginBottom: 12, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
+  username: { color: '#fff', fontSize: 16, fontWeight: 'bold', textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 4 },
+  title: { color: '#fff', fontSize: 15, fontWeight: '600', marginBottom: 6, textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 4 },
+  description: { color: '#fff', fontSize: 14, marginBottom: 12, textShadowColor: 'rgba(0, 0, 0, 0.75)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 4 },
   categoriesScroll: { flexDirection: 'row', marginBottom: 5 },
   categoryBadge: { backgroundColor: 'rgba(0,0,0,0.4)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
   categoryText: { color: '#fff', fontSize: 12, fontWeight: '600' },
@@ -434,8 +438,8 @@ const styles = StyleSheet.create({
   avatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#fff' },
   followBtn: { position: 'absolute', bottom: -5, backgroundColor: 'rgba(0,0,0,0.6)', width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   iconButton: { alignItems: 'center', marginBottom: 12, pointerEvents: 'auto' },
-  iconText: { color: '#fff', fontSize: 10, marginTop: 3, fontWeight: '600', textShadow: '1px 1px 3px rgba(0,0,0,0.5)' },
-  iconTextSmall: { color: '#fff', fontSize: 9, marginTop: 3, fontWeight: '600', textShadow: '1px 1px 3px rgba(0,0,0,0.5)' }, // ✅ Nuevo estilo para el badge
+  iconText: { color: '#fff', fontSize: 10, marginTop: 3, fontWeight: '600', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },
+  iconTextSmall: { color: '#fff', fontSize: 9, marginTop: 3, fontWeight: '600', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 }, // ✅ Nuevo estilo para el badge
   badgeContainer: { position: 'absolute', top: -3, right: -6, width: 11, height: 11, backgroundColor: 'rgb(255, 255, 255)', zIndex: 1, borderRadius: 10, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 0 },
   badgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
   tierCountersVertical: { flexDirection: 'column', gap: 3, alignItems: 'center', marginTop: 4, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 5, paddingHorizontal: 4, paddingVertical: 2 },

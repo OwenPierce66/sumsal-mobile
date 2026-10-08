@@ -11,7 +11,7 @@
  *      monta <GlobalError /> dentro del NavigationContainer.
  */
 
-import React, { useContext, useEffect, useRef } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Text,
@@ -28,49 +28,35 @@ const BANNER_HEIGHT = 48;
 const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 
 const GlobalError = () => {
-  const { isConnected, wasDisconnected } = useContext(GlobalErrorContext);
+  const { isConnected } = useContext(GlobalErrorContext);
 
-  // Valor animado: 0 = oculto arriba, 1 = visible
+  // 'offline' | 'restored' | null. El aviso verde se oculta solo tras 2.5 s.
+  const [mode, setMode] = useState(null);
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const wasOffline = useRef(false);
 
-  // ─── Cuando cambia la conexión, anima el banner ───────────────────────────
   useEffect(() => {
     if (!isConnected) {
-      // Sin conexión → deslizar hacia abajo (mostrar)
-      Animated.spring(slideAnim, {
-        toValue: 1,
-        useNativeDriver: USE_NATIVE_DRIVER,
-        tension: 80,
-        friction: 10,
-      }).start();
-    } else if (wasDisconnected) {
-      // Reconectado → mostrar brevemente y ocultar
-      Animated.sequence([
-        Animated.spring(slideAnim, {
-          toValue: 1,
-          useNativeDriver: USE_NATIVE_DRIVER,
-          tension: 80,
-          friction: 10,
-        }),
-        Animated.delay(2000),
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          useNativeDriver: USE_NATIVE_DRIVER,
-          tension: 80,
-          friction: 10,
-        }),
-      ]).start();
-    } else {
-      // Conectado desde el inicio → mantener oculto
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        useNativeDriver: USE_NATIVE_DRIVER,
-        tension: 80,
-        friction: 10,
-      }).start();
+      wasOffline.current = true;
+      setMode('offline');
+      return undefined;
     }
-  }, [isConnected, wasDisconnected, slideAnim]);
+    if (wasOffline.current) {
+      wasOffline.current = false;
+      setMode('restored');
+      const t = setTimeout(() => setMode(null), 2500);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [isConnected]);
 
+  useEffect(() => {
+    Animated.timing(slideAnim, {
+      toValue: mode ? 1 : 0,
+      duration: 250,
+      useNativeDriver: USE_NATIVE_DRIVER,
+    }).start();
+  }, [mode, slideAnim]);
   // Transforma la animación en movimiento vertical
   const translateY = slideAnim.interpolate({
     inputRange: [0, 1],
@@ -78,15 +64,18 @@ const GlobalError = () => {
   });
 
   // Color del banner según el estado
-  const backgroundColor = isConnected ? '#2ecc71' : '#e74c3c';
-  const icon = isConnected ? '✓' : '✕';
-  const message = isConnected ? 'Conexión restaurada' : 'Sin conexión a internet';
+  const backgroundColor = mode !== 'offline' ? '#2ecc71' : '#e74c3c';
+  const icon = mode !== 'offline' ? '✓' : '✕';
+  const message = mode !== 'offline' ? 'Conexión restaurada' : 'Sin conexión a internet';
 
   // En web no hay StatusBar nativa — compensamos el offset
   const topOffset = Platform.OS === 'web' ? 0 : (StatusBar.currentHeight || 0);
 
+  if (!mode) return null;
+
   return (
     <Animated.View
+      pointerEvents="none"
       style={[
         styles.banner,
         {

@@ -24,6 +24,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api, { getImageUrl } from '../api';
 import TieredLikesModal from './TieredLikesModal';
 import TouchableUsername from '../components/TouchableUsername';
+import OfflineEmptyState from '../components/OfflineEmptyState';
+import { useIsOnline } from '../hooks/useIsOnline';
+import { useStories, useMe } from '../hooks/useApi';
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 const IMAGE_DURATION_MS = 6500;
@@ -118,7 +121,7 @@ const isLikelyVideoFile = (file, fallbackType, uri) => {
 const Stories24hScreen = ({ route }) => {
   const navigation = useNavigation();
   const [stories, setStories] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const isOnline = useIsOnline();
   const [nowMs, setNowMs] = useState(Date.now());
   const [currentUserId, setCurrentUserId] = useState(null);
 
@@ -190,21 +193,21 @@ const Stories24hScreen = ({ route }) => {
     return () => clearInterval(intervalId);
   }, []);
 
+  const { data: me, isLoading: isMeLoading } = useMe();
   useEffect(() => {
+    if (isMeLoading) return undefined;
+    let cancelled = false;
     const resolveCurrentUser = async () => {
-      try {
-        const meResponse = await api.get('users/me/');
-        const meId = meResponse?.data?.id || null;
-        if (meId) {
-          setCurrentUserId(meId);
-          fetchFavorites(meId);
-          return;
-        }
-      } catch (error) {}
+      const meId = me?.id || null;
+      if (meId) {
+        setCurrentUserId(meId);
+        fetchFavorites(meId);
+        return;
+      }
 
       try {
         const fallbackId = await AsyncStorage.getItem('userId');
-        if (fallbackId) {
+        if (fallbackId && !cancelled) {
           setCurrentUserId(fallbackId);
           fetchFavorites(fallbackId);
         }
@@ -212,7 +215,8 @@ const Stories24hScreen = ({ route }) => {
     };
 
     resolveCurrentUser();
-  }, []);
+    return () => { cancelled = true; };
+  }, [me?.id, isMeLoading]);
 
   const fetchFavorites = useCallback(async (userId) => {
     try {
@@ -242,14 +246,33 @@ const Stories24hScreen = ({ route }) => {
     }
   }, []);
 
-  const fetchStories = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const response = await api.get('stories/', {
-        params: { limit: 60, offset: 0 },
-      });
-      const rawItems = Array.isArray(response.data?.results) ? response.data.results : [];
-      const sharedMetaMap = JSON.parse((await AsyncStorage.getItem('sharedStoriesMetadata')) || '{}');
+  const storiesQuery = useStories();
+  const { refetch: refetchStories } = storiesQuery;
+  const isLoading = storiesQuery.isLoading;
+  const loadError = storiesQuery.isError && !storiesQuery.data;
+
+  // Refetch manual (botón de refrescar, tras publicar/compartir). Envuelto para
+  // no pasar el evento del botón como opciones de `refetch`.
+  const fetchStories = useCallback(() => {
+    refetchStories();
+  }, [refetchStories]);
+
+  // Sincroniza el estado local (que recibe acciones optimistas como el like)
+  // con los datos del servidor cada vez que llegan nuevos.
+  useEffect(() => {
+    const rawItems = storiesQuery.data;
+    if (!rawItems) {
+      setStories([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      let sharedMetaMap = {};
+      try {
+        sharedMetaMap = JSON.parse((await AsyncStorage.getItem('sharedStoriesMetadata')) || '{}');
+      } catch (error) {}
+      if (cancelled) return;
+      const now = Date.now();
       const mappedStories = rawItems
         .map((story) => {
           const createdMs = parseCreatedAtMs(story);
@@ -262,26 +285,24 @@ const Stories24hScreen = ({ route }) => {
             _storyMedia: media,
           };
         })
-        .filter((story) => !!story._storyMedia && (story._createdMs ? nowMs - story._createdMs <= STORY_WINDOW_MS : true));
+        .filter((story) => !!story._storyMedia && (story._createdMs ? now - story._createdMs <= STORY_WINDOW_MS : true));
       setStories(mappedStories);
-      
-      // Load shared stories metadata
-      const sharedMetadata = await AsyncStorage.getItem('sharedStoriesMetadata');
-      if (sharedMetadata) {
-        setSharedStories(JSON.parse(sharedMetadata));
-      }
-    } catch (error) {
-      Alert.alert('Error', 'No se pudieron cargar las historias.');
-      setStories([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [nowMs]);
+      setSharedStories(sharedMetaMap);
+    })();
+    return () => { cancelled = true; };
+  }, [storiesQuery.data]);
 
+  // Al volver a la pantalla: refresco en segundo plano solo si los datos están
+  // viejos y no hay carga en curso (sin spinner ni parpadeo).
+  const storiesQueryRef = useRef(storiesQuery);
+  storiesQueryRef.current = storiesQuery;
   useFocusEffect(
     useCallback(() => {
-      fetchStories();
-    }, [fetchStories])
+      const q = storiesQueryRef.current;
+      if (q.isStale && !q.isFetching) {
+        q.refetch({ cancelRefetch: false });
+      }
+    }, [])
   );
 
   const storyUsers = useMemo(() => {
@@ -993,7 +1014,14 @@ const Stories24hScreen = ({ route }) => {
         </ScrollView>
       )}
 
-      {!isLoading && storyUsers.length === 0 ? (
+      {loadError && storyUsers.length === 0 ? (
+        <OfflineEmptyState
+          dark
+          offline={!isOnline}
+          onRetry={fetchStories}
+          message={isOnline ? 'No se pudieron cargar las historias. Inténtalo de nuevo.' : undefined}
+        />
+      ) : !isLoading && storyUsers.length === 0 ? (
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyTitle}>No hay historias activas</Text>
           <Text style={styles.emptySubtitle}>Publica una historia con el botón +.</Text>
