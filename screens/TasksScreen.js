@@ -22,6 +22,8 @@ import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import Slider from '@react-native-community/slider';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTasksInfinite, useSharedTasksInfinite, useCategories } from '@hooks/useApi';
+import { useIsOnline } from '../hooks/useIsOnline';
+import OfflineEmptyState from '../components/OfflineEmptyState';
 
 const TASK_VIDEO_AUTOPLAY_DELAY_MS = 500;
 
@@ -721,6 +723,7 @@ const TasksScreen = ({ navigation }) => {
 
   // Estado de loading unificado
   const loading = tasksQueryLoading;
+  const isOnline = useIsOnline();
   const loadingMore = tasksFetchingMore || sharedFetchingMore;
   const refreshing = tasksRefetching || sharedRefetching;
   const hasMore = tasksHasNext ?? false;
@@ -1808,6 +1811,13 @@ const TasksScreen = ({ navigation }) => {
         initialNumToRender={8} // Carga inicial rápida
         ListFooterComponent={
           loadingMore ? <ActivityIndicator size="small" color="#4dabf7" style={{ marginVertical: 20 }} /> : null
+        }
+        ListEmptyComponent={
+          loading ? null : isOnline ? (
+            <Text style={{ textAlign: 'center', color: '#999', marginTop: 50 }}>No hay publicaciones para mostrar</Text>
+          ) : (
+            <OfflineEmptyState onRetry={onRefresh} />
+          )
         }
       />
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, createContext } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, LogBox } from 'react-native';
+LogBox.ignoreLogs(['[Sentry] DSN no configurado']);
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -16,7 +17,7 @@ import GlobalError from '@components/GlobalError';
 import ErrorBoundary from '@components/ErrorBoundary';
 import { ToastProvider } from '@contexts/ToastContext';
 import * as SentryService from './sentry';
-import { usePushNotifications, registerForPush } from './hooks/usePushNotifications';
+import { usePushNotifications, registerForPush, unregisterForPush } from './hooks/usePushNotifications';
 
 // Inicializar Sentry al arrancar el módulo (antes del primer render)
 SentryService.init();
@@ -346,6 +347,8 @@ signIn: async (token) => {
 },
     signOut: async () => {
       try {
+        // Da de baja el token push de este dispositivo mientras la sesión aún es válida.
+        await unregisterForPush();
         // Obtiene el refresh token cifrado y lo envía al servidor para blacklistearlo.
         // Esto invalida la sesión en la BD — aunque alguien robe el token, ya no sirve.
         const refreshToken = await SecureStorage.getItem('refreshToken');

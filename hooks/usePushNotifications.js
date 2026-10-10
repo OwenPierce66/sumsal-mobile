@@ -66,3 +66,17 @@ export async function registerForPush() {
     console.warn('[push] Error registrando token:', err?.message);
   }
 }
+
+// Da de baja el token de ESTE dispositivo en el backend (se llama al cerrar
+// sesión, mientras el access token aún es válido). Nunca lanza: si falla
+// (sin red, permisos denegados, web) el logout local continúa igual.
+export async function unregisterForPush() {
+  if (!Device.isDevice) return;
+  try {
+    const { data: token } = await Notifications.getExpoPushTokenAsync();
+    if (!token) return;
+    await api.delete('/push-tokens/', { data: { token } });
+  } catch (err) {
+    console.warn('[push] No se pudo dar de baja el token:', err?.message);
+  }
+}

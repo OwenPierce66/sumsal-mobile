@@ -24,7 +24,7 @@ const styles = StyleSheet.create({
         left: 15,
         right: 15,
         zIndex: 20,
-        pointerEvents: 'box-auto',
+        pointerEvents: 'auto',
     },
     progressBar: { width: '100%', height: 20 },
     progressText: {

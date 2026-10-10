@@ -42,12 +42,42 @@ export function useTasksInfinite(filters = {}) {
       const res = await api.get('tasks/', { params });
       return res.data;
     },
-    getNextPageParam: (lastPage) => {
-      if (!lastPage.next) return undefined;
-      const url = new URL(lastPage.next);
-      return Number(url.searchParams.get('page'));
-    },
+    getNextPageParam: getNextPageNumber,
     staleTime: STALE_TIME,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
+ * Feed de Reels paginado. Clave propia (`['reels', params]`) para no mezclarse
+ * con el feed de tareas aunque usen el mismo endpoint.
+ */
+export function useReelsInfinite(params = {}) {
+  return useInfiniteQuery({
+    queryKey: ['reels', params],
+    queryFn: async ({ pageParam = 1 }) => {
+      const res = await api.get('tasks/', { params: { ...params, page: pageParam } });
+      return res.data;
+    },
+    initialPageParam: 1,
+    getNextPageParam: getNextPageNumber,
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
+ * Historias activas (24 h). El backend ya filtra por ventana y pagina con
+ * limit/offset; se piden las 60 más recientes como hacía la pantalla.
+ */
+export function useStories() {
+  return useQuery({
+    queryKey: ['stories'],
+    queryFn: async () => {
+      const res = await api.get('stories/', { params: { limit: 60, offset: 0 } });
+      return Array.isArray(res.data?.results) ? res.data.results : [];
+    },
+    staleTime: 60 * 1000,
     gcTime: GC_TIME,
   });
 }
@@ -57,7 +87,7 @@ export function useTasksInfinite(filters = {}) {
  */
 export function useTasks(params = {}) {
   return useQuery({
-    queryKey: ['tasks', params],
+    queryKey: ['tasks', 'list', params],
     queryFn: async () => {
       const res = await api.get('tasks/', { params });
       return res.data.results ?? res.data ?? [];
@@ -93,11 +123,7 @@ export function useMyTasksInfinite(extraParams = {}) {
       const res = await api.get('users/me/tasks/', { params: { page: pageParam, ...extraParams } });
       return res.data;
     },
-    getNextPageParam: (lastPage) => {
-      if (!lastPage.next) return undefined;
-      const url = new URL(lastPage.next);
-      return Number(url.searchParams.get('page'));
-    },
+    getNextPageParam: getNextPageNumber,
     staleTime: STALE_TIME,
     gcTime: GC_TIME,
   });
@@ -124,11 +150,7 @@ export function useProfileTasksInfinite(isCurrentUser, userId, extraParams = {})
       const res = await api.get(endpoint, { params });
       return res.data;
     },
-    getNextPageParam: (lastPage) => {
-      if (!lastPage.next) return undefined;
-      const url = new URL(lastPage.next);
-      return Number(url.searchParams.get('page'));
-    },
+    getNextPageParam: getNextPageNumber,
     staleTime: STALE_TIME,
     gcTime: GC_TIME,
   });
@@ -330,11 +352,7 @@ export function useSharedTasksInfinite(filters = {}) {
       const res = await api.get('shared-tasks/', { params: { page: pageParam, ...filters } });
       return res.data;
     },
-    getNextPageParam: (lastPage) => {
-      if (!lastPage.next) return undefined;
-      const url = new URL(lastPage.next);
-      return Number(url.searchParams.get('page'));
-    },
+    getNextPageParam: getNextPageNumber,
     staleTime: STALE_TIME,
     gcTime: GC_TIME,
   });

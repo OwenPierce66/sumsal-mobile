@@ -1,4 +1,4 @@
-﻿import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -10,6 +10,8 @@ import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
 import OfflineEmptyState from '../components/OfflineEmptyState';
 import { useIsOnline } from '../hooks/useIsOnline';
+import { useReelsInfinite } from '../hooks/useApi';
+import { buildReelsFromPages } from '../utils/reelsPages';
 import TieredLikesModal from './TieredLikesModal';
 import ReelItem from './ReelItem'; 
 
@@ -103,7 +105,7 @@ const getSharedByInfo = (t) => {
   };
 };
 
-const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, setPaused, selectedReelId, handleReelTap, isUIVisible, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, getSharedByInfo, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, toggleProfileLike, likeAnimation, navigation, toggleFavorite, openShareModal, handleRepost, handleShowShares, handleShowLikes, handleShowProfileLikes, openActionModal, tema, taskLikesById, taskSharesById, profileLikesById }) => {
+const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, setPaused, selectedReelId, handleReelTap, isUIVisible, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, getSharedByInfo, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, toggleProfileLike, likeAnimation, navigation, toggleFavorite, openShareModal, handleRepost, handleShowShares, handleShowLikes, handleShowProfileLikes, openActionModal, tema, taskLikesById, taskSharesById, profileLikesById, pageHeight }) => {
   const tapToPause = Gesture.Tap()
     .maxDuration(250)
     .onEnd((event, success) => {
@@ -152,7 +154,7 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, se
   return (
     // ✅ FIX: Se elimina el GestureDetector duplicado que causaba el error de sintaxis.
     <GestureDetector gesture={composedGesture}>
-      <View style={{ width: windowWidth, height: windowHeight }}>
+      <View style={{ width: windowWidth, height: pageHeight }}>
       <ReelItem
         item={item}
         enrichedItem={enrichedItem}
@@ -200,10 +202,6 @@ const ReelsScreen = ({ route }) => {
   const navigation = useNavigation();
   const isOnline = useIsOnline();
   const [reels, setReels] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
   const [tema, setTema] = useState('consejos');
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted] = useState(false);
@@ -289,73 +287,41 @@ const ReelsScreen = ({ route }) => {
     });
   }, [route?.params?.openTaskId, route?.params?.openMediaSrc, route?.params?.openMediaRequestId, reels, getReelTaskId]);
 
-  const fetchGenerationRef = useRef(0);
-  const loadingMoreRef = useRef(false);
+  // ── Feed de reels (React Query) ────────────────────────────────────────────
+  // La clave de la query incluye tema y filtros: cambiarlos dispara la carga
+  // solo (y deja en caché cada combinación). Los reels se mantienen además en
+  // estado local (`reels`) porque las acciones optimistas (like, favorito,
+  // borrar…) los modifican directamente; el servidor es la fuente de verdad
+  // cada vez que llegan datos nuevos.
+  const reelsParams = useMemo(() => ({
+    pch: tema,
+    category: selectedCategory,
+    date_filter: selectedDateFilter,
+    sort_by: selectedSortBy,
+    favorites_only: selectedFavoritesOnly,
+    favorite_users_only: selectedFavoriteUsersOnly,
+    verified_users_only: selectedVerifiedUsersOnly,
+    recommended_users_only: selectedRecommendedUsersOnly,
+  }), [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
-  const fetchReels = async (pageNumber = 1, filters = {}) => {
-    const isFirstPage = pageNumber === 1;
-    // Página 1 invalida cualquier carga anterior; las siguientes solo
-    // proceden si no hay otra en vuelo y siguen perteneciendo a la lista actual.
-    if (!isFirstPage && loadingMoreRef.current) return;
-    const generation = isFirstPage ? ++fetchGenerationRef.current : fetchGenerationRef.current;
-    if (!isFirstPage) loadingMoreRef.current = true;
+  const reelsQuery = useReelsInfinite(reelsParams);
+  const {
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch: refetchReels,
+  } = reelsQuery;
+  const loading = reelsQuery.isLoading;
+  const loadError = reelsQuery.isError && !reelsQuery.data;
 
-    try {
-      if (isFirstPage) {
-        setLoadError(false);
-        setLoading(true);
-        setReels([]); // Limpiamos al refrescar o cambiar filtros
-      }
-
-      const currentCatFilter = filters.category !== undefined ? filters.category : selectedCategory;
-      
-      // ✅ REVERSIÓN: Volvemos a usar el endpoint de /api/tasks/ para obtener solo tareas originales.
-      const response = await api.get('tasks/', {
-        params: { 
-          pch: filters.tema || tema, 
-          page: pageNumber,
-          category: currentCatFilter,
-          date_filter: filters.date_filter !== undefined ? filters.date_filter : selectedDateFilter,
-          sort_by: filters.sort_by !== undefined ? filters.sort_by : selectedSortBy,
-          favorites_only: filters.favorites_only !== undefined ? filters.favorites_only : selectedFavoritesOnly,
-          favorite_users_only: filters.favorite_users_only !== undefined ? filters.favorite_users_only : selectedFavoriteUsersOnly,
-          verified_users_only: filters.verified_users_only !== undefined ? filters.verified_users_only : selectedVerifiedUsersOnly,
-          recommended_users_only: filters.recommended_users_only !== undefined ? filters.recommended_users_only : selectedRecommendedUsersOnly
-        }
-      });
-      if (generation !== fetchGenerationRef.current) return; // respuesta obsoleta
-      const data = response.data.results ?? response.data ?? [];
-
-      // ✅ FILTRAMOS PARA MOSTRAR SOLO PUBLICACIONES (originales o compartidas) CON VIDEO
-      const validReels = data.map(item => {        
-        // Como ahora solo vienen tareas, el contenido siempre es 'item'.
-        const content = item.is_original ? item : item.task;
-        if (!content) return null;
-
-        const anyMedia = getFirstMediaAnywhere(content);
-        if (anyMedia) {
-          return { ...item, _anyMedia: anyMedia };
-        }
-        return null;
-      }).filter(Boolean);
-
-      setReels(prev => {
-        if (isFirstPage) return validReels;
-        const seen = new Set(prev.map(r => r.id));
-        return [...prev, ...validReels.filter(r => !seen.has(r.id))];
-      });
-
-      setHasMore(!!response.data.next);
-      setPage(pageNumber);
-    } catch (error) {
-      if (generation !== fetchGenerationRef.current) return;
-      console.warn('[ReelsScreen] Error cargando reels:', error?.response?.data || error?.message);
-      if (isFirstPage) setLoadError(true);
-    } finally {
-      if (!isFirstPage) loadingMoreRef.current = false;
-      if (generation === fetchGenerationRef.current) setLoading(false);
-    }
-  };
+  // ✅ Solo publicaciones (originales o compartidas) con algún medio.
+  const serverReels = useMemo(
+    () => buildReelsFromPages(reelsQuery.data, getFirstMediaAnywhere),
+    [reelsQuery.data]
+  );
+  useEffect(() => {
+    setReels(serverReels);
+  }, [serverReels]);
 
   const fetchTaskLikesSummary = useCallback(async (taskId) => {
     if (!taskId || taskLikesCacheRef.current[taskId]?.status) return;
@@ -424,19 +390,25 @@ const ReelsScreen = ({ route }) => {
     prefetchDataForReel(reels[activeIndex + 1]);
   }, [activeIndex, reels.length, fetchTaskLikesSummary, fetchTaskSharesSummary, fetchProfileLikesSummary]);
 
+  // Refresco en segundo plano al volver a la pantalla: solo si los datos están
+  // viejos y no hay una carga en curso. Se usa un ref para que el callback sea
+  // estable y no se re-dispare cada vez que cambia el estado de la query.
+  const reelsQueryRef = useRef(reelsQuery);
+  reelsQueryRef.current = reelsQuery;
   useFocusEffect(
     useCallback(() => {
-      fetchReels(1);
+      const q = reelsQueryRef.current;
+      if (q.isStale && !q.isFetching) {
+        q.refetch({ cancelRefetch: false });
+      }
       return () => { };
-    }, [tema, selectedCategory, selectedSortBy, selectedDateFilter, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly])
+    }, [])
   );
 
   const handleTemaChange = useCallback((newTema) => { // ✅ Estabilizamos la función
     setTema(newTema);
     setActiveIndex(0);
-    setReels([]);
-    fetchReels(1, { tema: newTema, sort_by: selectedSortBy, category: selectedCategory, date_filter: selectedDateFilter, favorites_only: selectedFavoritesOnly, favorite_users_only: selectedFavoriteUsersOnly, verified_users_only: selectedVerifiedUsersOnly, recommended_users_only: selectedRecommendedUsersOnly });
-  }, [fetchReels, tema]);
+  }, []);
 
   const likeAnimation = useSharedValue(0);
 
@@ -854,7 +826,8 @@ const ReelsScreen = ({ route }) => {
   const stableGetSharedByInfo = useCallback((task) => getSharedByInfo(task), []);
   
   // ✅ FIX DEFINITIVO: Proporcionamos el layout de cada item para que FlatList funcione correctamente.
-  const getItemLayout = useCallback((data, index) => ({ length: windowHeight, offset: windowHeight * index, index }), []);
+  const [pageHeight, setPageHeight] = useState(windowHeight);
+  const getItemLayout = useCallback((data, index) => ({ length: pageHeight, offset: pageHeight * index, index }), [pageHeight]);
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
       <View style={{ flex: 1, position: 'relative' }}>
@@ -886,27 +859,35 @@ const ReelsScreen = ({ route }) => {
           <OfflineEmptyState
             dark
             offline={!isOnline}
-            onRetry={() => fetchReels(1)}
+            onRetry={() => refetchReels()}
             message={isOnline ? 'No se pudieron cargar los reels. Inténtalo de nuevo.' : undefined}
           />
         ) : (
           // ✅ FIX: Usamos un solo View con flex: 1 para contener una única FlatList.
           // Esto asegura que la lista ocupe el espacio correcto y la virtualización funcione.
           <View
-            style={{ flex: 1, height: windowHeight }} // Explicitly set height to windowHeight
+            style={{ flex: 1 }}
+            onLayout={(e) => { const h = Math.round(e.nativeEvent.layout.height); if (h > 0 && h !== pageHeight) setPageHeight(h); }}
           >
             <FlatList
               data={reels}
               ref={flatListRef}
-              renderItem={({ item, index }) => ( <ReelRenderer item={item} index={index} activeIndex={activeIndex} isMuted={isMuted} paused={paused} setPaused={setPaused} selectedReelId={selectedReelId} handleReelTap={handleReelTap} isUIVisible={isUIVisible} expandedDescriptions={expandedDescriptions} toggleDescription={toggleDescription} viewStateById={viewStateById} sharedOpenById={sharedOpenById} toggleSharedBy={toggleSharedBy} getSharedByInfo={stableGetSharedByInfo} cycleViewOnly={cycleViewOnly} cycleClipWithinView={cycleClipWithinView} navigateClip={navigateClip} toggleLike={toggleLike} toggleProfileLike={toggleProfileLike} likeAnimation={likeAnimation} navigation={navigation} toggleFavorite={toggleFavorite} handleRepost={handleRepost} openShareModal={openShareModal} handleShowShares={handleShowShares} handleShowLikes={handleShowLikes} handleShowProfileLikes={handleShowProfileLikes} openActionModal={openActionModal} tema={tema} taskLikesById={taskLikesById} taskSharesById={taskSharesById} profileLikesById={profileLikesById} /> )}
+              renderItem={({ item, index }) => ( <ReelRenderer item={item} index={index} activeIndex={activeIndex} isMuted={isMuted} paused={paused} setPaused={setPaused} selectedReelId={selectedReelId} handleReelTap={handleReelTap} isUIVisible={isUIVisible} expandedDescriptions={expandedDescriptions} toggleDescription={toggleDescription} viewStateById={viewStateById} sharedOpenById={sharedOpenById} toggleSharedBy={toggleSharedBy} getSharedByInfo={stableGetSharedByInfo} cycleViewOnly={cycleViewOnly} cycleClipWithinView={cycleClipWithinView} navigateClip={navigateClip} toggleLike={toggleLike} toggleProfileLike={toggleProfileLike} likeAnimation={likeAnimation} navigation={navigation} toggleFavorite={toggleFavorite} handleRepost={handleRepost} openShareModal={openShareModal} handleShowShares={handleShowShares} handleShowLikes={handleShowLikes} handleShowProfileLikes={handleShowProfileLikes} openActionModal={openActionModal} tema={tema} taskLikesById={taskLikesById} taskSharesById={taskSharesById} profileLikesById={profileLikesById} pageHeight={pageHeight} /> )}
               keyExtractor={(item) => item.id.toString()}
               pagingEnabled
+              snapToInterval={pageHeight}
+              snapToAlignment="start"
+              decelerationRate="fast"
+              disableIntervalMomentum
+              windowSize={3}
+              removeClippedSubviews
+              extraData={pageHeight}
               showsVerticalScrollIndicator={false}
               onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={viewabilityConfig}
               getItemLayout={getItemLayout}
               style={{ flex: 1 }} // Ensure FlatList itself takes all available vertical space
-              onEndReached={() => { if (hasMore && !loading) { fetchReels(page + 1); } }}
+              onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
               onEndReachedThreshold={0.5}
             />
           </View>
@@ -931,14 +912,12 @@ const ReelsScreen = ({ route }) => {
             setSelectedFavoriteUsersOnly(newFilters.favorite_users_only);
             setSelectedVerifiedUsersOnly(newFilters.verified_users_only);
             setSelectedRecommendedUsersOnly(newFilters.recommended_users_only);
-            setPage(1);
             // ✅ FIX: Si la lista se reordena, nos aseguramos de que el scroll vuelva al inicio
-            // y el reel activo sea el primero.
+            // y el reel activo sea el primero. La carga la dispara el cambio de clave de la query.
             if (flatListRef.current) {
               flatListRef.current.scrollToOffset({ animated: false, offset: 0 });
             }
             setActiveIndex(0);
-            fetchReels(1, newFilters);
           }}
         />
 

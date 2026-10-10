@@ -45,6 +45,7 @@ export const asyncStoragePersister = createAsyncStoragePersister({
  */
 const PERSISTABLE_KEYS = [
   'tasks',
+  'reels',
   'myTasks',
   'profileTasks',
   'sharedTasks',

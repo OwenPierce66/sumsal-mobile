@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ScrollView, ActivityIndicator, LogBox } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Platform, ScrollView, ActivityIndicator, LogBox } from 'react-native';
+import { TouchableOpacity } from 'react-native-gesture-handler';
 import { Video } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -159,7 +160,7 @@ const ReelItemComponent = ({
       >
         {list.length > 0 ? (
           list.map((entry, clipIdx) => (
-            <View key={`${item.id}-clip-${clipIdx}`} style={{ width: windowWidth, height: windowHeight }}>
+            <View key={`${item.id}-clip-${clipIdx}`} style={{ width: windowWidth, height: '100%' }}>
               {entry.type === 'image' ? (
                 <Image source={{ uri: getImageUrl(entry.src) }} style={styles.image} contentFit="cover" />
               ) : (
@@ -177,7 +178,7 @@ const ReelItemComponent = ({
             </View>
           ))
         ) : (
-          <View style={{ width: windowWidth, height: windowHeight }}> 
+          <View style={{ width: windowWidth, height: '100%' }}> 
             <Video // 🪵 LOG DE DIAGNÓSTICO: Fallback Video componente
               ref={videoRefs.current[0]} // ✅ Asignamos la primera referencia si no hay lista
               source={{ uri: getImageUrl(item._anyMedia) }}
@@ -407,7 +408,7 @@ const ReelItemComponent = ({
 const ReelItem = React.memo(ReelItemComponent);
 
 const styles = StyleSheet.create({
-  reelContainer: { width: windowWidth, height: windowHeight },
+  reelContainer: { width: windowWidth, height: '100%' },
   video: { ...StyleSheet.absoluteFillObject },
   image: { ...StyleSheet.absoluteFillObject },
   sharedByContainer: { padding: 10, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12, marginBottom: 10, pointerEvents: 'auto' },

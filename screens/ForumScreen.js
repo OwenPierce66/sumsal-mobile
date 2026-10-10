@@ -11,6 +11,8 @@ import { Image } from 'expo-image';
 import TouchableUsername from '@components/TouchableUsername';
 import { usePostsInfinite, usePostMutations, useMe } from '@hooks/useApi';
 import { flattenPosts } from '../utils/postsPages';
+import { useIsOnline } from '../hooks/useIsOnline';
+import OfflineEmptyState from '../components/OfflineEmptyState';
 
 moment.locale('es');
 
@@ -31,6 +33,7 @@ const ForumScreen = ({ navigation }) => {
     isFetchingNextPage,
   } = usePostsInfinite();
   const posts = useMemo(() => flattenPosts(data), [data]);
+  const isOnline = useIsOnline();
   const { data: me } = useMe();
   const currentUserId = me?.id ?? null;
 
@@ -189,10 +192,14 @@ const ForumScreen = ({ navigation }) => {
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           !isLoading && (
-            <View style={{ alignItems: 'center', marginTop: 50 }}>
-              <Ionicons name="chatbox-outline" size={60} color="#ccc" />
-              <Text style={{ marginTop: 16, color: '#999' }}>No hay posts aún</Text>
-            </View>
+            isOnline ? (
+              <View style={{ alignItems: 'center', marginTop: 50 }}>
+                <Ionicons name="chatbox-outline" size={60} color="#ccc" />
+                <Text style={{ marginTop: 16, color: '#999' }}>No hay posts aún</Text>
+              </View>
+            ) : (
+              <OfflineEmptyState onRetry={refetch} />
+            )
           )
         }
       />
