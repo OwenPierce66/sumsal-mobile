@@ -1,6 +1,5 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, Platform, TouchableOpacity, ScrollView, ActivityIndicator, LogBox } from 'react-native';
-import { GestureDetector } from 'react-native-gesture-handler';
 import { Video } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';

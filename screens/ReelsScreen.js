@@ -153,7 +153,8 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, se
 
   return (
     // ✅ FIX: Se elimina el GestureDetector duplicado que causaba el error de sintaxis.
-    <View style={{ width: windowWidth, height: pageHeight }}>
+    <GestureDetector gesture={composedGesture}>
+      <View style={{ width: windowWidth, height: windowHeight }}>
       <ReelItem
         item={item}
         enrichedItem={enrichedItem}
