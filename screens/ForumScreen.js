@@ -16,7 +16,10 @@ import OfflineEmptyState from '../components/OfflineEmptyState';
 
 moment.locale('es');
 
-const ForumScreen = ({ navigation }) => {
+const ForumScreen = ({ navigation, route }) => {
+  const filterUserId   = route?.params?.userId ?? null;
+  const filterUserName = route?.params?.userName ?? null;
+
   const [modalVisible,   setModalVisible]   = useState(false);
   const [newPostTitle,   setNewPostTitle]   = useState('');
   const [newPostContent, setNewPostContent] = useState('');
@@ -31,7 +34,7 @@ const ForumScreen = ({ navigation }) => {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = usePostsInfinite();
+  } = usePostsInfinite(filterUserId);
   const posts = useMemo(() => flattenPosts(data), [data]);
   const isOnline = useIsOnline();
   const { data: me } = useMe();
@@ -171,7 +174,17 @@ const ForumScreen = ({ navigation }) => {
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
         )}
-        <Text style={styles.headerTitle}>Foro</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {filterUserId ? `Foro de ${filterUserName || 'usuario'}` : 'Foro'}
+        </Text>
+        {filterUserId ? (
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => navigation.setParams({ userId: undefined, userName: undefined })}
+          >
+            <Ionicons name="close-circle" size={24} color="#999" />
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity style={styles.createBtn} onPress={() => setModalVisible(true)}>
           <Ionicons name="add" size={24} color="#fff" />
         </TouchableOpacity>

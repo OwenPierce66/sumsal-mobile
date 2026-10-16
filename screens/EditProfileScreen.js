@@ -6,7 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
-import api, { getImageUrl } from '@api';
+import api, { getImageUrl, UPLOAD_TIMEOUT_MS } from '@api';
 import { AuthContext } from '@app';
 import { compressImage } from '../utils/compressImage';
 
@@ -64,10 +64,7 @@ const EditProfileScreen = ({ navigation, route }) => {
     }
 
     try {
-      // Para depurar, es útil ver qué contiene el FormData.
-      // Nota: console.log(formData) no muestra los datos directamente en muchos entornos.
-      // Usamos PATCH para actualizar parcialmente el perfil
-      await api.patch('users/me/', formData);
+      await api.patch('users/me/', formData, { timeout: UPLOAD_TIMEOUT_MS });
 
       await refreshCurrentUser(); // Actualizamos el usuario en el contexto global
 

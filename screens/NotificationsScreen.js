@@ -15,6 +15,8 @@ import moment from 'moment';
 import 'moment/locale/es';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
+import SideMenu from '@components/SideMenu';
+import { AuthContext } from '@app';
 import api, { getImageUrl } from '@api';
 import { NotificationsContext } from '@contexts/NotificationsContext';
 import { useNotificationsInfinite } from '@hooks/useApi';
@@ -40,10 +42,12 @@ const NOTIFICATION_COPY = {
   task_shared:                  { icon: 'share-social',      color: '#51cf66', text: 'compartió tu tarea' },
   task_shared_to_story:         { icon: 'time',              color: '#845ef7', text: 'compartió tu tarea en una historia' },
   task_tag:                     { icon: 'pricetag',          color: '#845ef7', text: 'te etiquetó en una publicación' },
+  task_mention:                 { icon: 'at',                color: '#845ef7', text: 'te mencionó en un comentario' },
   podcast_invite:               { icon: 'mic',               color: '#f783ac', text: '¡te eligió para grabar un podcast! 🎉' },
   podcast_approved:             { icon: 'ribbon',            color: '#f59f00', text: '¡El podcast donde fuiste etiquetado fue aprobado! ¡A grabar se ha dicho! 🎙️' },
   podcast_invitation_response:  { icon: 'chatbubbles',       color: '#4dabf7', text: 'respondió a la invitación del podcast' },
   task_approved:                { icon: 'checkmark-circle',  color: '#51cf66', text: 'Tu aportación fue aprobada ✅' },
+  petition_top_month:           { icon: 'trending-up',       color: '#f59f00', text: 'Una petición entró al top 5 mensual' },
   forum_post_like:              { icon: 'heart',             color: '#ff5d73', text: 'le dio me gusta a tu publicación del foro' },
   forum_reply:                  { icon: 'arrow-undo',        color: '#4dabf7', text: 'respondió a tu comentario del foro' },
   direct_message:               { icon: 'mail',              color: '#4dabf7', text: 'te envió un mensaje' },
@@ -78,6 +82,7 @@ const getTarget = (n) => ({
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 const NotificationsScreen = ({ navigation }) => {
+  const { user, signOut } = useContext(AuthContext);
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const queryClient = useQueryClient();
   const {
@@ -308,6 +313,12 @@ const NotificationsScreen = ({ navigation }) => {
   };
 
   const hasUnread = unreadCount > 0;
+  const handleBack = () => {
+    if ((navigation.getState()?.index ?? 0) > 0) {
+      navigation.goBack();
+      return;
+    }
+  };
 
   // ─── JSX ─────────────────────────────────────────────────────────────────
 
@@ -315,9 +326,18 @@ const NotificationsScreen = ({ navigation }) => {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton}>
-          <Ionicons name="arrow-back" size={24} color="#222" />
-        </TouchableOpacity>
+        {(navigation.getState()?.index ?? 0) > 0 ? (
+          <TouchableOpacity onPress={handleBack} style={styles.headerButton} accessibilityLabel="Regresar">
+            <Ionicons name="arrow-back" size={24} color="#222" />
+          </TouchableOpacity>
+        ) : (
+          <SideMenu
+            navigation={navigation}
+            signOut={signOut}
+            user={user}
+            buttonStyle={styles.menuButton}
+          />
+        )}
         <Text style={styles.headerTitle}>Notificaciones</Text>
         <TouchableOpacity
           onPress={() => markAllReadMutation.mutate()}
@@ -412,6 +432,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eceef1',
   },
   headerButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
+  menuButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 20, fontWeight: '800', color: '#222' },
   filters: {
     flexDirection: 'row', gap: 8, paddingHorizontal: 16,

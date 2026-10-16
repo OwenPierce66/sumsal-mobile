@@ -3,6 +3,7 @@ import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacit
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../App'; // ✅ IMPORTAMOS EL CONTEXTO
+import SideMenu from '../components/SideMenu';
 import api, { getImageUrl } from '../api';
 import { Gesture, GestureDetector, Directions } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, runOnJS } from 'react-native-reanimated';
@@ -14,6 +15,8 @@ import { useReelsInfinite } from '../hooks/useApi';
 import { buildReelsFromPages } from '../utils/reelsPages';
 import TieredLikesModal from './TieredLikesModal';
 import ReelItem from './ReelItem'; 
+import TaskActionsModal from '../components/TaskActionsModal';
+import useTaskActions from '../hooks/useTaskActions';
 
 const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'regular'];
 
@@ -196,7 +199,7 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, se
 });
 
 const ReelsScreen = ({ route }) => {
-  const { user, isAdmin: isAdminFromContext } = useContext(AuthContext);
+  const { user, signOut, isAdmin: isAdminFromContext } = useContext(AuthContext);
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
   const currentUserId = user?.id;
   const navigation = useNavigation();
@@ -500,8 +503,7 @@ const ReelsScreen = ({ route }) => {
     const contentItem = item.is_original ? item : item.task;
 
     if (!taskId) return; // Salimos si no hay ID
-    
-    // Optimistic update
+
     setReels(prevReels => prevReels.map(r => {
       const currentContent = r.is_original ? r : r.task;
       if (currentContent && currentContent.id === taskId) {
@@ -511,12 +513,9 @@ const ReelsScreen = ({ route }) => {
     }));
 
     try {
-      // Llamada al endpoint de "repost" que solo afecta el score interno.
       const response = await api.post(`tasks/${taskId}/repost/`);
-      // Damos feedback al usuario de que la acción fue exitosa.
       Alert.alert('Éxito', '¡Publicación impulsada!');
 
-      // Sync with actual response
       const finalScore = response.data.interaction_score;
       setReels(prevReels => prevReels.map(r => {
         const currentContent = r.is_original ? r : r.task;
@@ -528,8 +527,7 @@ const ReelsScreen = ({ route }) => {
     } catch (error) {
       console.error('Error reposting task:', error.response?.data || error.message);
       Alert.alert('Error', 'No se pudo impulsar la publicación.');
-      // En caso de error, podrías recargar para revertir el cambio optimista.
-      // fetchReels(1); 
+      // fetchReels(1);
     }
   }, [reels]);
 
@@ -627,99 +625,24 @@ const ReelsScreen = ({ route }) => {
   }, []);
 
   const openActionModal = useCallback((task) => {
-    setSelectedActionTask(task);
+    // Un reel compartido trae el contenido en `task`: se marca como compartido para el menu completo
+    setSelectedActionTask(task && !task.is_original && task.task ? { ...task, isSharedTask: true } : task);
     setActionModalVisible(true);
   }, [setSelectedActionTask, setActionModalVisible]);
 
-  const handleToggleTaskFavorite = async () => {
-    if (!selectedActionTask) return;
-    const isFav = !selectedActionTask.is_favorited;
-    setReels(prev => prev.map(r => r.id === selectedActionTask.id ? { ...r, is_favorited: isFav } : r));
-    try {
-      await api.post("favoritos/agregar/", { task_id: selectedActionTask.id });
-    } catch (error) {}
-    setActionModalVisible(false);
-  };
-
-  const handleDirectMessage = () => {
-    if (!selectedActionTask || !selectedActionTask.user) return;
-    setActionModalVisible(false);
-    navigation.navigate('ChatDetail', { 
-      chatId: selectedActionTask.user.id, type: 'direct', title: selectedActionTask.user.username, avatar: getImageUrl(selectedActionTask.user.user_image)
-    });
-  };
-
-  const handleGoToForum = () => {
-    if (!selectedActionTask || !selectedActionTask.user) return;
-    setActionModalVisible(false);
-    navigation.navigate('UserProfile', { 
-      userId: selectedActionTask.user.id, userName: selectedActionTask.user.username, userAvatar: getImageUrl(selectedActionTask.user.user_image) 
-    });
-  };
-
-  const updateReelUserProfile = (userId, profileChanges) => {
-    setReels(prev => prev.map(reel => (
-      reel.user?.id === userId
-        ? { ...reel, user: { ...reel.user, profile: { ...reel.user.profile, ...profileChanges } } }
-        : reel
-    )));
-  };
-
-  const handleToggleVerified = async () => {
-    const userObj = selectedActionTask?.user;
-    if (!userObj) return;
-
-    const is_verified = !userObj.profile?.is_verified;
-    try {
-      await api.post(`admin/users/${userObj.id}/verify/`, { is_verified });
-      updateReelUserProfile(userObj.id, { is_verified });
-      setActionModalVisible(false);
-    } catch (error) {
-      console.error('[ReelsScreen] Error actualizando verificación:', error.response?.data || error);
-    }
-  };
-
-  const handleToggleRecommended = async () => {
-    const userObj = selectedActionTask?.user;
-    if (!userObj) return;
-
-    const is_recommended = !userObj.profile?.is_recommended;
-    try {
-      await api.post(`admin/users/${userObj.id}/recommend/`, { is_recommended });
-      updateReelUserProfile(userObj.id, { is_recommended });
-      setActionModalVisible(false);
-    } catch (error) {
-      console.error('[ReelsScreen] Error actualizando recomendación:', error.response?.data || error);
-    }
-  };
-
-  const handleToggleProfileFavoriteDirect = useCallback(async (task) => {
-    if (!task || !task.user) return;
-    try {
-      const perfilId = task.user.id;
-      const isFav = !task.user.is_favorited;
-      const increment = isFav ? 1 : -1;
-      setReels(prev => prev.map(t => (t.user && t.user.id === perfilId) ? { ...t, user: { ...t.user, is_favorited: isFav, followers_count: (t.user.followers_count || 0) + increment } } : t));
-      await api.post("pfavoritos/agregar/", { perfil_id: perfilId });
-    } catch (error) {}
-  }, []);
-
-  const handleDeleteTask = async () => {
-    if (!selectedActionTask) return;
-    const taskId = selectedActionTask.id;
-    const executeDelete = async () => {
-      try {
-        await api.delete(`tasks/${taskId}/`);
-        setReels(prev => prev.filter(t => t.id !== taskId));
-        setActionModalVisible(false);
-      } catch (error) {}
-    };
-      if (window.confirm('¿Deseas eliminar esta tarea?')) executeDelete();
-    if (Platform.OS === 'web') {
-    } else {
-      Alert.alert('Eliminar Tarea', '¿Deseas eliminar esta tarea?', [{ text: 'Cancelar', style: 'cancel' }, { text: 'Eliminar', style: 'destructive', onPress: executeDelete }]);
-    }
-  };
+  // Menu de 3 puntos: mismo menu completo que el feed (componente + handlers compartidos)
+  const taskActions = useTaskActions({
+    navigation,
+    actionTask: selectedActionTask,
+    currentUserId,
+    close: () => setActionModalVisible(false),
+    refresh: () => refetchReels(),
+    onShare: (a) => openShareModal(a),
+    onDeleted: (a) => {
+      setReels(prev => prev.filter(t => t.id !== a?.id));
+      refetchReels();
+    },
+  });
 
   const toggleFavorite = useCallback(async (item) => {
     if (!item) return;
@@ -833,7 +756,16 @@ const ReelsScreen = ({ route }) => {
       <View style={{ flex: 1, position: 'relative' }}>
         {isUIVisible && (
           <View style={styles.topBar}>
-            <View style={styles.topBarLeft} />
+            <View style={styles.topBarLeft}>
+              {paused ? (
+                <SideMenu
+                  navigation={navigation}
+                  signOut={signOut}
+                  user={user}
+                  buttonStyle={styles.reelsMenuButton}
+                />
+              ) : null}
+            </View>
             <View style={styles.topBarCenter}>
               <TouchableOpacity onPress={() => handleTemaChange('consejos')}>
                   <Text style={[styles.topTab, tema === 'consejos' && styles.activeTab]}>Consejos</Text>
@@ -939,75 +871,20 @@ const ReelsScreen = ({ route }) => {
           taskDescription={taskShareDetails?.description || ''}
         />
         
-        <Modal visible={actionModalVisible} transparent animationType='fade' onRequestClose={() => setActionModalVisible(false)}>
-          <TouchableOpacity style={styles.overlayModal} activeOpacity={1} onPress={() => setActionModalVisible(false)}>
-            <View style={styles.actionModalContainer}>
-              <View style={styles.modalDragHandle} />
-              {selectedActionTask && (
-                <>
-                  <TouchableOpacity style={styles.actionOption} onPress={() => { setIsUIVisible(v => !v); setActionModalVisible(false); }}>
-                    <Ionicons name={isUIVisible ? 'eye-off-outline' : 'eye-outline'} size={20} color='#555' />
-                    <Text style={styles.actionText}>{isUIVisible ? 'Ocultar Interfaz' : 'Mostrar Interfaz'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionOption} onPress={handleToggleTaskFavorite}>
-                    <Ionicons name={selectedActionTask.is_favorited ? "bookmark" : "bookmark-outline"} size={20} color={selectedActionTask.is_favorited ? "#f1c40f" : "#555"} />
-                    <Text style={styles.actionText}>{selectedActionTask.is_favorited ? "Quitar de guardados" : "Guardar"}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); openShareModal(selectedActionTask); }}>
-                    <Ionicons name='paper-plane-outline' size={20} color='#555' />
-                    <Text style={styles.actionText}>Enviar o compartir</Text>
-                  </TouchableOpacity>
-                  {selectedActionTask.user && currentUserId !== selectedActionTask.user.id && (
-                    <>
-                      <TouchableOpacity style={styles.actionOption} onPress={handleDirectMessage}>
-                        <Ionicons name='chatbubbles-outline' size={20} color='#4dabf7' />
-                        <Text style={styles.actionText}>Mensaje Directo</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionOption} onPress={handleGoToForum}>
-                        <Ionicons name='person-outline' size={20} color='#4dabf7' />
-                        <Text style={styles.actionText}>Ir a su perfil/foro</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionOption} onPress={() => { handleToggleProfileFavoriteDirect(selectedActionTask); setActionModalVisible(false); }}>
-                        <Ionicons name={selectedActionTask.user.is_favorited ? "heart" : "heart-outline"} size={20} color={selectedActionTask.user.is_favorited ? "#ff0b5a" : "#555"} />
-                        <Text style={styles.actionText}>{selectedActionTask.user.is_favorited ? "Eliminar perfil de favoritos" : "Agregar perfil a favoritos"}</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                  {currentUserId === selectedActionTask.user?.id && (
-                    <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
-                      <Ionicons name='trash-outline' size={20} color='#ff6b6b' />
-                      <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: 'bold' }]}>Eliminar</Text>
-                    </TouchableOpacity>
-                  )}
-                  {isAdmin && selectedActionTask.user && (
-                    <>
-                      <TouchableOpacity style={styles.actionOption} onPress={handleToggleVerified}>
-                        <Ionicons
-                          name={selectedActionTask.user.profile?.is_verified ? 'checkmark-circle' : 'checkmark-circle-outline'}
-                          size={20}
-                          color={selectedActionTask.user.profile?.is_verified ? '#4dabf7' : '#555'}
-                        />
-                        <Text style={styles.actionText}>
-                          {selectedActionTask.user.profile?.is_verified ? 'Quitar Verificación' : 'Verificar Perfil'}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionOption} onPress={handleToggleRecommended}>
-                        <Ionicons
-                          name={selectedActionTask.user.profile?.is_recommended ? 'ribbon' : 'ribbon-outline'}
-                          size={20}
-                          color={selectedActionTask.user.profile?.is_recommended ? '#f59f00' : '#555'}
-                        />
-                        <Text style={styles.actionText}>
-                          {selectedActionTask.user.profile?.is_recommended ? 'Quitar Recomendación' : 'Recomendar Perfil'}
-                        </Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                </>
-              )}
-            </View>
-          </TouchableOpacity>
-        </Modal>
+        <TaskActionsModal
+          visible={actionModalVisible}
+          onClose={() => setActionModalVisible(false)}
+          actionTask={selectedActionTask}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          handlers={taskActions}
+          extraOptions={(
+            <TouchableOpacity style={styles.actionOption} onPress={() => { setIsUIVisible(v => !v); setActionModalVisible(false); }}>
+              <Ionicons name={isUIVisible ? 'eye-off-outline' : 'eye-outline'} size={20} color='#555' />
+              <Text style={styles.actionText}>{isUIVisible ? 'Ocultar Interfaz' : 'Mostrar Interfaz'}</Text>
+            </TouchableOpacity>
+          )}
+        />
       </View>
     </View>
   );
@@ -1017,6 +894,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10, paddingHorizontal: 15, pointerEvents: 'box-none' },
   topBarLeft: { flex: 1 },
+  reelsMenuButton: { padding: 4 },
   topBarCenter: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flex: 3 },
   topBarRight: { flex: 1, alignItems: 'flex-end' },
   topTab: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700', marginHorizontal: 12, textShadowColor: 'rgba(0, 0, 0, 0.5)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },

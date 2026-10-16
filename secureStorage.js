@@ -8,12 +8,14 @@
  * Importa siempre desde aquí, nunca directamente de las librerías nativas.
  */
 
-import { Platform } from 'react-native';
+import { Platform, NativeModules } from 'react-native';
 
 let storage;
 
-if (Platform.OS === 'web') {
-  // Web fallback: AsyncStorage (ya instalado en el proyecto)
+const hasNativeEncryptedStorage = Boolean(NativeModules?.RNEncryptedStorage);
+
+if (Platform.OS === 'web' || !hasNativeEncryptedStorage) {
+  // Web o entorno sin módulo nativo compilado (ej. Expo Go): fallback a AsyncStorage
   const AsyncStorage = require('@react-native-async-storage/async-storage').default;
 
   storage = {
@@ -22,7 +24,7 @@ if (Platform.OS === 'web') {
     removeItem: (key)        => AsyncStorage.removeItem(key),
   };
 } else {
-  // Móvil nativo (Android Keystore / iOS Keychain)
+  // Móvil nativo con módulo compilado (Android Keystore / iOS Keychain)
   const EncryptedStorage = require('react-native-encrypted-storage').default;
 
   storage = {
