@@ -2,10 +2,10 @@ import React, { useState, useCallback, useEffect, useContext, useRef, useMemo } 
 import {
   View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions,
   RefreshControl, TextInput, Platform, ActivityIndicator, Modal, Alert, Button, SafeAreaView, useWindowDimensions,
-  InteractionManager
+  InteractionManager, AppState, Animated, PanResponder
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import moment from 'moment';
 import api, { getImageUrl } from '@api';
 import { Image } from 'expo-image';
@@ -15,6 +15,7 @@ import SavedFiltersModal from '@components/SavedFiltersModal';
 import { Video } from 'expo-av';
 import ShareModal from '@components/ShareModal';
 import { AuthContext } from '@app';
+import SideMenu from '@components/SideMenu';
 import ShareActionMenu from './ShareActionMenu';
 import TouchableUsername from '@components/TouchableUsername';
 import CategoryHierarchy from '@components/CategoryHierarchy';
@@ -24,120 +25,17 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useTasksInfinite, useSharedTasksInfinite, useCategories } from '@hooks/useApi';
 import { useIsOnline } from '../hooks/useIsOnline';
 import OfflineEmptyState from '../components/OfflineEmptyState';
+import TaskPostCard, { FeedVideoVisibilityContext, TaskSections } from '@components/TaskPostCard';
+import TaskActionsModal from '@components/TaskActionsModal';
+import StoriesBar from '@components/StoriesBar';
 
-const TASK_VIDEO_AUTOPLAY_DELAY_MS = 500;
 
-const TaskVideoPreview = ({ uri, onOpenReel }) => {
-  const videoRef = useRef(null);
-  const playerRef = useRef(null);
-  const visibleSinceRef = useRef(null);
-  const lastVisibilityLogRef = useRef(null);
-  const [isVisible, setIsVisible] = useState(false);
-  const [isReadyToPlay, setIsReadyToPlay] = useState(false);
-  const [isPausedByUser, setIsPausedByUser] = useState(false);
-  const [controlsVisible, setControlsVisible] = useState(false);
-  const [playbackStatus, setPlaybackStatus] = useState({});
-
-  useEffect(() => {
-    setIsReadyToPlay(false);
-    if (isVisible) {
-      visibleSinceRef.current = Date.now();
-    } else {
-      visibleSinceRef.current = null;
-      lastVisibilityLogRef.current = null;
-      setIsPausedByUser(false);
-    }
-  }, [isVisible]);
-
-  useEffect(() => {
-    if (!isReadyToPlay || !isVisible) return undefined;
-
-    playerRef.current?.playAsync().catch(() => {});
-    return undefined;
-  }, [isReadyToPlay, isVisible, uri]);
-
-  const togglePlayback = () => {
-    if (playbackStatus.isPlaying) {
-      setIsPausedByUser(true);
-      playerRef.current?.pauseAsync();
-    } else {
-      setIsPausedByUser(false);
-      playerRef.current?.playAsync();
-    }
-    setControlsVisible(true);
-  };
-
-  const toggleControls = () => setControlsVisible((visible) => !visible);
-
-  useEffect(() => {
-    const checkVisibility = () => {
-      videoRef.current?.measureInWindow((x, y, width, height) => {
-        const viewport = Dimensions.get('window');
-        const visible = x + width > 0 && x < viewport.width && y + height > 0 && y < viewport.height;
-        setIsVisible((previous) => visible);
-
-        if (visible && visibleSinceRef.current) {
-          const elapsed = Date.now() - visibleSinceRef.current;
-          if (elapsed - (lastVisibilityLogRef.current || 0) >= 350) {
-            lastVisibilityLogRef.current = elapsed;
-          }
-          if (elapsed >= TASK_VIDEO_AUTOPLAY_DELAY_MS) {
-            setIsReadyToPlay(true);
-          }
-        }
-      });
-    };
-    const interval = setInterval(checkVisibility, 350);
-    checkVisibility();
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <View ref={videoRef} collapsable={false} style={styles.subMediaWrapper}>
-      <Video
-        ref={playerRef}
-        source={{ uri }}
-        style={styles.subMedia}
-        resizeMode="contain"
-        shouldPlay={isReadyToPlay && isVisible && !isPausedByUser}
-        isLooping
-        onPlaybackStatusUpdate={setPlaybackStatus}
-      />
-      <TouchableOpacity style={styles.videoTouchSurface} activeOpacity={1} onPress={toggleControls} />
-      {controlsVisible && (
-        <View style={styles.videoControls} pointerEvents="box-none">
-          <TouchableOpacity accessibilityLabel={playbackStatus.isPlaying ? 'Pausar video' : 'Reproducir video'} style={styles.videoControlButton} onPress={togglePlayback}>
-            <Ionicons name={playbackStatus.isPlaying ? 'pause' : 'play'} size={20} color="#fff" />
-          </TouchableOpacity>
-          <Slider
-            style={styles.videoProgress}
-            minimumValue={0}
-            maximumValue={playbackStatus.durationMillis || 1}
-            value={playbackStatus.positionMillis || 0}
-            onSlidingStart={() => setIsPausedByUser(true)}
-            onSlidingComplete={(value) => {
-              playerRef.current?.setPositionAsync(value);
-              setIsPausedByUser(false);
-            }}
-            minimumTrackTintColor="#fff"
-            maximumTrackTintColor="rgba(255,255,255,0.45)"
-            thumbTintColor="#fff"
-          />
-          <TouchableOpacity accessibilityLabel="Abrir video en reels" style={styles.expandVideoButton} onPress={onOpenReel}>
-            <Ionicons name="expand-outline" size={22} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
-};
-
-const TasksScreen = ({ navigation }) => {
+const TasksScreen = ({ navigation, route }) => {
   const { width: screenWidth } = useWindowDimensions();
   const carouselWidth = Math.max(280, screenWidth - 56);
 
   // Obtenemos el estado de admin del contexto global
-  const { user, isAdmin: isAdminFromContext } = useContext(AuthContext);
+  const { user, signOut, isAdmin: isAdminFromContext } = useContext(AuthContext);
   const currentUserId = user?.id;
 
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
@@ -161,7 +59,85 @@ const TasksScreen = ({ navigation }) => {
   const feedScrollOffsetRef = useRef(0);
   const mainFeedScrollOffsetRef = useRef(0);
   const resetMainFeedOnCloseRef = useRef(false);
-  const [tema, setTema] = useState('consejos');
+  const [visibleFeedIds, setVisibleFeedIds] = useState(() => new Set());
+  const onFeedViewableItemsChanged = useRef(({ viewableItems }) => {
+    setVisibleFeedIds(new Set((viewableItems || []).map((entry) => String(entry?.item?.id ?? entry?.key))));
+  }).current;
+  const feedViewabilityConfig = useRef({ itemVisiblePercentThreshold: 20, minimumViewTime: 0 }).current;
+  const getFeedListBounds = useCallback((callback) => {
+    const list = feedListRef.current;
+    const node = list?.getNativeScrollRef ? list.getNativeScrollRef() : list?.getScrollableNode?.();
+    if (node && typeof node.measureInWindow === 'function') {
+      node.measureInWindow((x, y, width, height) => callback({ x, y, width, height }));
+    } else {
+      callback(null);
+    }
+  }, []);
+  const feedVideoVisibility = useMemo(
+    () => ({ visibleIds: visibleFeedIds, getListBounds: getFeedListBounds }),
+    [visibleFeedIds, getFeedListBounds]
+  );
+  // Encabezado colapsable: al deslizar hacia abajo se oculta SOLO la zona superior (titulo, historias,
+  // pestañas) y el filtro de categorias queda fijo arriba; al deslizar hacia arriba reaparece.
+  // El desplazamiento se calcula a mano (sin diffClamp) para que sea predecible.
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const stickyShiftY = useRef(new Animated.Value(0)).current;
+  const lastScrollYRef = useRef(0);
+  const collapseRef = useRef(0);
+  const [collapsibleH, setCollapsibleH] = useState(0);
+  const [stickyH, setStickyH] = useState(0);
+  const STICKY_TOP_GAP = 24;
+  const updateHeaderCollapse = useCallback((offset) => {
+    const y = Math.max(0, offset);
+    const delta = y - lastScrollYRef.current;
+    lastScrollYRef.current = y;
+    const max = searchExpanded ? 0 : collapsibleH;
+    // Al deslizar hacia abajo se oculta; al deslizar hacia arriba NO reaparece (solo si se arrastra el filtro).
+    // Nunca se oculta mas de lo que se ha desplazado, asi que arriba del todo se ve completo.
+    const next = max > 0 ? Math.min(Math.max(collapseRef.current + Math.max(delta, 0), 0), Math.min(max, y)) : 0;
+    if (next === collapseRef.current) return;
+    collapseRef.current = next;
+    headerTranslateY.setValue(-next);
+    stickyShiftY.setValue(max > 0 ? (next / max) * STICKY_TOP_GAP : 0);
+  }, [searchExpanded, collapsibleH, headerTranslateY, stickyShiftY]);
+  useEffect(() => {
+    // Al cambiar la altura o entrar/salir de la busqueda, se muestra el encabezado completo
+    collapseRef.current = 0;
+    headerTranslateY.setValue(0);
+    stickyShiftY.setValue(0);
+  }, [searchExpanded, collapsibleH, headerTranslateY, stickyShiftY]);
+
+  // Arrastrar el filtro hacia abajo muestra la zona superior; hacia arriba la oculta (con ajuste al soltar).
+  const collapsibleHRef = useRef(0);
+  collapsibleHRef.current = collapsibleH;
+  const searchExpandedRef = useRef(false);
+  searchExpandedRef.current = searchExpanded;
+  const dragStartCollapseRef = useRef(0);
+  const applyCollapse = useCallback((value) => {
+    const max = collapsibleHRef.current;
+    collapseRef.current = value;
+    headerTranslateY.setValue(-value);
+    stickyShiftY.setValue(max > 0 ? (value / max) * STICKY_TOP_GAP : 0);
+  }, [headerTranslateY, stickyShiftY]);
+  const filterPanResponder = useRef(PanResponder.create({
+    onMoveShouldSetPanResponderCapture: (_, g) => (
+      !searchExpandedRef.current && Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5
+    ),
+    onPanResponderGrant: () => { dragStartCollapseRef.current = collapseRef.current; },
+    onPanResponderMove: (_, g) => {
+      const max = collapsibleHRef.current;
+      applyCollapse(Math.min(Math.max(dragStartCollapseRef.current - g.dy, 0), max));
+    },
+    onPanResponderRelease: () => {
+      const max = collapsibleHRef.current;
+      applyCollapse(collapseRef.current > max / 2 ? max : 0);
+    },
+    onPanResponderTerminate: () => {
+      const max = collapsibleHRef.current;
+      applyCollapse(collapseRef.current > max / 2 ? max : 0);
+    },
+  })).current;
+  const [tema, setTema] = useState('');
   const [visibleSections, setVisibleSections] = useState({});
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [savedFiltersModalVisible, setSavedFiltersModalVisible] = useState(false);
@@ -194,16 +170,34 @@ const TasksScreen = ({ navigation }) => {
   const [taskToShare, setTaskToShare] = useState(null);
   const [taskShareDetails, setTaskShareDetails] = useState(null);
 
-  
-  // ✅ SOLUCIÓN: Cargamos las categorías del PCH activo (más las globales).
   useEffect(() => {
+    if (route?.params?.openSavedFilters) {
+      setSavedFiltersModalVisible(true);
+      navigation.setParams({ openSavedFilters: undefined });
+    }
+    if (route?.params?.openFavoriteVisibility) {
+      setFavoriteVisibilityVisible(true);
+      navigation.setParams({ openFavoriteVisibility: undefined });
+    }
+  }, [navigation, route?.params?.openFavoriteVisibility, route?.params?.openSavedFilters]);
+
+  // Load the active PCH categories, or the full catalog when no PCH is selected.
+  useEffect(() => {
+    let isCurrentRequest = true;
     const fetchCategories = async () => {
       try {
+        const params = { include_approval: 'true' };
+        if (tema) params.pch = tema;
         const response = await api.get('new-categories/', {
-          params: { pch: tema, include_approval: 'true' },
+          params,
         });
-        setAvailableCategories(response.data || []);
-      } catch (error) {}
+        if (isCurrentRequest) {
+          setAvailableCategories(Array.isArray(response.data) ? response.data : []);
+        }
+      } catch (error) {
+        console.error('[TasksScreen] Error cargando categorías:', error.response?.data || error.message);
+        if (isCurrentRequest) setAvailableCategories([]);
+      }
     };
     fetchCategories();
 
@@ -214,7 +208,10 @@ const TasksScreen = ({ navigation }) => {
         setFavoriteProfilesPublic(Boolean(res.data?.favorite_profiles_public));
         setFavoriteTasksPublic(Boolean(res.data?.favorite_tasks_public));
       })
-      .catch(() => setShowPersonalFilter(false));
+      .catch(error => {
+        console.error('[TasksScreen] Error cargando visibilidad de categorías:', error.response?.data || error.message);
+        setShowPersonalFilter(false);
+      });
 
     // ✅ FIX: Si el contexto no nos da el estado de admin, lo verificamos aquí.
     const verifyAdminStatus = async () => {
@@ -230,6 +227,9 @@ const TasksScreen = ({ navigation }) => {
       }
     };
     verifyAdminStatus();
+    return () => {
+      isCurrentRequest = false;
+    };
   }, [tema]);
 
   // --- Funciones para el nuevo flujo de compartir ---
@@ -304,7 +304,6 @@ const TasksScreen = ({ navigation }) => {
     if (!task) handleCloseShareActionMenu(); // Solo cerramos el menú si venimos de él
 
     try {
-      // Optimistic update
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, interaction_score: (t.interaction_score || 0) + 1 } : t));
       setSharedTasks(prev => prev.map(s => {
         if (s.task?.id === taskId) {
@@ -313,13 +312,10 @@ const TasksScreen = ({ navigation }) => {
         return s;
       }));
 
-      // Llamada al endpoint de "repost" que solo afecta el score interno, no el share_count.
       const response = await api.post(`/tasks/${taskId}/repost/`);
-      Alert.alert('Éxito', '¡Publicación impulsada!'); // Damos feedback al usuario.
+      Alert.alert('Éxito', '¡Publicación impulsada!');
 
-      // Sync with actual response
       const finalScore = response.data.interaction_score;
-      // ✅ FIX: Solo actualizamos el interaction_score, que es lo único que devuelve este endpoint.
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, interaction_score: finalScore } : t));
       setSharedTasks(prev => prev.map(s => {
         if (s.task?.id === taskId) {
@@ -330,7 +326,7 @@ const TasksScreen = ({ navigation }) => {
     } catch (error) {
       console.error("Error al repostear:", error.response?.data || error);
       alert("Error al repostear. Inténtalo de nuevo."); 
-      onRefresh(); // Revert optimistic update on error
+      onRefresh();
     }
   }, [selectedActionTask, tasks, sharedTasks]);
 
@@ -427,10 +423,15 @@ const TasksScreen = ({ navigation }) => {
       ? selectedActionTask.task
       : selectedActionTask;
     if (!sourceTask?.id) return;
+    const isApproved = String(sourceTask.categories || '')
+      .split(',')
+      .map(category => category.trim().toLowerCase())
+      .some(category => ['aprobada', 'aprobadas', 'aprovada', 'aprovadas'].includes(category));
+    const shouldApprove = !isApproved;
 
     const approve = async () => {
       try {
-        const response = await api.post(`tasks/${sourceTask.id}/approve/`, { approve: true });
+        const response = await api.post(`tasks/${sourceTask.id}/approve/`, { approve: shouldApprove });
         const approvedCategories = response.data?.categories;
         const updateTask = (task) => (
           task?.id === sourceTask.id
@@ -444,21 +445,31 @@ const TasksScreen = ({ navigation }) => {
             : shared
         )));
         setActionModalVisible(false);
-        Alert.alert('Podcast aprobado', 'Se notificó al creador y a las personas etiquetadas.');
+        Alert.alert(
+          shouldApprove ? 'Aportación aprobada' : 'Aprobación retirada',
+          shouldApprove
+            ? 'Se notificó al creador y a las personas etiquetadas.'
+            : 'La aprobación se retiró correctamente.'
+        );
       } catch (error) {
-        Alert.alert('No se pudo aprobar', error.response?.data?.detail || 'Intenta de nuevo.');
+        Alert.alert('No se pudo actualizar la aprobación', error.response?.data?.detail || 'Intenta de nuevo.');
       }
     };
 
     if (Platform.OS === 'web') {
-      if (window.confirm('¿Aprobar este podcast y notificar a sus involucrados?')) approve();
+      const actionText = shouldApprove
+        ? '¿Aprobar esta aportación y notificar a sus involucrados?'
+        : '¿Retirar la aprobación de esta aportación?';
+      if (window.confirm(actionText)) approve();
     } else {
       Alert.alert(
-        'Aprobar podcast',
-        'Se cambiará Procesando por Aprobada y se notificará al creador y a las personas etiquetadas.',
+        shouldApprove ? 'Aprobar aportación' : 'Retirar aprobación',
+        shouldApprove
+          ? 'Se cambiará el estado a Aprobada y se notificará al creador y a las personas etiquetadas.'
+          : 'La aportación volverá al estado Procesando.',
         [
           { text: 'Cancelar', style: 'cancel' },
-          { text: 'Aprobar', onPress: approve },
+          { text: shouldApprove ? 'Aprobar' : 'Retirar', onPress: approve },
         ],
       );
     }
@@ -487,15 +498,15 @@ const TasksScreen = ({ navigation }) => {
     });
   };
 
+  // "Ir al foro": abre la pestaña del foro
   const handleGoToForum = () => {
-    if (!selectedActionTask) return;
-    const userObj = selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user;
-    if (!userObj) return;
+    const forumUser = selectedActionTask?.isSharedTask ? selectedActionTask.shared_by : selectedActionTask?.user;
     setActionModalVisible(false);
-    navigation.navigate('UserProfile', { 
-      userId: userObj.id, 
-      userName: selectedActionTask.isSharedTask ? getSharerName(userObj) : getAuthorName(selectedActionTask), 
-      userAvatar: getImageUrl(userObj.user_image) 
+    navigation.navigate('Forum', {
+      screen: 'ForumMain',
+      params: forumUser?.id
+        ? { userId: forumUser.id, userName: selectedActionTask?.isSharedTask ? getSharerName(forumUser) : getAuthorName(selectedActionTask) }
+        : { userId: undefined, userName: undefined },
     });
   };
 
@@ -707,18 +718,14 @@ const TasksScreen = ({ navigation }) => {
 
   // Sincronizar con estado local al recibir datos frescos del servidor
   useEffect(() => {
-    if (freshTasks.length > 0) {
-      setTasks(freshTasks);
-      const sections = {};
-      freshTasks.forEach(t => { sections[t.id] = visibleSections[t.id] || 'subtasks'; });
-      setVisibleSections(prev => ({ ...sections, ...prev }));
-    }
+    setTasks(freshTasks);
+    const sections = {};
+    freshTasks.forEach(t => { sections[t.id] = visibleSections[t.id] || 'subtasks'; });
+    setVisibleSections(prev => ({ ...sections, ...prev }));
   }, [freshTasks]);
 
   useEffect(() => {
-    if (freshSharedTasks.length > 0) {
-      setSharedTasks(freshSharedTasks);
-    }
+    setSharedTasks(freshSharedTasks);
   }, [freshSharedTasks]);
 
   // Estado de loading unificado
@@ -795,6 +802,7 @@ const TasksScreen = ({ navigation }) => {
       }
       const params = {
         page: 1,
+        pch: tema,
         category: searchCategory,
         search: normalizedQuery,
         status: searchStatus,
@@ -808,7 +816,7 @@ const TasksScreen = ({ navigation }) => {
       const [tasksResponse, sharedResponse] = searchScope === 'profiles'
         ? [{ data: [] }, { data: [] }]
         : await Promise.all([
-          api.get('tasks/', { params: { ...params, pch: tema } }),
+          api.get('tasks/', { params }),
           api.get('shared-tasks/', { params }),
         ]);
       const result = {
@@ -1215,82 +1223,6 @@ const TasksScreen = ({ navigation }) => {
     });
   }, [navigation]);
 
-  const renderSubContent = (task, section) => {
-    const content = Array.isArray(task[section]) ? task[section] : [];
-    if (content.length === 0) return <Text style={styles.noContent}>Sin datos en esta sección</Text>;
-
-    return (
-      <View style={styles.carouselContainer}>
-        <ScrollView
-          horizontal
-          nestedScrollEnabled
-          style={{ width: carouselWidth }}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ width: carouselWidth * content.length }}
-          snapToInterval={carouselWidth}
-          snapToAlignment="start"
-          decelerationRate="fast"
-          directionalLockEnabled
-          disableIntervalMomentum
-          alwaysBounceHorizontal={content.length > 1}
-          scrollEventThrottle={16}
-        >
-          {content.map((sub, idx) => {
-            const finalUri = getImageUrl(sub.image);
-            const videoUri = getImageUrl(sub.video);
-
-            return (
-              <View key={sub.id || `${section}-${idx}`} style={[styles.subItem, { width: carouselWidth }]}>
-                <View style={styles.subItemHeaderRow}>
-                  <View style={styles.subItemHeading}>
-                    <Text style={styles.subItemEyebrow}>
-                      {section === 'subtasks' ? 'PUBLICACIÓN' : section === 'subfactores' ? 'FACTOR' : 'FUENTE'} {idx + 1}
-                    </Text>
-                    <Text style={styles.subItemTitle}>{sub.title || 'Sin título'}</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.subShareButton}
-                    onPress={() => handleShareSubItemToStory(task, section, sub)}
-                  >
-                    <Ionicons name="share-social-outline" size={15} color="#51cf66" />
-                    <Text style={styles.subShareText}>Historia</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {sub.description ? (
-                  <Text style={styles.subItemDesc}>{sub.description}</Text>
-                ) : null}
-
-                {finalUri && (
-                  <Image
-                    source={{ uri: finalUri }}
-                    style={styles.subImage}
-                    contentFit="cover"
-                  />
-                )}
-
-                {videoUri && (
-                  <TaskVideoPreview
-                    uri={videoUri}
-                    onOpenReel={() => openSubMediaInReels(task, sub, section)}
-                  />
-                )}
-              </View>
-            );
-          })}
-        </ScrollView>
-        {content.length > 1 && (
-          <View style={styles.carouselMeta}>
-            <Text style={styles.carouselHint}>Desliza para ver más</Text>
-            <View style={styles.carouselDots}>
-              {content.map((sub, idx) => <View key={sub.id || idx} style={styles.carouselDot} />)}
-            </View>
-          </View>
-        )}
-      </View>
-    );
-  };
-
   const renderSharedItemCard = (shared) => {
     const task = shared.task || {};
 
@@ -1316,7 +1248,9 @@ const TasksScreen = ({ navigation }) => {
         </View>
 
         {shared.description ? (
-          <Text style={styles.sharedDescription}>{shared.description}</Text>
+          <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('SharedTaskDetail', { sharedTaskId: shared.id })}>
+            <Text style={styles.sharedDescription}>{shared.description}</Text>
+          </TouchableOpacity>
         ) : null}
 
         <View style={styles.originalTaskCard}>
@@ -1352,7 +1286,7 @@ const TasksScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}>
+          <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('SharedTaskDetail', { sharedTaskId: shared.id })}>
             <Text style={styles.taskDescription}>{task.description}</Text>
 
             {task.categories ? (
@@ -1385,15 +1319,20 @@ const TasksScreen = ({ navigation }) => {
               </View>
             )}
 
-            {/* ⚡ EXTRAEMOS LA PRIMERA IMAGEN DISPONIBLE (SUBTASKS, SUBFACTORES O SUBFUENTES) */}
-            {(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) && (
-              <Image
-                source={{ uri: getImageUrl(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
-                style={styles.taskImage}
-                contentFit="cover"
-              />
-            )}
           </TouchableOpacity>
+
+          {/* Mismo contenido que una publicación normal (pestañas + carrusel con imágenes y videos).
+              feedItemId = id del item en el FlatList (la compartida) para el autoplay por visibilidad. */}
+          <TaskSections
+            task={task}
+            tema={tema}
+            carouselWidth={carouselWidth - 28}
+            section={visibleSections[shared.id] || 'subtasks'}
+            onChangeSection={(nextSection) => changeSection(shared.id, nextSection)}
+            feedItemId={shared.id}
+            onShareSubItemToStory={handleShareSubItemToStory}
+            onOpenSubMediaInReels={openSubMediaInReels}
+          />
         </View>
 
         <View style={styles.taskFooter}>
@@ -1447,127 +1386,34 @@ const TasksScreen = ({ navigation }) => {
     // ✅ DEBUG: Muestra en la consola los datos del usuario de cada tarea
 
     return (
-      <View style={styles.taskCard}>
-        <View style={styles.taskHeader}>
-          <TouchableOpacity onPress={() => handleShowProfileLikes(item.user?.id)}>
-            <Image 
-              source={{ uri: getImageUrl(item.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }} 
-              style={styles.avatar} 
-            />
-          </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.taskTitle}>{item.title}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <TouchableUsername
-                  username={getAuthorName(item)}
-                  userId={item.user?.id}
-                  userImage={getImageUrl(item.user?.user_image)}
-                  navigation={navigation}
-                  textStyle={[styles.taskUser, { color: getUserStatusColor(item.user) }]}
-                />
-                {/* ✅ AÑADIDO: Mostrar el ícono de admin si corresponde */}
-                {(item.user?.is_staff || item.user?.is_superuser) && (
-                  <Ionicons name="shield-checkmark" size={14} color="#4dabf7" style={{ marginLeft: 2 }} />
-                )}
-                {getUserStatusIcon(item.user) && <Ionicons name={getUserStatusIcon(item.user)} size={14} color={getUserStatusColor(item.user)} />}
-              </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(item.created_at).fromNow()}</Text></View>
-            
-          </View>
-          <TouchableOpacity onPress={() => openActionModal(item)}>
-            <Ionicons name="ellipsis-vertical" size={20} color="#999" />
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
-          <Text style={styles.taskDescription}>{item.description}</Text>
-
-          {item.categories ? (
-            <View style={styles.categoriesList}>
-              {item.categories.split(',').map((cat, idx) => (
-                <Text
-                  key={idx}
-                  style={[styles.categoryBadge, cat.trim().toLowerCase() === 'aprobada' && styles.categoryBadgeApproved]}
-                >
-                  {cat.trim()}
-                </Text>
-              ))}
-            </View>
-          ) : null}
-
-          {Array.isArray(item.tagged_users) && item.tagged_users.length > 0 && (
-            <View style={styles.taggedUsersRow}>
-              <Ionicons name="pricetag-outline" size={13} color="#845ef7" style={{ marginRight: 4 }} />
-              <Text style={styles.taggedUsersLabel}>Con:</Text>
-              {item.tagged_users.map((u, idx) => (
-                <View key={u.id || idx} style={{ marginRight: 8 }}>
-                  <TouchableUsername
-                    username={`@${u.username || u.first_name || 'usuario'}`}
-                    userId={u.id}
-                    navigation={navigation}
-                    textStyle={styles.taggedUserName}
-                  />
-                </View>
-              ))}
-            </View>
-          )}
-        </TouchableOpacity>
-
-        <View style={styles.sectionTabs}>
-          {['subtasks', 'subfactores', 'subfuentes'].map((s) => (
-            <TouchableOpacity 
-              key={s} 
-              onPress={() => changeSection(item.id, s)}
-              style={[styles.tab, currentSec === s && styles.tabActive]}
-            >
-              <Text style={[styles.tabText, currentSec === s && styles.tabTextActive]}>
-                {s === 'subtasks' ? (tema.charAt(0).toUpperCase() + tema.slice(1)) : s.replace('sub', '')}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <View style={styles.dynamicContent}>
-          {renderSubContent(item, currentSec)}
-        </View>
-
-        <View style={styles.taskFooter}>
-          <View style={styles.statsContainer}>
-            <TouchableOpacity style={styles.stat} onPress={() => handleRepost(item)}>
-              <Ionicons name="trending-up-outline" size={18} color="#f59f00" />
-              <Text style={styles.statText}>{item.interaction_score || 0}</Text>
-            </TouchableOpacity>
-
-            <View style={styles.stat}>
-              {/* ✅ CORRECCIÓN: Botón de like funcional */}
-              <TouchableOpacity onPress={() => handleLikeTask(item)}>
-                <Ionicons name={item.user_has_liked ? "heart" : "heart-outline"} size={18} color={item.user_has_liked ? "#ff6b6b" : "#999"} />
-              </TouchableOpacity>
-              {/* El contador abre la lista de usuarios que dieron like */}
-              <TouchableOpacity onPress={() => handleShowTaskLikes(item.id)} style={{marginLeft: 4, padding: 4}}>
-                <Text style={styles.statText}>{item.likes_count ?? 0}</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity style={styles.stat} onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
-              <Ionicons name="chatbubble-outline" size={18} color="#4dabf7" />
-              <Text style={styles.statText}>{item.comments_count || 0}</Text>
-            </TouchableOpacity>
-            <View style={styles.stat}>
-              <TouchableOpacity onPress={() => handleOpenShareActionMenu(item)}>
-                <Ionicons name="share-social-outline" size={18} color="#51cf66" />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleShowTaskShares(item.id)} style={{marginLeft: 4, padding: 4}}>
-                <Text style={styles.statText}>{item.share_count || 0}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </View>
+      <TaskPostCard
+        task={item}
+        navigation={navigation}
+        tema={tema}
+        carouselWidth={carouselWidth}
+        currentSection={currentSec}
+        onChangeSection={changeSection}
+        onAvatarPress={handleShowProfileLikes}
+        onOpenActions={openActionModal}
+        onOpenDetail={(task) => navigation.navigate('TaskDetail', { taskId: task.id })}
+        onRepost={handleRepost}
+        onLike={handleLikeTask}
+        onShowLikes={handleShowTaskLikes}
+        onPressComments={(task) => navigation.navigate('TaskDetail', { taskId: task.id })}
+        onShare={handleOpenShareActionMenu}
+        onShowShares={handleShowTaskShares}
+        onShareSubItemToStory={handleShareSubItemToStory}
+        onOpenSubMediaInReels={openSubMediaInReels}
+      />
     );
   };
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.feedRoot}>
+      <Animated.View style={[styles.collapsingHeader, { transform: [{ translateY: headerTranslateY }] }]}>
+      {/* Zona colapsable: titulo/botones, historias, pestañas y 'todas las categorias' */}
+      <View onLayout={(e) => setCollapsibleH(e.nativeEvent.layout.height)}>
       {searchExpanded ? (
         <View style={styles.searchHeader}>
           <View style={styles.searchHeaderRow}>
@@ -1652,46 +1498,54 @@ const TasksScreen = ({ navigation }) => {
         </View>
       ) : (
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Éxito</Text>
+          <View style={styles.headerIdentity}>
+            <SideMenu
+              navigation={navigation}
+              signOut={signOut}
+              user={user}
+              buttonStyle={styles.headerMenuButton}
+            />
+            <Text style={styles.headerTitle}>Éxito</Text>
+          </View>
           <View style={styles.headerActions}>
             <TouchableOpacity style={styles.headerIconBtn} onPress={openSearch}>
               <Ionicons name="search-outline" size={24} color="#4dabf7" />
             </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIconBtn} onPress={() => setFilterModalVisible(true)}>
-            <Ionicons name="options-outline" size={24} color="#4dabf7" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIconBtn} onPress={() => setSavedFiltersModalVisible(true)}>
-            <Ionicons name="bookmarks-outline" size={24} color="#4dabf7" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.headerIconBtn} onPress={() => setFavoriteVisibilityVisible(true)}>
-            <Ionicons name="eye-outline" size={24} color="#4dabf7" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.createBtn} onPress={() => navigation.navigate('CreateTask', { initialPch: tema })}>
-            <Ionicons name="add" size={24} color="#fff" />
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setFilterModalVisible(true)}>
+              <Ionicons name="options-outline" size={24} color="#4dabf7" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.createBtn} onPress={() => navigation.navigate('CreateTask', { initialPch: tema })}>
+              <Ionicons name="add" size={24} color="#fff" />
+            </TouchableOpacity>
           </View>
         </View>
       )}
 
+      {!searchExpanded ? <StoriesBar navigation={navigation} /> : null}
+
       <View style={styles.temaSelector}>
-        {['consejos', 'peticiones', 'historias'].map((t) => (
+        {[
+          { value: 'consejos', label: 'CONSEJOS' },
+          { value: 'peticiones', label: 'PETICIONES' },
+          { value: 'historias', label: 'HISTORIAS' },
+        ].map(({ value, label }) => (
           <TouchableOpacity
-            key={t}
-            style={[styles.temaBadge, tema === t && styles.temaBadgeActive]}
-            onPress={() => {
-              if (tema === t) return;
-              // ⚡ CAMBIO INSTANTÁNEO EN 0 MS GRACIAS A TANSTACK QUERY
-              // Si ya tenemos las tareas de esa pestaña en la memoria caché, las mostramos de inmediato
-              setTema(t);
-            }}
+            key={value || 'all'}
+            style={[styles.temaBadge, tema === value && styles.temaBadgeActive]}
+            onPress={() => setTema(tema === value ? '' : value)}
           >
-            <Text style={[styles.temaBadgeText, tema === t && styles.temaBadgeTextActive]}>
-              {t.toUpperCase()}
+            <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.temaBadgeText, tema === value && styles.temaBadgeTextActive]}>
+              {label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
+
+      </View>
+
+      {/* Zona fija: el filtro de categorias es lo unico que queda visible al deslizar hacia abajo */}
+      <Animated.View onLayout={(e) => setStickyH(e.nativeEvent.layout.height)} style={[styles.stickyFilterZone, { transform: [{ translateY: stickyShiftY }] }]} {...filterPanResponder.panHandlers}>
       <CategoryHierarchy
         availableCategories={categoriesWithSelectedSearchPath}
         selectedCategoryPath={activeCategoryPath}
@@ -1707,7 +1561,7 @@ const TasksScreen = ({ navigation }) => {
               const nextPath = searchCategoryPath.slice(0, value.searchPath.length - 1);
               setSearchCategory(nextPath.join(','));
               setSearchCategoryLevel(nextPath.length - 1);
-              if (!nextPath.length) setSearchHasStarted(false);
+              if (!nextPath.length) setSearchHasStarted(true);
             } else if (!searchExpanded) {
               const selectedPath = selectedCategory.split(',').map(normalizeCategoryValue).filter(Boolean);
               if (isDescendant(selectedPath)) {
@@ -1725,10 +1579,11 @@ const TasksScreen = ({ navigation }) => {
             const nextPath = searchCategoryPath.slice(0, level);
             setSearchCategory(nextPath.join(','));
             setSearchCategoryLevel(nextPath.length - 1);
-            if (!nextPath.length) setSearchHasStarted(false);
+            if (!nextPath.length) setSearchHasStarted(true);
           }
         }}
         showDescendants
+        deselectable
         selectedStatus={searchExpanded ? searchStatus : selectedStatus}
         onStatusSelect={(status) => {
           if (searchExpanded) {
@@ -1783,7 +1638,10 @@ const TasksScreen = ({ navigation }) => {
           }}
         />
       )}
+        </Animated.View>
+      </Animated.View>
 
+      <FeedVideoVisibilityContext.Provider value={feedVideoVisibility}>
       <FlatList
         ref={feedListRef}
         data={filteredTasks}
@@ -1791,16 +1649,19 @@ const TasksScreen = ({ navigation }) => {
         // Para un item compartido, usamos su propio ID, no el de la tarea anidada.
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderFeedItem}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        onViewableItemsChanged={onFeedViewableItemsChanged}
+        viewabilityConfig={feedViewabilityConfig}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={collapsibleH + stickyH} />}
         onScroll={event => {
           const offset = event.nativeEvent.contentOffset.y;
           feedScrollOffsetRef.current = offset;
+          updateHeaderCollapse(offset);
           if (!searchExpanded) {
             mainFeedScrollOffsetRef.current = offset;
           }
         }}
         scrollEventThrottle={16}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingTop: collapsibleH + stickyH }]}
         
         // ⚡ LAS PROPS MÁGICAS DE RENDIMIENTO Y SCROLL INFINITO
         onEndReached={handleLoadMore}
@@ -1820,15 +1681,42 @@ const TasksScreen = ({ navigation }) => {
           )
         }
       />
+      </FeedVideoVisibilityContext.Provider>
+      </View>
 
-      {/* MODAL DE FILTROS */}
+      <FilterModal
+        visible={filterModalVisible}
+        onClose={() => setFilterModalVisible(false)}
+        currentCategory={selectedCategory}
+        currentStatus={selectedStatus}
+        currentDateFilter={selectedDateFilter}
+        currentSortBy={selectedSortBy}
+        currentFavorites={selectedFavoritesOnly}
+        currentFavoriteUsers={selectedFavoriteUsersOnly}
+        currentVerifiedUsers={selectedVerifiedUsersOnly}
+        currentRecommendedUsers={selectedRecommendedUsersOnly}
+        // ✅ PASAMOS EL ESTADO DE ADMIN DIRECTAMENTE
+        isSuperAdmin={isAdmin}
+        // ✅ SOLUCIÓN: Pasamos las categorías como prop.
+        availableCategories={availableCategories}
+        // ⚡ PCH activo para que el modal muestre/cree categorías de este tema
+        currentPch={tema}
+        onApply={(filters) => {
+          applyFilters(filters);
+        }}
+      />
+
       <Modal
         visible={favoriteVisibilityVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setFavoriteVisibilityVisible(false)}
       >
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setFavoriteVisibilityVisible(false)}>
+        <TouchableOpacity
+          style={styles.overlay}
+          activeOpacity={1}
+          onPress={() => setFavoriteVisibilityVisible(false)}
+        >
           <View style={styles.visibilityModal}>
             <Text style={styles.visibilityTitle}>Visibilidad de favoritos</Text>
             <Text style={styles.visibilityHint}>Decide qué listas pueden ver otros usuarios.</Text>
@@ -1857,36 +1745,16 @@ const TasksScreen = ({ navigation }) => {
                 <Text style={styles.visibilityValue}>{enabled ? 'Público' : 'Privado'}</Text>
               </TouchableOpacity>
             ))}
-            <TouchableOpacity style={styles.visibilityClose} onPress={() => setFavoriteVisibilityVisible(false)}>
+            <TouchableOpacity
+              style={styles.visibilityClose}
+              onPress={() => setFavoriteVisibilityVisible(false)}
+            >
               <Text style={styles.visibilityCloseText}>Cerrar</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
 
-      <FilterModal
-        visible={filterModalVisible}
-        onClose={() => setFilterModalVisible(false)}
-        currentCategory={selectedCategory}
-        currentStatus={selectedStatus}
-        currentDateFilter={selectedDateFilter}
-        currentSortBy={selectedSortBy}
-        currentFavorites={selectedFavoritesOnly}
-        currentFavoriteUsers={selectedFavoriteUsersOnly}
-        currentVerifiedUsers={selectedVerifiedUsersOnly}
-        currentRecommendedUsers={selectedRecommendedUsersOnly}
-        // ✅ PASAMOS EL ESTADO DE ADMIN DIRECTAMENTE
-        isSuperAdmin={isAdmin}
-        // ✅ SOLUCIÓN: Pasamos las categorías como prop.
-        availableCategories={availableCategories}
-        // ⚡ PCH activo para que el modal muestre/cree categorías de este tema
-        currentPch={tema}
-        onApply={(filters) => {
-          applyFilters(filters);
-        }}
-      />
-
-      {/* MODAL DE FILTROS GUARDADOS (CRUD propio del perfil) */}
       <SavedFiltersModal
         visible={savedFiltersModalVisible}
         onClose={() => setSavedFiltersModalVisible(false)}
@@ -1900,9 +1768,7 @@ const TasksScreen = ({ navigation }) => {
           verified_users_only: selectedVerifiedUsersOnly,
           recommended_users_only: selectedRecommendedUsersOnly,
         }}
-        onApplyFilter={(filters) => {
-          applyFilters(filters);
-        }}
+        onApplyFilter={applyFilters}
       />
 
       {/* MODAL DE LIKES */}
@@ -1913,97 +1779,28 @@ const TasksScreen = ({ navigation }) => {
         title={likesModalTitle}
       />
 
-      {/* MODAL DE ACCIONES (3 PUNTOS) */}
-      <Modal visible={actionModalVisible} transparent animationType='fade' onRequestClose={() => setActionModalVisible(false)}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setActionModalVisible(false)}>
-          <View style={styles.actionModalContainer}>
-            <View style={styles.modalDragHandle} />
-            {selectedActionTask && (
-              <>
-                <TouchableOpacity style={styles.actionOption} onPress={handleToggleFavorite}>
-                  <Ionicons name={selectedActionTask.is_favorited ? 'star' : 'star-outline'} size={20} color={selectedActionTask.is_favorited ? '#f59f00' : '#555'} />
-                  <Text style={styles.actionText}>{selectedActionTask.is_favorited ? 'Eliminar de favoritos' : 'Agregar a favoritos'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionOption} onPress={() => handlePinFavorite('task')}>
-                  <Ionicons name="pin-outline" size={20} color="#845ef7" />
-                  <Text style={styles.actionText}>Anclar tarea en top 5</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); handleOpenShareActionMenu(selectedActionTask); }}>
-                  <Ionicons name='share-social-outline' size={20} color='#555' />
-                  <Text style={styles.actionText}>Compartir</Text>
-                </TouchableOpacity>
-                {(selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user) && currentUserId !== ((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.id || (selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)) && (
-                  <>
-                    <TouchableOpacity style={styles.actionOption} onPress={handleDirectMessage}>
-                      <Ionicons name='chatbubbles-outline' size={20} color='#4dabf7' />
-                      <Text style={styles.actionText}>Mensaje Directo</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionOption} onPress={handleGoToForum}>
-                      <Ionicons name='person-outline' size={20} color='#4dabf7' />
-                      <Text style={styles.actionText}>Ir a su perfil/foro</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionOption} onPress={handleToggleProfileFavorite}>
-                      <Ionicons name={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.is_favorited) ? "heart" : "heart-outline"} size={20} color={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.is_favorited) ? "#ff0b5a" : "#555"} />
-                      <Text style={styles.actionText}>{((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.is_favorited) ? "Eliminar perfil de favoritos" : "Agregar perfil a favoritos"}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionOption} onPress={() => handlePinFavorite('profile')}>
-                      <Ionicons name="pin-outline" size={20} color="#845ef7" />
-                      <Text style={styles.actionText}>Anclar perfil en top 5</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-                {(selectedActionTask && currentUserId && selectedTaskOwnerId && String(currentUserId) === String(selectedTaskOwnerId)) && (
-                  <>
-                    {canEditSelectedTask && (
-                      <TouchableOpacity style={styles.actionOption} onPress={handleEditTask}>
-                        <Ionicons name='pencil-outline' size={20} color='#4dabf7' />
-                        <Text style={styles.actionText}>Editar</Text>
-                      </TouchableOpacity>
-                    )}
-                    <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
-                      <Ionicons name='trash-outline' size={20} color='#ff6b6b' />
-                      <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: 'bold' }]}>Eliminar</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-                {isAdmin && (
-                  // ✅ DEBUG: Si isAdmin es true, esto se imprimirá en la consola
-
-                  // 🪵 LOG DE DIAGNÓSTICO: Confirmamos que se intenta renderizar
-                  <>
-                    {(() => {
-                      const sourceTask = selectedActionTask.isSharedTask
-                        ? selectedActionTask.task
-                        : selectedActionTask;
-                      const categories = String(sourceTask?.categories || '')
-                        .split(',')
-                        .map(category => category.trim().toLowerCase());
-                      const isPodcast = categories.includes('grabar podcast');
-                      const isApproved = categories.includes('aprobada');
-                      return isPodcast ? (
-                        <TouchableOpacity style={styles.actionOption} onPress={handleApprovePodcast}>
-                          <Ionicons name={isApproved ? 'send-outline' : 'ribbon-outline'} size={20} color='#f59f00' />
-                          <Text style={[styles.actionText, { color: '#e67700', fontWeight: '700' }]}>
-                            {isApproved ? 'Enviar invitaciones del podcast' : 'Aprobar podcast'}
-                          </Text>
-                        </TouchableOpacity>
-                      ) : null;
-                    })()}
-                    <TouchableOpacity style={styles.actionOption} onPress={handleToggleVerified}>
-                      <Ionicons name={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "checkmark-circle" : "checkmark-circle-outline"} size={20} color={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "#4dabf7" : "#555"} />
-                      <Text style={styles.actionText}>{((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_verified) ? "Quitar Verificación" : "Verificar Perfil"}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionOption} onPress={handleToggleRecommended}>
-                      <Ionicons name={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_recommended) ? "ribbon" : "ribbon-outline"} size={20} color={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_recommended) ? "#f59f00" : "#555"} />
-                      <Text style={styles.actionText}>{((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_recommended) ? "Quitar Recomendación" : "Recomendar Perfil"}</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </>
-            )}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      {/* MODAL DE ACCIONES (3 PUNTOS): mismo menú completo que usan los detalles */}
+      <TaskActionsModal
+        visible={actionModalVisible}
+        onClose={() => setActionModalVisible(false)}
+        actionTask={selectedActionTask}
+        currentUserId={currentUserId}
+        isAdmin={isAdmin}
+        canEdit={canEditSelectedTask}
+        handlers={{
+          toggleFavorite: handleToggleFavorite,
+          pinFavorite: handlePinFavorite,
+          share: () => { setActionModalVisible(false); handleOpenShareActionMenu(selectedActionTask); },
+          directMessage: handleDirectMessage,
+          goToForum: handleGoToForum,
+          toggleProfileFavorite: handleToggleProfileFavorite,
+          edit: handleEditTask,
+          delete: handleDeleteTask,
+          approvePodcast: handleApprovePodcast,
+          toggleVerified: handleToggleVerified,
+          toggleRecommended: handleToggleRecommended,
+        }}
+      />
 
       {/* Nuevo Menú Modal de Acciones para Compartir */}
       <ShareActionMenu
@@ -2033,12 +1830,25 @@ const TasksScreen = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: '#fff' },
+  feedRoot: { flex: 1, overflow: 'hidden' },
+  stickyFilterZone: { backgroundColor: '#FEF6F5', paddingTop: 6, paddingBottom: 4 },
+  collapsingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, backgroundColor: '#FEF6F5' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 34, paddingBottom: 16, backgroundColor: '#fff' },
+  headerIdentity: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerMenuButton: { padding: 2 },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#333' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  headerIconBtn: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerIconBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   createBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
-  searchHeader: { padding: 12, backgroundColor: '#fff', gap: 8 },
+  visibilityModal: { width: '88%', maxWidth: 420, padding: 20, borderRadius: 18, backgroundColor: '#fff' },
+  visibilityTitle: { color: '#212529', fontSize: 18, fontWeight: '700', marginBottom: 6 },
+  visibilityHint: { color: '#868e96', fontSize: 13, marginBottom: 14 },
+  visibilityRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f1f3f5', gap: 10 },
+  visibilityLabel: { flex: 1, color: '#343a40', fontSize: 14 },
+  visibilityValue: { color: '#868e96', fontSize: 12, fontWeight: '600' },
+  visibilityClose: { alignSelf: 'flex-end', marginTop: 14, paddingHorizontal: 12, paddingVertical: 8 },
+  visibilityCloseText: { color: '#1864ab', fontWeight: '700' },
+  searchHeader: { paddingHorizontal: 12, paddingTop: 34, paddingBottom: 12, backgroundColor: '#fff', gap: 8 },
   searchHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   searchInputHost: { flex: 1, minWidth: 0 },
   searchLoading: { position: 'absolute', right: 42, top: 26 },
@@ -2054,14 +1864,6 @@ const styles = StyleSheet.create({
   directoryResults: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   directoryResult: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 12, backgroundColor: '#f8f9fa' },
   directoryResultText: { maxWidth: 140, color: '#343a40', fontSize: 12 },
-  visibilityModal: { width: '88%', maxWidth: 420, padding: 20, borderRadius: 18, backgroundColor: '#fff' },
-  visibilityTitle: { color: '#212529', fontSize: 18, fontWeight: '700', marginBottom: 6 },
-  visibilityHint: { color: '#868e96', fontSize: 13, marginBottom: 14 },
-  visibilityRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f1f3f5', gap: 10 },
-  visibilityLabel: { flex: 1, color: '#343a40', fontSize: 14 },
-  visibilityValue: { color: '#868e96', fontSize: 12, fontWeight: '600' },
-  visibilityClose: { alignSelf: 'flex-end', marginTop: 14, paddingHorizontal: 12, paddingVertical: 8 },
-  visibilityCloseText: { color: '#1864ab', fontWeight: '700' },
   searchInput: { 
     flex: 1, 
     height: 45, 
@@ -2070,11 +1872,13 @@ const styles = StyleSheet.create({
     outlineStyle: 'none',
     borderWidth: 0,
   },
-  temaSelector: { flexDirection: 'row', paddingHorizontal: 12, gap: 10, marginBottom: 10 },
-  temaBadge: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#eee' },
+  temaSelector: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12, gap: 10 },
+  temaBadge: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, paddingVertical: 12, borderRadius: 22, backgroundColor: '#eee' },
   temaBadgeActive: { backgroundColor: '#333' },
-  temaBadgeText: { fontSize: 12, fontWeight: 'bold', color: '#666' },
+  temaBadgeText: { fontSize: 13, fontWeight: 'bold', color: '#666' },
   temaBadgeTextActive: { color: '#fff' },
+  allCategoriesButton: { alignSelf: 'flex-start', marginHorizontal: 16, marginBottom: 6, paddingVertical: 6 },
+  allCategoriesText: { color: '#1864ab', fontSize: 13, fontWeight: '600' },
   categorySearchContainer: { paddingHorizontal: 12, marginBottom: 8 },
   listContent: { paddingBottom: 100 },
   taskCard: { 

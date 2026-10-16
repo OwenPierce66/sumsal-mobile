@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   StyleSheet,
   TextInput,
   ActivityIndicator,
+  Alert,
+  useWindowDimensions,
   Platform } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import moment from 'moment'; 
@@ -14,8 +16,12 @@ import api, { getImageUrl } from '@api';
 import { Image } from 'expo-image';
 import ShareModal from '@components/ShareModal';
 import LikesListModal from '@components/LikesListModal';
+import TaskActionsModal from '@components/TaskActionsModal';
+import useTaskActions from '@hooks/useTaskActions';
 import TouchableUsername from '@components/TouchableUsername';
-import { useSharedTaskDetail, useMe } from '@hooks/useApi';
+import TaskPostCard, { FeedVideoVisibilityContext } from '@components/TaskPostCard';
+import ShareActionMenu from './ShareActionMenu';
+import { useSharedTaskDetail, useMe, useIsAdmin } from '@hooks/useApi';
 
 moment.locale('es');
 
@@ -183,6 +189,97 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
   // Modal de compartir
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [taskToShare,       setTaskToShare]       = useState(null);
+  const [shareActionMenuVisible, setShareActionMenuVisible] = useState(false);
+
+  const { width: screenWidth } = useWindowDimensions();
+  const carouselWidth = Math.max(280, screenWidth - 56);
+
+  // Autoplay de videos: se mide contra el ScrollView real (no toda la ventana)
+  const scrollRef = useRef(null);
+  const getScrollBounds = useCallback((callback) => {
+    const node = scrollRef.current?.getNativeScrollRef?.() || scrollRef.current;
+    if (node && typeof node.measureInWindow === 'function') {
+      node.measureInWindow((x, y, width, height) => callback({ x, y, width, height }));
+    } else {
+      callback(null);
+    }
+  }, []);
+  const videoVisibility = useMemo(
+    () => ({ visibleIds: null, getListBounds: getScrollBounds }),
+    [getScrollBounds]
+  );
+
+  // Entrar al detalle de la tarea original que se compartió
+  const openOriginalTask = () => {
+    const originalId = sharedTask?.task?.id;
+    if (originalId) navigation.navigate('TaskDetail', { taskId: originalId });
+  };
+
+  const openSubMediaInReels = (originalTask, sub, section) => {
+    if (!originalTask?.id || !sub?.video) return;
+    navigation.navigate('Reels', {
+      openTaskId: originalTask.id,
+      openMediaSrc: sub.video,
+      openMediaType: 'video',
+      openMediaSection: section,
+      openMediaRequestId: Date.now(),
+    });
+  };
+
+  const handleShareSubItemToStory = async (originalTask, section, sub) => {
+    if (!originalTask || !sub) return;
+    try {
+      await api.post('stories/share-task/', {
+        task_id: originalTask.id,
+        source_item_type: section,
+        source_item_id: sub.id,
+      });
+      Alert.alert('Éxito', 'Se compartió la aportación en tu historia de 24 horas.');
+      navigation.navigate('Stories');
+    } catch (error) {
+      Alert.alert('Error', error.response?.data?.error || 'No se pudo compartir esta aportación en historia.');
+    }
+  };
+
+  const handleShareToStory = async () => {
+    const originalId = sharedTask?.task?.id;
+    if (!originalId) return;
+    try {
+      await api.post('stories/share-task/', { task_id: originalId });
+      Alert.alert('Éxito', 'Se compartió en tu historia de 24 horas.');
+      navigation.navigate('Stories');
+    } catch (error) {
+      Alert.alert('Error', error.response?.data?.error || 'No se pudo compartir esta tarea en historia.');
+    }
+  };
+
+  const handleRepost = async () => {
+    const originalId = sharedTask?.task?.id;
+    if (!originalId) return;
+    const bump = (delta) => setSharedTask(prev => prev ? { ...prev, task: { ...prev.task, interaction_score: Math.max(0, (prev.task.interaction_score || 0) + delta) } } : prev);
+    bump(1);
+    try {
+      const response = await api.post(`/tasks/${originalId}/repost/`);
+      Alert.alert('Éxito', '¡Publicación impulsada!');
+      setSharedTask(prev => prev ? { ...prev, task: { ...prev.task, interaction_score: response.data.interaction_score } } : prev);
+    } catch (error) {
+      console.error('Error al repostear:', error.response?.data || error);
+      Alert.alert('Error', 'Error al repostear. Inténtalo de nuevo.');
+      bump(-1);
+    }
+  };
+
+  const handleShowProfileLikes = (userId) => {
+    if (!userId) return;
+    setLikesModalUrl(`profiles/${userId}/likes/`);
+    setLikesModalVisible(true);
+  };
+
+  const handleShowTaskShares = (originalTaskId) => {
+    if (!originalTaskId) return;
+    setLikesModalUrl(`tasks/${originalTaskId}/users-who-shared/`);
+    setLikesModalVisible(true);
+  };
 
   // Sincronizar el query al estado local mutable
   const currentUserId = me?.id ?? null;
@@ -196,6 +293,34 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
   const fetchSharedTask = async (_showLoader = true) => {
     await refetch();
   };
+
+  // Menu de 3 puntos: 'shared' = la publicacion compartida, 'task' = la tarea original
+  const [actionTarget, setActionTarget] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const { data: adminData } = useIsAdmin();
+  useEffect(() => {
+    if (adminData) setIsAdmin(Boolean(adminData.isAdmin || adminData.isStaff));
+  }, [adminData]);
+  const actionTask = actionTarget === 'shared'
+    ? (sharedTask ? { ...sharedTask, isSharedTask: true } : null)
+    : actionTarget === 'task' ? (sharedTask?.task || null) : null;
+  const taskActions = useTaskActions({
+    navigation,
+    actionTask,
+    currentUserId,
+    close: () => setActionTarget(null),
+    refresh: fetchSharedTask,
+    onShare: () => setShareActionMenuVisible(true),
+    onEdit: (a) => {
+      if (a?.isSharedTask) {
+        setDescriptionText(sharedTask?.description || '');
+        setEditingDescription(true);
+      } else if (a?.id) {
+        navigation.navigate('CreateTask', { task: a });
+      }
+    },
+    onDeleted: () => navigation.goBack(),
+  });
 
   const handleShowSharedTaskLikes = () => {
     setLikesModalUrl(`shared-tasks/${sharedTaskId}/users-who-liked/`);
@@ -421,7 +546,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
         ) : <View style={{ width: 24 }} />}
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
         {/* INFORMACIÓN DE COMPARTICIÓN */}
         <View style={styles.sharedByCard}>
           <View style={styles.sharedByInfo}>
@@ -442,6 +567,9 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
               <Text style={styles.sharedByText}>compartió una tarea</Text>
               <Text style={styles.sharedByDate}>{moment(sharedTask.created_at).fromNow()}</Text>
             </View>
+            <TouchableOpacity onPress={() => setActionTarget('shared')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="ellipsis-vertical" size={20} color="#999" />
+            </TouchableOpacity>
           </View>
           {editingDescription ? (
             <View>
@@ -455,72 +583,38 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
           ) : null}
         </View>
 
-        {/* TARJETA DE TAREA ORIGINAL */}
-        <View style={styles.taskCard}>
-          <View style={styles.taskAuthorHeader}>
-            <Image
-              source={{ uri: getImageUrl(task.user?.user_image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
-              style={styles.taskAuthorAvatar}
-            />
-            <View style={{ flex: 1 }}>
-              <TouchableUsername
-                username={getUserName(task.user) !== 'Usuario' ? getUserName(task.user) : (task.username || 'Anónimo')}
-                userId={task.user?.id || task.user_id || null}
-                userImage={getImageUrl(task.user?.user_image) || null}
-                navigation={navigation}
-                style={styles.taskAuthorNameWrapper}
-                textStyle={styles.taskAuthorName}
-                numberOfLines={1}
-              />
-              <Text style={styles.taskDate}>{moment(task.created_at).fromNow()}</Text>
-            </View>
-          </View>
+        {/* TAREA ORIGINAL: misma tarjeta que el feed/detalle. Los likes y comentarios son los de la tarea compartida */}
+        <FeedVideoVisibilityContext.Provider value={videoVisibility}>
+          <TaskPostCard
+            task={task}
+            navigation={navigation}
+            tema={task.pch || ''}
+            carouselWidth={carouselWidth}
+            stats={{
+              user_has_liked: sharedTask.user_has_liked,
+              likes_count: sharedTask.likes_count,
+              comments_count: sharedTask.comments_count,
+            }}
+            onAvatarPress={handleShowProfileLikes}
+            onOpenDetail={openOriginalTask}
+            onOpenActions={() => setActionTarget('task')}
+            onRepost={handleRepost}
+            onLike={handleLikeSharedTask}
+            onShowLikes={handleShowSharedTaskLikes}
+            onPressComments={() => scrollRef.current?.scrollToEnd({ animated: true })}
+            onShare={() => setShareActionMenuVisible(true)}
+            onShowShares={handleShowTaskShares}
+            onShareSubItemToStory={handleShareSubItemToStory}
+            onOpenSubMediaInReels={openSubMediaInReels}
+          />
+        </FeedVideoVisibilityContext.Provider>
 
-          <View style={styles.taskInfo}>
-            <Text style={styles.taskTitle}>{task.title}</Text>
-            <Text style={styles.taskDescription}>{task.description}</Text>
-
-            {task.categories ? (
-              <View style={styles.categoriesList}>
-                {task.categories.split(',').map((cat, idx) => (
-                  <Text key={idx} style={styles.categoryBadge}>{cat.trim()}</Text>
-                ))}
-              </View>
-            ) : null}
-
-            {/* ⚡ EXTRAEMOS LA PRIMERA IMAGEN DISPONIBLE */}
-            {(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) && (
-              <Image
-                source={{ uri: getImageUrl(task.image || task.subtasks?.[0]?.image || task.subfactores?.[0]?.image || task.subfuentes?.[0]?.image) }}
-                style={styles.taskImage}
-              />
-            )}
-          </View>
-
-          {/* ACCIONES DE TAREA */}
-          <View style={styles.actions}>
-            <TouchableOpacity 
-              style={styles.actionBtn} 
-              onPress={handleLikeSharedTask}
-              onLongPress={handleShowSharedTaskLikes}
-            >
-              <Ionicons
-                name={sharedTask.user_has_liked ? 'heart' : 'heart-outline'}
-                size={18}
-                color={sharedTask.user_has_liked ? '#ff6b6b' : '#666'}
-              />
-              <Text style={styles.actionBtnText}>{sharedTask.likes_count || 0}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionBtn}>
-              <Ionicons name="chatbubble-outline" size={18} color="#4dabf7" />
-              <Text style={styles.actionBtnText}>{sharedTask.comments_count || 0}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionBtn} onPress={openShareModal}>
-              <Ionicons name="share-social-outline" size={18} color="#51cf66" />
-              <Text style={styles.actionBtnText}>{task?.share_count || 0}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        {/* ENTRAR AL DETALLE DE LA TAREA ORIGINAL (con sus propios comentarios y likes) */}
+        <TouchableOpacity style={styles.openOriginalBtn} onPress={openOriginalTask} activeOpacity={0.8}>
+          <Ionicons name="open-outline" size={18} color="#4dabf7" />
+          <Text style={styles.openOriginalText}>Ver publicación original</Text>
+          <Ionicons name="chevron-forward" size={18} color="#4dabf7" />
+        </TouchableOpacity>
 
         {/* SECCIÓN DE COMENTARIOS */}
         <View style={styles.commentsSection}>
@@ -590,6 +684,26 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
         apiUrl={likesModalUrl} 
       />
 
+      {/* MODAL DE ACCIONES (3 PUNTOS): mismo menu completo que el feed. Sirve para la compartida y para la tarea original */}
+      <TaskActionsModal
+        visible={Boolean(actionTarget)}
+        onClose={() => setActionTarget(null)}
+        actionTask={actionTask}
+        currentUserId={currentUserId}
+        isAdmin={isAdmin}
+        handlers={taskActions}
+      />
+
+      {/* MENÚ DE COMPARTIR (igual que en el feed) */}
+      <ShareActionMenu
+        isVisible={shareActionMenuVisible}
+        onClose={() => setShareActionMenuVisible(false)}
+        onShare={() => { setShareActionMenuVisible(false); openShareModal(); }}
+        onSendMessage={() => { setShareActionMenuVisible(false); openShareModal(); }}
+        onRepost={() => { setShareActionMenuVisible(false); handleRepost(); }}
+        onShareToStory={() => { setShareActionMenuVisible(false); handleShareToStory(); }}
+      />
+
       {/* MODAL DE COMPARTIR */}
       <ShareModal
         visible={shareModalVisible}
@@ -597,8 +711,10 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
         taskId={taskToShare}
         onShareSuccess={handleShareSuccess}
         navigation={navigation}
-        taskTitle={sharedTask?.title || 'esta publicación'}
-        taskDescription={sharedTask?.description || ''}
+        taskTitle={task?.title || 'esta publicación'}
+        taskDescription={task?.description || ''}
+        messageTaskId={sharedTask?.id}
+        messageTaskType="shared-task"
       />
     </View>
   );
@@ -682,6 +798,9 @@ const styles = StyleSheet.create({
   commentInputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', alignItems: 'flex-end', gap: 8 },
   input: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, minHeight: 45, maxHeight: 100 },
   sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
+
+  openOriginalBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 12, marginBottom: 8, paddingVertical: 12, borderRadius: 14, backgroundColor: '#eef6ff', borderWidth: 1, borderColor: '#d0e6fb' },
+  openOriginalText: { color: '#4dabf7', fontWeight: '700', fontSize: 14 },
 
   errorText: { fontSize: 16, color: '#999', textAlign: 'center', marginTop: 50 } });
 

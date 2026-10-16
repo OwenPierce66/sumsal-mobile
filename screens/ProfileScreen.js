@@ -10,8 +10,9 @@ import { Image } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { getImageUrl } from '@api';
+import api, { getImageUrl } from '@api';
 import { AuthContext } from '@app';
+import SideMenu from '@components/SideMenu';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import CategoryHierarchy from '@components/CategoryHierarchy';
 import {
@@ -30,13 +31,14 @@ const flattenPages = (data) =>
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 const ProfileScreen = ({ route, navigation }) => {
-  const { signOut } = useContext(AuthContext);
+  const { signOut, user: sessionUser } = useContext(AuthContext);
   const queryClient = useQueryClient();
   const { width: screenWidth } = useWindowDimensions();
   const detailItemWidth = Math.max(240, screenWidth - 80);
 
   const userId = route?.params?.userId || 'me';
   const isCurrentUser = userId === 'me';
+  const hasBackNavigation = (navigation.getState()?.index ?? 0) > 0 || !isCurrentUser;
 
   // ── Estado local (solo UI, no datos remotos) ──────────────────────────────
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -139,7 +141,6 @@ const ProfileScreen = ({ route, navigation }) => {
   const togglePersonalFilterVisibility = async () => {
     const nextValue = !personalFilterPublic;
     try {
-      const api = (await import('@api')).default;
       const response = await api.patch('categories/visibility/', {
         personal_filter_public: nextValue,
       });
@@ -406,7 +407,7 @@ const ProfileScreen = ({ route, navigation }) => {
     <View style={styles.container}>
       {/* Barra superior */}
       <View style={styles.topBar}>
-        {(navigation.canGoBack() || !isCurrentUser) && (
+        {hasBackNavigation ? (
           <TouchableOpacity
             onPress={() =>
               navigation.canGoBack() ? navigation.goBack() : navigation.navigate('HomeMain')
@@ -415,6 +416,13 @@ const ProfileScreen = ({ route, navigation }) => {
           >
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
+        ) : (
+          <SideMenu
+            navigation={navigation}
+            signOut={signOut}
+            user={sessionUser}
+            buttonStyle={styles.sideMenuButton}
+          />
         )}
         <Text style={styles.topBarTitle}>Perfil</Text>
         {isCurrentUser ? (
@@ -604,6 +612,7 @@ const styles = StyleSheet.create({
   backBtn: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 16, zIndex: 10 },
   topBarTitle: { fontSize: 20, fontWeight: '800', color: '#333' },
   profileMenuButton: { position: 'absolute', right: 16, top: Platform.OS === 'ios' ? 50 : 16, padding: 4 },
+  sideMenuButton: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 16, zIndex: 10 },
   profileMenuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: Platform.OS === 'ios' ? 92 : 58, paddingRight: 12 },
   profileMenuCard: { backgroundColor: '#fff', borderRadius: 12, padding: 6, minWidth: 220, elevation: 6 },
   profileMenuOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12, gap: 8 },

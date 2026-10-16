@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
-import api from '@api';
+import api, { getImageUrl, UPLOAD_TIMEOUT_MS } from '@api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -95,19 +95,6 @@ const parseSharedContentFromMessage = (content) => {
     },
     bodyText,
   };
-};
-
-const getImageUrl = (path) => {
-  if (!path) return null;
-  if (path.startsWith('http') && !path.includes('localhost') && !path.includes('127.0.0.1') && !path.includes('192.168.')) {
-    return path;
-  }
-  const IP = Platform.OS === 'web' ? 'localhost' : '192.168.0.115';
-  let cleanPath = path;
-  if (cleanPath.startsWith('http')) {
-    cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
-  }
-  return `http://${IP}:8001${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
 const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, onOpenMessageMenu, onNavigateToProfile, onOpenContent, navigation }) => {
@@ -547,7 +534,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
       const finalMessageContent = hasSharedContentContext
         ? (plainMessage ? `${contextLine}\n${plainMessage}` : contextLine)
         : plainMessage;
-      if (finalMessageContent) formData.append("content", finalMessageContent);
+      if (finalMessageContent) formData.append('content', finalMessageContent);
 
       if (selectedImage) {
         const isVideo = isVideoAsset(selectedImage);
@@ -574,19 +561,17 @@ const ChatDetailScreen = ({ route, navigation }) => {
         }
       }
 
-      if (replyTo) {
-        formData.append("reply_to", replyTo.id);
-      }
+      if (replyTo) formData.append('reply_to', replyTo.id);
 
       if (type === 'direct') {
-        formData.append("receiver", chatId);
-        const res = await api.post(`massaging/messages/`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
+        formData.append('receiver', chatId);
+        const res = await api.post('massaging/messages/', formData, {
+          timeout: UPLOAD_TIMEOUT_MS,
         });
         setMessages(prev => [res.data, ...prev]);
       } else {
         const res = await api.post(`massaging/groupss/${chatId}/send_message/`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
+          timeout: UPLOAD_TIMEOUT_MS,
         });
         setMessages(prev => [res.data, ...prev]);
       }

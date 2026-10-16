@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, createContext } from 'react';
-import { View, ActivityIndicator, LogBox } from 'react-native';
+import { View, Image, ActivityIndicator, LogBox } from 'react-native';
 LogBox.ignoreLogs(['[Sentry] DSN no configurado']);
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -12,7 +12,7 @@ import OfflineWriteNotifier from '@components/OfflineWriteNotifier';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { asyncStoragePersister, MAX_AGE_MS, shouldPersistQuery } from './persistence/queryPersister';
 import NetInfo from '@react-native-community/netinfo';
-import api, { clearAuthData, authInterceptorController } from './api';
+import api, { clearAuthData, authInterceptorController, getImageUrl } from './api';
 import GlobalError from '@components/GlobalError';
 import ErrorBoundary from '@components/ErrorBoundary';
 import { ToastProvider } from '@contexts/ToastContext';
@@ -73,17 +73,14 @@ import ForumScreen from './screens/ForumScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import ChatListScreen from './screens/ChatListScreen';
 
-// ─── Pantallas secundarias — carga diferida (solo al navegar a ellas) ────────────
-// React.lazy reduce el tiempo de parseo inicial: el módulo no se evalúa
-// hasta la primera navegación, ahorrando ~30-40% del JS inicial.
-const CreateTaskScreen      = React.lazy(() => import('./screens/CreateTaskScreen'));
-const TaskDetailScreen      = React.lazy(() => import('./screens/TaskDetailScreen'));
-const PostDetailScreen      = React.lazy(() => import('./screens/PostDetailScreen'));
-const SharedTaskDetailScreen = React.lazy(() => import('./screens/SharedTaskDetailScreen'));
-const ChatDetailScreen      = React.lazy(() => import('./screens/ChatDetailScreen'));
-const NotificationsScreen   = React.lazy(() => import('./screens/NotificationsScreen'));
-const EditProfileScreen     = React.lazy(() => import('./screens/EditProfileScreen'));
-const FavoritesScreen       = React.lazy(() => import('./screens/FavoritesScreen'));
+import CreateTaskScreen from './screens/CreateTaskScreen';
+import TaskDetailScreen from './screens/TaskDetailScreen';
+import PostDetailScreen from './screens/PostDetailScreen';
+import SharedTaskDetailScreen from './screens/SharedTaskDetailScreen';
+import ChatDetailScreen from './screens/ChatDetailScreen';
+import NotificationsScreen from './screens/NotificationsScreen';
+import EditProfileScreen from './screens/EditProfileScreen';
+import FavoritesScreen from './screens/FavoritesScreen';
 
 import { NotificationsProvider } from './contexts/NotificationsContext';
 
@@ -94,29 +91,14 @@ const Tab = createBottomTabNavigator();
 export const AuthContext = createContext();
 export const GlobalErrorContext = createContext();
 
-/**
- * HOC que envuelve un componente cargado con React.lazy en Suspense.
- * Muestra un spinner centrado mientras el módulo se descarga la primera vez.
- * @param {React.LazyExoticComponent} LazyComponent
- */
-const LazyScreen = (LazyComponent) => (props) => (
-  <React.Suspense fallback={
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <ActivityIndicator size="large" color="#4dabf7" />
-    </View>
-  }>
-    <LazyComponent {...props} />
-  </React.Suspense>
-);
-
 const TasksStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TasksList" component={TasksScreen} />
-      <Stack.Screen name="CreateTask" component={LazyScreen(CreateTaskScreen)} />
-      <Stack.Screen name="TaskDetail" component={LazyScreen(TaskDetailScreen)} />
-      <Stack.Screen name="SharedTaskDetail" component={LazyScreen(SharedTaskDetailScreen)} />
-      <Stack.Screen name="ChatDetail" component={LazyScreen(ChatDetailScreen)} />
+      <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
+      <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
     </Stack.Navigator>
   );
@@ -127,12 +109,36 @@ const HomeStackNavigator = () => {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="HomeMain" component={HomeScreen} />
       <Stack.Screen name="ChatList" component={ChatListScreen} />
-      <Stack.Screen name="Notifications" component={LazyScreen(NotificationsScreen)} />
-      <Stack.Screen name="ChatDetail" component={LazyScreen(ChatDetailScreen)} />
-      <Stack.Screen name="CreateTask" component={LazyScreen(CreateTaskScreen)} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} />
+      <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+      <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
-      <Stack.Screen name="TaskDetail" component={LazyScreen(TaskDetailScreen)} />
-      <Stack.Screen name="SharedTaskDetail" component={LazyScreen(SharedTaskDetailScreen)} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
+    </Stack.Navigator>
+  );
+};
+
+const MessagesStackNavigator = () => {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="ChatList" component={ChatListScreen} />
+      <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+      <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
+    </Stack.Navigator>
+  );
+};
+
+const NotificationsStackNavigator = () => {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="NotificationsMain" component={NotificationsScreen} />
+      <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+      <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
   );
 };
@@ -141,7 +147,7 @@ const ForumStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ForumMain" component={ForumScreen} />
-      <Stack.Screen name="PostDetail" component={LazyScreen(PostDetailScreen)} />
+      <Stack.Screen name="PostDetail" component={PostDetailScreen} />
     </Stack.Navigator>
   );
 };
@@ -150,7 +156,7 @@ const SharedTasksStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="SharedTasksList" component={SharedTasksScreen} />
-      <Stack.Screen name="SharedTaskDetail" component={LazyScreen(SharedTaskDetailScreen)} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
   );
 };
@@ -159,31 +165,51 @@ const ProfileStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
-      <Stack.Screen name="CreateTask" component={LazyScreen(CreateTaskScreen)} />
-      <Stack.Screen name="TaskDetail" component={LazyScreen(TaskDetailScreen)} />
-      <Stack.Screen name="EditProfile" component={LazyScreen(EditProfileScreen)} />
-      <Stack.Screen name="Favorites" component={LazyScreen(FavoritesScreen)} />
-      <Stack.Screen name="SharedTaskDetail" component={LazyScreen(SharedTaskDetailScreen)} />
+      <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+      <Stack.Screen name="Favorites" component={FavoritesScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
   );
 };
 
 const AuthenticatedTabs = () => {
+  const { user } = React.useContext(AuthContext);
+  const profileImage = user?.user_image || user?.profile?.user_image;
+
   return (
     <NotificationsProvider>
       <Tab.Navigator
+      initialRouteName="Tasks"
       backBehavior="none"
       screenOptions={({ route }) => ({
         headerShown: false,
+        tabBarShowLabel: false,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
-          if (route.name === 'HomeTab') iconName = focused ? 'home' : 'home-outline';
-          else if (route.name === 'Tasks') iconName = focused ? 'list' : 'list-outline';
+          if (route.name === 'Tasks') iconName = focused ? 'home' : 'home-outline';
+          else if (route.name === 'HomeTab') iconName = focused ? 'list' : 'list-outline';
           else if (route.name === 'Reels') iconName = focused ? 'videocam' : 'videocam-outline';
           else if (route.name === 'Stories') iconName = focused ? 'time' : 'time-outline';
           else if (route.name === 'Forum') iconName = focused ? 'chatbox' : 'chatbox-outline';
           else if (route.name === 'SharedTasks') iconName = focused ? 'share' : 'share-outline';
-          else if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
+          else if (route.name === 'Messages') iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+          else if (route.name === 'Notifications') iconName = focused ? 'notifications' : 'notifications-outline';
+          else if (route.name === 'Profile' && profileImage) {
+            return (
+              <Image
+                source={{ uri: getImageUrl(profileImage) }}
+                style={{
+                  width: size,
+                  height: size,
+                  borderRadius: size / 2,
+                  borderWidth: focused ? 2 : 0,
+                  borderColor: focused ? color : 'transparent',
+                }}
+              />
+            );
+          } else if (route.name === 'Profile') iconName = focused ? 'person' : 'person-outline';
           
           return <Ionicons name={iconName} size={size} color={color} />;
         },
@@ -191,13 +217,27 @@ const AuthenticatedTabs = () => {
         tabBarInactiveTintColor: '#999',
       })}
     >
-      <Tab.Screen name="HomeTab" component={HomeStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
-      <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
+      <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
+      <Tab.Screen name="HomeTab" component={HomeStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
       <Tab.Screen name="Reels" component={ReelsScreen} options={{ tabBarLabel: 'Reels' }} />
-      <Tab.Screen name="Stories" component={Stories24hScreen} options={{ tabBarLabel: 'Historias' }} />
-      <Tab.Screen name="SharedTasks" component={SharedTasksStackNavigator} options={{ tabBarLabel: 'Compartidas' }} />
-      <Tab.Screen name="Forum" component={ForumStackNavigator} options={{ tabBarLabel: 'Foro' }} />
+      <Tab.Screen name="Messages" component={MessagesStackNavigator} options={{ tabBarLabel: 'Mensajes' }} />
+      <Tab.Screen name="Notifications" component={NotificationsStackNavigator} options={{ tabBarLabel: 'Notificaciones' }} />
       <Tab.Screen name="Profile" component={ProfileStackNavigator} options={{ tabBarLabel: 'Perfil' }} />
+      <Tab.Screen
+        name="Stories"
+        component={Stories24hScreen}
+        options={{ tabBarButton: () => null }}
+      />
+      <Tab.Screen
+        name="SharedTasks"
+        component={SharedTasksStackNavigator}
+        options={{ tabBarButton: () => null }}
+      />
+      <Tab.Screen
+        name="Forum"
+        component={ForumStackNavigator}
+        options={{ tabBarButton: () => null }}
+      />
       </Tab.Navigator>
     </NotificationsProvider>
   );
@@ -212,9 +252,6 @@ const linking = {
           HomeTab: {
             screens: {
               HomeMain: 'home',
-              ChatList: 'chats',
-              Notifications: 'notifications',
-              ChatDetail: 'chat/:chatId',
               UserProfile: 'user/:userId',
               TaskDetail: 'task/:taskId',
               SharedTaskDetail: 'shared-task/:sharedTaskId'
@@ -226,6 +263,17 @@ const linking = {
               CreateTask: 'tasks/create',
               TaskDetail: 'tasks/:taskId',
               SharedTaskDetail: 'tasks/shared/:sharedTaskId'
+            }
+          },
+          Messages: {
+            screens: {
+              ChatList: 'chats',
+              ChatDetail: 'chat/:chatId'
+            }
+          },
+          Notifications: {
+            screens: {
+              NotificationsMain: 'notifications'
             }
           },
           SharedTasks: {

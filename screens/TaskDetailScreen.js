@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Modal,
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView, Dimensions
+  ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView, Dimensions, useWindowDimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,136 +9,16 @@ import moment from 'moment';
 import 'moment/locale/es'; 
 import api, { getImageUrl } from '@api';
 import { Image } from 'expo-image';
-import { Video } from 'expo-av';
 import ShareModal from '@components/ShareModal';
 import TieredLikesModal from './TieredLikesModal';
-import Slider from '@react-native-community/slider';
+import ShareActionMenu from './ShareActionMenu';
+import TaskPostCard, { FeedVideoVisibilityContext } from '@components/TaskPostCard';
+import TaskActionsModal from '@components/TaskActionsModal';
+import useTaskActions from '@hooks/useTaskActions';
 import TouchableUsername from '@components/TouchableUsername';
-import CategoryHierarchy from '@components/CategoryHierarchy';
 import { useTaskDetail, useTaskComments, useMe, useIsAdmin } from '@hooks/useApi';
 
 moment.locale('es');
-
-const isVideoMedia = (path) => {
-  const value = String(path || '').toLowerCase();
-  return value.startsWith('data:video/') || /\.(mp4|mov|avi|mkv|webm|m4v)(\?|$)/i.test(value);
-};
-
-const DETAIL_VIDEO_AUTOPLAY_DELAY_MS = 500;
-
-const DetailVideoPreview = ({ uri, onOpenReel }) => {
-  const containerRef = useRef(null);
-  const playerRef = useRef(null);
-  const visibleSinceRef = useRef(null);
-  const [isVisible, setIsVisible] = useState(false);
-  const [isReadyToPlay, setIsReadyToPlay] = useState(false);
-  const [isPausedByUser, setIsPausedByUser] = useState(false);
-  const [controlsVisible, setControlsVisible] = useState(false);
-  const [playbackStatus, setPlaybackStatus] = useState({});
-
-  useEffect(() => {
-    setIsReadyToPlay(false);
-    if (isVisible) {
-      visibleSinceRef.current = Date.now();
-    } else {
-      visibleSinceRef.current = null;
-      setIsPausedByUser(false);
-    }
-  }, [isVisible]);
-
-  useEffect(() => {
-    if (!isReadyToPlay || !isVisible || isPausedByUser) return undefined;
-    playerRef.current?.playAsync().catch(() => {});
-    return undefined;
-  }, [isReadyToPlay, isVisible, isPausedByUser]);
-
-  useEffect(() => {
-    const checkVisibility = () => {
-      containerRef.current?.measureInWindow((x, y, width, height) => {
-        const viewport = Dimensions.get('window');
-        const visible = x + width > 0 && x < viewport.width && y + height > 0 && y < viewport.height;
-        setIsVisible(visible);
-        if (visible && visibleSinceRef.current && Date.now() - visibleSinceRef.current >= DETAIL_VIDEO_AUTOPLAY_DELAY_MS) {
-          setIsReadyToPlay(true);
-        }
-      });
-    };
-    const interval = setInterval(checkVisibility, 250);
-    checkVisibility();
-    return () => clearInterval(interval);
-  }, []);
-
-  const togglePlayback = () => {
-    if (playbackStatus.isPlaying) {
-      setIsPausedByUser(true);
-      playerRef.current?.pauseAsync();
-    } else {
-      setIsPausedByUser(false);
-      playerRef.current?.playAsync();
-    }
-    setControlsVisible(true);
-  };
-
-  return (
-    <View ref={containerRef} collapsable={false} style={styles.detailVideoWrapper}>
-      <Video
-        ref={playerRef}
-        source={{ uri: getImageUrl(uri) }}
-        style={styles.detailVideo}
-        resizeMode="contain"
-        shouldPlay={isReadyToPlay && isVisible && !isPausedByUser}
-        isLooping
-        onPlaybackStatusUpdate={setPlaybackStatus}
-      />
-      <TouchableOpacity style={styles.detailVideoTouchSurface} activeOpacity={1} onPress={() => setControlsVisible((visible) => !visible)} />
-      {controlsVisible && (
-        <View style={styles.detailVideoControls} pointerEvents="box-none">
-          <TouchableOpacity style={styles.detailVideoControlButton} onPress={togglePlayback}>
-            <Ionicons name={playbackStatus.isPlaying ? 'pause' : 'play'} size={20} color="#fff" />
-          </TouchableOpacity>
-          <Slider
-            style={styles.detailVideoProgress}
-            minimumValue={0}
-            maximumValue={playbackStatus.durationMillis || 1}
-            value={playbackStatus.positionMillis || 0}
-            onSlidingStart={() => setIsPausedByUser(true)}
-            onSlidingComplete={(value) => {
-              playerRef.current?.setPositionAsync(value);
-              setIsPausedByUser(false);
-            }}
-            minimumTrackTintColor="#fff"
-            maximumTrackTintColor="rgba(255,255,255,0.45)"
-            thumbTintColor="#fff"
-          />
-          <TouchableOpacity accessibilityLabel="Abrir video en reels" style={styles.detailExpandButton} onPress={onOpenReel}>
-            <Ionicons name="expand-outline" size={22} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
-};
-
-const MediaPreview = ({ uri, label, onOpenReel }) => {
-  if (!uri) return null;
-  const mediaUri = getImageUrl(uri);
-
-  if (isVideoMedia(uri)) {
-    return (
-      <View style={styles.mediaBlock}>
-        <DetailVideoPreview uri={uri} onOpenReel={onOpenReel} />
-        <Text style={styles.mediaLabel}>{label}</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.mediaBlock}>
-      <Image source={{ uri: mediaUri }} style={styles.detailImage} contentFit="cover" />
-      <Text style={styles.mediaLabel}>{label}</Text>
-    </View>
-  );
-};
 
 // =====================================================================
 // COMPONENTE RECURSIVO (COMENTARIOS)
@@ -303,60 +183,87 @@ const TaskDetailScreen = ({ route, navigation }) => {
     });
   }, [navigation, task?.id]);
 
-  const handleDeleteTask = async () => {
-    const executeDelete = async () => {
-      try {
-        await api.delete("tasks/" + taskId + "/");
-        setActionModalVisible(false);
-        if (Platform.OS === "web") {
-          window.alert("Éxito: Tarea eliminada.");
-        } else {
-          Alert.alert("Éxito", "Tarea eliminada.");
-        }
-        navigation.goBack();
-      } catch (error) {
-        console.error("Error deleting task:", error);
-      }
-    };
+  const [shareActionMenuVisible, setShareActionMenuVisible] = useState(false);
 
-    if (Platform.OS === "web") {
-      if (window.confirm("ï¿½Estï¿½s seguro de que deseas eliminar esta tarea permanentemente?")) executeDelete();
+  const { width: screenWidth } = useWindowDimensions();
+  const carouselWidth = Math.max(280, screenWidth - 56);
+
+  // Autoplay de videos: se mide contra el ScrollView real (no toda la ventana)
+  const scrollRef = useRef(null);
+  const getScrollBounds = useCallback((callback) => {
+    const node = scrollRef.current?.getNativeScrollRef?.() || scrollRef.current;
+    if (node && typeof node.measureInWindow === 'function') {
+      node.measureInWindow((x, y, width, height) => callback({ x, y, width, height }));
     } else {
-      Alert.alert("Eliminar Tarea", "ï¿½Estï¿½s seguro de que deseas eliminar esta tarea permanentemente?", [
-        { text: "Cancelar", style: "cancel" },
-        { text: "Eliminar", style: "destructive", onPress: executeDelete }
-      ]);
+      callback(null);
     }
+  }, []);
+  const videoVisibility = useMemo(
+    () => ({ visibleIds: null, getListBounds: getScrollBounds }),
+    [getScrollBounds]
+  );
+
+  const openSubMediaInReels = useCallback((subTask, sub, section) => {
+    if (!subTask?.id || !sub?.video) return;
+    navigation.navigate('Reels', {
+      openTaskId: subTask.id,
+      openMediaSrc: sub.video,
+      openMediaType: 'video',
+      openMediaSection: section,
+      openMediaRequestId: Date.now(),
+    });
+  }, [navigation]);
+
+  const handleShareSubItemToStory = useCallback(async (subTask, section, sub) => {
+    if (!subTask || !sub) return;
+    try {
+      await api.post('stories/share-task/', {
+        task_id: subTask.id,
+        source_item_type: section,
+        source_item_id: sub.id,
+      });
+      Alert.alert('Éxito', 'Se compartió la aportación en tu historia de 24 horas.');
+      navigation.navigate('Stories');
+    } catch (error) {
+      Alert.alert('Error', error.response?.data?.error || 'No se pudo compartir esta aportación en historia.');
+    }
+  }, [navigation]);
+
+  const handleShareToStory = useCallback(async () => {
+    if (!task?.id) return;
+    try {
+      await api.post('stories/share-task/', { task_id: task.id });
+      Alert.alert('Éxito', 'Se compartió en tu historia de 24 horas.');
+      navigation.navigate('Stories');
+    } catch (error) {
+      Alert.alert('Error', error.response?.data?.error || 'No se pudo compartir esta tarea en historia.');
+    }
+  }, [task?.id, navigation]);
+
+  const handleRepost = useCallback(async () => {
+    if (!task?.id) return;
+    setTask(prev => prev ? { ...prev, interaction_score: (prev.interaction_score || 0) + 1 } : prev);
+    try {
+      const response = await api.post(`/tasks/${task.id}/repost/`);
+      Alert.alert('Éxito', '¡Publicación impulsada!');
+      setTask(prev => prev ? { ...prev, interaction_score: response.data.interaction_score } : prev);
+    } catch (error) {
+      console.error('Error al repostear:', error.response?.data || error);
+      Alert.alert('Error', 'Error al repostear. Inténtalo de nuevo.');
+      setTask(prev => prev ? { ...prev, interaction_score: Math.max(0, (prev.interaction_score || 0) - 1) } : prev);
+    }
+  }, [task?.id, task?.user_has_reposted, task?.user_has_liked, task?.likes_count, task?.interaction_score]);
+
+  const handleShowProfileLikes = (userId) => {
+    setLikesModalUrl(`profiles/${userId}/likes/`);
+    setLikesModalTitle('Likes del Perfil');
+    setLikesModalVisible(true);
   };
 
-  const handleApprovePodcast = () => {
-    if (!task?.id || !isAdmin) return;
-    const approve = async () => {
-      try {
-        const response = await api.post(`tasks/${task.id}/approve/`, { approve: true });
-        setTask(current => ({
-          ...current,
-          categories: response.data?.categories || current.categories,
-        }));
-        setActionModalVisible(false);
-        Alert.alert('Podcast aprobado', 'Se notificó al creador y a las personas etiquetadas.');
-      } catch (error) {
-        Alert.alert('No se pudo aprobar', error.response?.data?.detail || 'Intenta de nuevo.');
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm('¿Aprobar este podcast y notificar a sus involucrados?')) approve();
-    } else {
-      Alert.alert(
-        'Aprobar podcast',
-        'Se cambiará Procesando por Aprobada y se notificará al creador y a las personas etiquetadas.',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Aprobar', onPress: approve },
-        ],
-      );
-    }
+  const handleShowTaskShares = (sharedTaskId) => {
+    setLikesModalUrl(`tasks/${sharedTaskId}/users-who-shared/`);
+    setLikesModalTitle('Compartido por');
+    setLikesModalVisible(true);
   };
 
   const handlePodcastInvitationResponse = async (accepted) => {
@@ -376,33 +283,6 @@ const TaskDetailScreen = ({ route, navigation }) => {
     } finally {
       setRespondingToPodcast(false);
     }
-  };
-
-  const handleToggleProfileFavorite = async () => {
-    if (!task || !task.user) return;
-    try {
-      const userObj = typeof task.user === "object" ? task.user : { id: task.user };
-      const perfilId = userObj.id;
-      const isFav = !userObj.is_favorited;
-      
-      setTask(prev => ({ ...prev, user: { ...prev.user, is_favorited: isFav } }));
-      await api.post("pfavoritos/agregar/", { perfil_id: perfilId });
-    } catch (error) {
-      console.error("Error toggling profile favorite:", error);
-    } finally {
-      setActionModalVisible(false);
-    }
-  };
-
-  const handleGoToForum = () => {
-    if (!task || !task.user) return;
-    const userObj = task.user;
-    setActionModalVisible(false);
-    navigation.navigate("UserProfile", { 
-      userId: userObj.id, 
-      userName: getTaskAuthorName(), 
-      userAvatar: getTaskAuthorAvatar() 
-    });
   };
 
 
@@ -658,6 +538,20 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const taskOwnerId = task?.user?.id || task?.user_id || task?.user;
   const isTaskOwner = currentUserId && taskOwnerId && String(currentUserId) === String(taskOwnerId);
 
+  // Menú de 3 puntos completo (mismos handlers que el feed)
+  const taskActions = useTaskActions({
+    navigation,
+    actionTask: task,
+    currentUserId,
+    close: () => setActionModalVisible(false),
+    refresh: fetchTaskDetail,
+    onShare: () => setShareActionMenuVisible(true),
+    onDeleted: () => {
+      Alert.alert('Éxito', 'Tarea eliminada.');
+      navigation.goBack();
+    },
+  });
+
   // âš¡ HELPER PARA EXTRAER EL AVATAR DEL AUTOR DE LA TAREA PRINCIPAL
   // const getTaskAuthorAvatar = () => {
   //   if (!task) return 'https://ui-avatars.com/api/?name=A';
@@ -694,111 +588,29 @@ const TaskDetailScreen = ({ route, navigation }) => {
             )}
           </TouchableOpacity>
         ) : null}
-        <TouchableOpacity onPress={() => setActionModalVisible(true)}>
-          <Ionicons name="ellipsis-vertical" size={24} color="#333" />
-        </TouchableOpacity>
+        <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.content}>
-        {/* LA TAREA PRINCIPAL */}
-        <View style={styles.taskCard}>
-          {/* âš¡ AÃ‘ADIMOS EL HEADER CON EL NOMBRE Y AVATAR DEL AUTOR */}
-          <View style={styles.taskAuthorHeader}>
-            <Image source={{ uri: getTaskAuthorAvatar() }} style={styles.taskAuthorAvatar} />
-            <View style={{ flex: 1 }}>
-              <TouchableUsername
-                username={getTaskAuthorName()}
-                userId={task.user?.id || null}
-                userImage={getTaskAuthorAvatar() || null}
-                navigation={navigation}
-                style={styles.taskAuthorNameWrap}
-                textStyle={styles.taskAuthorName}
-                numberOfLines={1}
-              />
-              {/* ✅ AÑADIDO: Mostrar el ícono de admin si corresponde */}
-              {(task.user?.is_staff || task.user?.is_superuser) && (
-                <Ionicons name="shield-checkmark" size={16} color="#4dabf7" style={{ marginLeft: 6 }} />
-              )}
-              <Text style={styles.taskDate}>{moment(task.created_at).format('LL')}</Text>
-            </View>
-            
-            {/* âš¡ BOTÃ“N PARA ENVIAR MENSAJE DIRECTO AL CREADOR */}
-            {task.user?.id && currentUserId !== task.user?.id && (
-              <TouchableOpacity 
-                style={styles.dmButton}
-                onPress={() => navigation.navigate('ChatDetail', { 
-                  chatId: task.user.id,
-                  type: 'direct',
-                  title: getTaskAuthorName(),
-                  avatar: getTaskAuthorAvatar()
-                })}
-              >
-                <Ionicons name="chatbubbles-outline" size={18} color="#fff" />
-                <Text style={styles.dmButtonText}>Mensaje</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.taskInfo}>
-            <Text style={styles.taskTitle}>{task.title}</Text>
-            <Text style={styles.taskDescription}>{task.description}</Text>
-
-            {Array.isArray(task.tagged_users) && task.tagged_users.length > 0 && (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
-                <Ionicons name="pricetag-outline" size={14} color="#845ef7" style={{ marginRight: 4 }} />
-                <Text style={{ color: '#868e96', fontSize: 13, marginRight: 4 }}>Con:</Text>
-                {task.tagged_users.map((u, idx) => (
-                  <View key={u.id || idx} style={{ marginRight: 8 }}>
-                    <TouchableUsername
-                      username={`@${u.username || u.first_name || 'usuario'}`}
-                      userId={u.id}
-                      navigation={navigation}
-                      textStyle={{ color: '#845ef7', fontSize: 13, fontWeight: '600' }}
-                    />
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <CategoryHierarchy categories={task.categories} />
-
-            <MediaPreview uri={task.video || task.image} label="Publicación" onOpenReel={() => openMediaInReels(task.video)} />
-
-            {[
-              ...(Array.isArray(task.subtasks) ? task.subtasks.map((item) => ({ ...item, section: 'Consejo' })) : []),
-              ...(Array.isArray(task.subfactores) ? task.subfactores.map((item) => ({ ...item, section: 'Factor' })) : []),
-              ...(Array.isArray(task.subfuentes) ? task.subfuentes.map((item) => ({ ...item, section: 'Fuente' })) : []),
-            ].map((item, index) => (
-              <View key={item.id || `${item.section}-${index}`} style={styles.subtaskDetail}>
-                <Text style={styles.subtaskDetailSection}>{item.section}</Text>
-                {item.title ? <Text style={styles.subtaskDetailTitle}>{item.title}</Text> : null}
-                {item.description ? <Text style={styles.subtaskDetailDescription}>{item.description}</Text> : null}
-                <MediaPreview uri={item.video || item.image} label={item.section} onOpenReel={() => openMediaInReels(item.video)} />
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.actions}>
-            <TouchableOpacity 
-              style={styles.actionBtn} 
-              onPress={handleLikeTask}
-              onLongPress={handleShowTaskLikes}
-            >
-              <Ionicons name={task.user_has_liked ? "heart" : "heart-outline"} size={20} color={task.user_has_liked ? "#ff6b6b" : "#999"} />
-              <Text style={styles.actionBtnText}>{task.likes_count || 0}</Text>
-            </TouchableOpacity>
-            <View style={styles.actionBtn}>
-              <Ionicons name="chatbubble-outline" size={20} color="#999" />
-              {/* âš¡ USAMOS EL CONTEO TOTAL DEL BACKEND QUE INCLUYE HASTA LOS NIETOS */}
-              <Text style={styles.actionBtnText}>{task.comments_count || 0}</Text>
-            </View>
-            <TouchableOpacity style={styles.actionBtn} onPress={openShareModal}>
-              <Ionicons name="share-social-outline" size={20} color="#51cf66" />
-              <Text style={styles.actionBtnText}>{task.share_count || 0}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
+      <ScrollView ref={scrollRef} style={styles.content}>
+        {/* LA TAREA PRINCIPAL (misma tarjeta que en el feed) */}
+        <FeedVideoVisibilityContext.Provider value={videoVisibility}>
+          <TaskPostCard
+            task={task}
+            navigation={navigation}
+            tema={task.pch || ''}
+            carouselWidth={carouselWidth}
+            onAvatarPress={handleShowProfileLikes}
+            onOpenActions={() => setActionModalVisible(true)}
+            onRepost={handleRepost}
+            onLike={handleLikeTask}
+            onShowLikes={handleShowTaskLikes}
+            onPressComments={() => {}}
+            onShare={() => setShareActionMenuVisible(true)}
+            onShowShares={handleShowTaskShares}
+            onShareSubItemToStory={handleShareSubItemToStory}
+            onOpenSubMediaInReels={openSubMediaInReels}
+          />
+        </FeedVideoVisibilityContext.Provider>
         {/* SECCIÃ“N DE COMENTARIOS */}
         <View style={styles.commentsSection}>
           <Text style={styles.sectionTitle}>Comentarios</Text>
@@ -893,76 +705,38 @@ const TaskDetailScreen = ({ route, navigation }) => {
         title={likesModalTitle}
       />
 
-      {/* MODAL DE ACCIONES (3 PUNTOS) */}
-      <Modal visible={actionModalVisible} transparent animationType="fade" onRequestClose={() => setActionModalVisible(false)}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setActionModalVisible(false)}>
-          <View style={styles.actionModalContainer}>
-            <View style={styles.modalDragHandle} />
-            {task && (
-              <>
-                <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); openShareModal(); }}>
-                  <Ionicons name="share-social-outline" size={20} color="#555" />
-                  <Text style={styles.actionText}>Compartir</Text>
-                </TouchableOpacity>
-                {task.user && currentUserId !== (task.user?.id || task.user) && (
-                  <>
-                    <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); navigation.navigate("ChatDetail", { chatId: task.user.id, type: "direct", title: getTaskAuthorName(), avatar: getTaskAuthorAvatar() }); }}>
-                      <Ionicons name="chatbubbles-outline" size={20} color="#4dabf7" />
-                      <Text style={styles.actionText}>Mensaje Directo</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionOption} onPress={handleGoToForum}>
-                      <Ionicons name="person-outline" size={20} color="#4dabf7" />
-                      <Text style={styles.actionText}>Ir a su perfil/foro</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionOption} onPress={handleToggleProfileFavorite}>
-                      <Ionicons name={(task.user && task.user.is_favorited) ? "heart" : "heart-outline"} size={20} color={(task.user && task.user.is_favorited) ? "#ff0b5a" : "#555"} />
-                      <Text style={styles.actionText}>{(task.user && task.user.is_favorited) ? "Eliminar perfil de favoritos" : "Agregar perfil a favoritos"}</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-                {isTaskOwner && (
-                  <>
-                    <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); navigation.navigate('CreateTask', { task }); }}>
-                      <Ionicons name="pencil-outline" size={20} color="#4dabf7" />
-                      <Text style={styles.actionText}>Editar</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
-                      <Ionicons name="trash-outline" size={20} color="#ff6b6b" />
-                      <Text style={[styles.actionText, { color: "#ff6b6b", fontWeight: "bold" }]}>Eliminar</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-                {isAdmin && String(task.categories || '').split(',').some(category => category.trim().toLowerCase() === 'grabar podcast') && (
-                    <TouchableOpacity style={styles.actionOption} onPress={handleApprovePodcast}>
-                      <Ionicons
-                        name={String(task.categories || '').split(',').some(category => category.trim().toLowerCase() === 'aprobada') ? 'send-outline' : 'ribbon-outline'}
-                        size={20}
-                        color="#f59f00"
-                      />
-                      <Text style={[styles.actionText, { color: '#e67700', fontWeight: '700' }] }>
-                        {String(task.categories || '').split(',').some(category => category.trim().toLowerCase() === 'aprobada')
-                          ? 'Enviar invitaciones del podcast'
-                          : 'Aprobar podcast'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                {podcastInvitationStatus === 'pending' && (
-                  <TouchableOpacity
-                    style={styles.actionOption}
-                    onPress={() => {
-                      setActionModalVisible(false);
-                      handlePodcastInvitationResponse(false);
-                    }}
-                  >
-                    <Ionicons name="close-circle-outline" size={20} color="#e03131" />
-                    <Text style={[styles.actionText, { color: '#e03131' }]}>Rechazar invitación</Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            )}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      {/* MODAL DE ACCIONES (3 PUNTOS): mismo menú completo que el feed */}
+      <TaskActionsModal
+        visible={actionModalVisible}
+        onClose={() => setActionModalVisible(false)}
+        actionTask={task}
+        currentUserId={currentUserId}
+        isAdmin={isAdmin}
+        canEdit={Boolean(isTaskOwner)}
+        handlers={taskActions}
+        extraOptions={podcastInvitationStatus === 'pending' ? (
+          <TouchableOpacity
+            style={styles.actionOption}
+            onPress={() => {
+              setActionModalVisible(false);
+              handlePodcastInvitationResponse(false);
+            }}
+          >
+            <Ionicons name="close-circle-outline" size={20} color="#e03131" />
+            <Text style={[styles.actionText, { color: '#e03131' }]}>Rechazar invitación</Text>
+          </TouchableOpacity>
+        ) : null}
+      />
+
+      {/* MENÚ DE COMPARTIR (igual que en el feed) */}
+      <ShareActionMenu
+        isVisible={shareActionMenuVisible}
+        onClose={() => setShareActionMenuVisible(false)}
+        onShare={() => { setShareActionMenuVisible(false); openShareModal(); }}
+        onSendMessage={() => { setShareActionMenuVisible(false); openShareModal(); }}
+        onRepost={() => { setShareActionMenuVisible(false); handleRepost(); }}
+        onShareToStory={() => { setShareActionMenuVisible(false); handleShareToStory(); }}
+      />
 
       {/* MODAL DE COMPARTIR */}
       <ShareModal
@@ -973,6 +747,8 @@ const TaskDetailScreen = ({ route, navigation }) => {
         navigation={navigation}
         taskTitle={task?.title || 'esta publicación'}
         taskDescription={task?.description || ''}
+        messageTaskId={task?.id}
+        messageTaskType="task"
       />
     </KeyboardAvoidingView>
   );

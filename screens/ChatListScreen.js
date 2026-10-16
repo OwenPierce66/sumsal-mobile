@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import SideMenu from '../components/SideMenu';
+import { AuthContext } from '../App';
 import moment from 'moment';
 import 'moment/locale/es';
 import { useFocusEffect } from '@react-navigation/native';
@@ -75,6 +77,7 @@ const formatConversationTime = (timestamp) => {
 };
 
 const ChatListScreen = ({ navigation }) => {
+  const { user, signOut } = useContext(AuthContext);
   const [conversations, setConversations] = useState([]);
   const [users, setUsers] = useState([]);
   const [currentUserId, setCurrentUserId] = useState(null);
@@ -294,17 +297,41 @@ const ChatListScreen = ({ navigation }) => {
       ? 'Todavía no tienes conversaciones directas.'
       : 'Tu bandeja está vacía.';
 
+  const handleBack = () => {
+    if ((navigation.getState()?.index ?? 0) > 0) {
+      navigation.goBack();
+      return;
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton}>
-          <Ionicons name="arrow-back" size={24} color="#222" />
-        </TouchableOpacity>
+        {(navigation.getState()?.index ?? 0) > 0 ? (
+          <TouchableOpacity onPress={handleBack} style={styles.headerButton} accessibilityLabel="Regresar">
+            <Ionicons name="arrow-back" size={24} color="#222" />
+          </TouchableOpacity>
+        ) : (
+          <SideMenu
+            navigation={navigation}
+            signOut={signOut}
+            user={user}
+            buttonStyle={styles.menuButton}
+          />
+        )}
         <View style={styles.headerCopy}>
           <Text style={styles.headerTitle}>Mensajes</Text>
           <Text style={styles.headerSubtitle}>{directCount} directos · {groupCount} grupos</Text>
         </View>
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={() => navigation.getParent()?.navigate('Forum')}
+            style={styles.headerButton}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir foro"
+          >
+            <Ionicons name="chatbox-outline" size={25} color="#4dabf7" />
+          </TouchableOpacity>
           <TouchableOpacity onPress={openCreateGroup} style={styles.headerButton}>
             <Ionicons name="people-outline" size={25} color="#845ef7" />
           </TouchableOpacity>
@@ -560,6 +587,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#edf0f2',
   },
   headerButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  menuButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerCopy: { flex: 1, marginLeft: 2 },
   headerTitle: { fontSize: 21, fontWeight: '800', color: '#202124' },
   headerSubtitle: { fontSize: 11, color: '#8b949e', marginTop: 1 },

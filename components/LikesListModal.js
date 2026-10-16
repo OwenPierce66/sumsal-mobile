@@ -2,15 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import api from '../api';
+import api, { getImageUrl } from '../api';
 import TouchableUsername from './TouchableUsername';
-
-const getImageUrl = (path) => {
-  if (!path) return 'https://ui-avatars.com/api/?name=User';
-  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
-  if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.115:8001${cleanPath}`;
-};
 
 const LikesListModal = ({ visible, onClose, apiUrl, title = "Le gusta a", navigation }) => {
   const [users, setUsers] = useState([]);
@@ -58,14 +51,15 @@ const LikesListModal = ({ visible, onClose, apiUrl, title = "Le gusta a", naviga
                 const displayName = user.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : (user.username || 'Usuario');
                 const userId = user.id || user.user?.id;
                 const userImage = user.user_image || user.profile?.user_image || user.profile?.image || user.user?.user_image;
+                const userImageUrl = getImageUrl(userImage) || 'https://ui-avatars.com/api/?name=User';
 
                 return (
                   <View style={styles.userItem}>
-                    <Image source={{ uri: getImageUrl(userImage) }} style={styles.userAvatar} />
+                    <Image source={{ uri: userImageUrl }} style={styles.userAvatar} />
                     <TouchableUsername
                       username={displayName}
                       userId={userId}
-                      userImage={getImageUrl(userImage)}
+                      userImage={userImageUrl}
                       navigation={navigation}
                       style={styles.userNameContainer}
                       textStyle={styles.userName}
