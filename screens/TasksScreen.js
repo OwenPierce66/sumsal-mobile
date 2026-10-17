@@ -35,7 +35,7 @@ const LEGACY_REELS_VIDEOS_ONLY_KEY = 'reels.videosOnly';
 const { hasVideo } = require('./reelUtils');
 
 const TasksScreen = ({ navigation, route }) => {
-  const isTasksTab = route?.name === 'HomeMain';
+  const isTasksTab = route?.name === 'TasksList';
   const { width: screenWidth } = useWindowDimensions();
   const carouselWidth = Math.max(280, screenWidth - 56);
 
@@ -150,7 +150,9 @@ const TasksScreen = ({ navigation, route }) => {
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [selectedSortBy, setSelectedSortBy] = useState('all');
-  const [selectedFavoritesOnly, setSelectedFavoritesOnly] = useState(false);
+  const [selectedFavoritesOnly, setSelectedFavoritesOnly] = useState(
+    route?.params?.feedMode === 'favorites'
+  );
   const [selectedFavoriteUsersOnly, setSelectedFavoriteUsersOnly] = useState(false);
   const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
@@ -1549,7 +1551,9 @@ const TasksScreen = ({ navigation, route }) => {
               user={user}
               buttonStyle={styles.headerMenuButton}
             />
-            <Text style={styles.headerTitle}>Éxito</Text>
+            <Text style={styles.headerTitle}>
+              {isTasksTab ? 'Tareas' : 'Inicio'}
+            </Text>
           </View>
           <View style={styles.headerActions}>
             <TouchableOpacity style={styles.headerIconBtn} onPress={openSearch}>
