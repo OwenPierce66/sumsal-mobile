@@ -62,7 +62,6 @@ const clearUserCache = async () => {
 };
 
 // ─── Pantallas principales — carga inmediata (necesarias en la primera pantalla) ────
-import HomeScreen from './screens/HomeScreen';
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
 import TasksScreen from './screens/TasksScreen';
@@ -94,11 +93,7 @@ export const GlobalErrorContext = createContext();
 const TasksStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen
-        name="TasksList"
-        component={TasksScreen}
-        initialParams={{ feedMode: 'favorites' }}
-      />
+      <Stack.Screen name="TasksList" component={TasksScreen} />
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
@@ -111,7 +106,11 @@ const TasksStackNavigator = () => {
 const HomeStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="HomeMain" component={HomeScreen} />
+      <Stack.Screen
+        name="HomeMain"
+        component={TasksScreen}
+        initialParams={{ feedMode: 'favorites' }}
+      />
       <Stack.Screen name="ChatList" component={ChatListScreen} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
@@ -221,8 +220,8 @@ const AuthenticatedTabs = () => {
         tabBarInactiveTintColor: '#999',
       })}
     >
-      <Tab.Screen name="Tasks" component={HomeStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
-      <Tab.Screen name="HomeTab" component={TasksStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
+      <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
+      <Tab.Screen name="HomeTab" component={HomeStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
       <Tab.Screen name="Reels" component={ReelsScreen} options={{ tabBarLabel: 'Reels' }} />
       <Tab.Screen name="Messages" component={MessagesStackNavigator} options={{ tabBarLabel: 'Mensajes' }} />
       <Tab.Screen name="Notifications" component={NotificationsStackNavigator} options={{ tabBarLabel: 'Notificaciones' }} />
@@ -255,19 +254,18 @@ const linking = {
         screens: {
           HomeTab: {
             screens: {
-              TasksList: 'tasks',
-              UserProfile: 'user/:userId',
-              TaskDetail: 'tasks/:taskId',
-              SharedTaskDetail: 'tasks/shared/:sharedTaskId',
-              CreateTask: 'tasks/create'
-            }
-          },
-          Tasks: {
-            screens: {
               HomeMain: 'home',
               UserProfile: 'user/:userId',
               TaskDetail: 'task/:taskId',
               SharedTaskDetail: 'shared-task/:sharedTaskId'
+            }
+          },
+          Tasks: {
+            screens: {
+              TasksList: 'tasks',
+              CreateTask: 'tasks/create',
+              TaskDetail: 'tasks/:taskId',
+              SharedTaskDetail: 'tasks/shared/:sharedTaskId'
             }
           },
           Messages: {
