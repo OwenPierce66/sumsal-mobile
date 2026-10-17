@@ -94,7 +94,11 @@ export const GlobalErrorContext = createContext();
 const TasksStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="TasksList" component={TasksScreen} />
+      <Stack.Screen
+        name="TasksList"
+        component={TasksScreen}
+        initialParams={{ feedMode: 'favorites' }}
+      />
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
@@ -217,8 +221,8 @@ const AuthenticatedTabs = () => {
         tabBarInactiveTintColor: '#999',
       })}
     >
-      <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
-      <Tab.Screen name="HomeTab" component={HomeStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
+      <Tab.Screen name="Tasks" component={HomeStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
+      <Tab.Screen name="HomeTab" component={TasksStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
       <Tab.Screen name="Reels" component={ReelsScreen} options={{ tabBarLabel: 'Reels' }} />
       <Tab.Screen name="Messages" component={MessagesStackNavigator} options={{ tabBarLabel: 'Mensajes' }} />
       <Tab.Screen name="Notifications" component={NotificationsStackNavigator} options={{ tabBarLabel: 'Notificaciones' }} />
@@ -251,18 +255,19 @@ const linking = {
         screens: {
           HomeTab: {
             screens: {
-              HomeMain: 'home',
+              TasksList: 'tasks',
               UserProfile: 'user/:userId',
-              TaskDetail: 'task/:taskId',
-              SharedTaskDetail: 'shared-task/:sharedTaskId'
+              TaskDetail: 'tasks/:taskId',
+              SharedTaskDetail: 'tasks/shared/:sharedTaskId',
+              CreateTask: 'tasks/create'
             }
           },
           Tasks: {
             screens: {
-              TasksList: 'tasks',
-              CreateTask: 'tasks/create',
-              TaskDetail: 'tasks/:taskId',
-              SharedTaskDetail: 'tasks/shared/:sharedTaskId'
+              HomeMain: 'home',
+              UserProfile: 'user/:userId',
+              TaskDetail: 'task/:taskId',
+              SharedTaskDetail: 'shared-task/:sharedTaskId'
             }
           },
           Messages: {
