@@ -29,13 +29,14 @@ import OfflineEmptyState from '../components/OfflineEmptyState';
 import TaskPostCard, { FeedVideoVisibilityContext, TaskSections } from '@components/TaskPostCard';
 import TaskActionsModal from '@components/TaskActionsModal';
 import StoriesBar from '@components/StoriesBar';
+import TopicTopSections from '@components/TopicTopSections';
 
 const TASKS_VIDEOS_ONLY_KEY = 'tasks.videosOnly';
 const LEGACY_REELS_VIDEOS_ONLY_KEY = 'reels.videosOnly';
 const { hasVideo } = require('./reelUtils');
 
 const TasksScreen = ({ navigation, route }) => {
-  const isTasksTab = route?.name === 'TasksList';
+  const isTasksTab = route?.name === 'HomeMain';
   const { width: screenWidth } = useWindowDimensions();
   const carouselWidth = Math.max(280, screenWidth - 56);
 
@@ -1157,6 +1158,17 @@ const TasksScreen = ({ navigation, route }) => {
   }, [searchCategory, searchSharedTasks, searchTasks, selectedSortBy]);
 
   const displayedFeedItems = searchExpanded && searchHasStarted ? searchFeedItems : feedItems;
+  const showTopicTops = route?.name === 'HomeMain'
+    && !searchExpanded
+    && !tema
+    && !selectedCategory
+    && !selectedStatus
+    && !selectedDateFilter
+    && !selectedFavoritesOnly
+    && !selectedFavoriteUsersOnly
+    && !selectedVerifiedUsersOnly
+    && !selectedRecommendedUsersOnly
+    && ['all', 'recent'].includes(selectedSortBy);
   const filteredTasks = displayedFeedItems.filter((item) => {
     if (
       isTasksTab
@@ -1697,6 +1709,16 @@ const TasksScreen = ({ navigation, route }) => {
         // Para un item compartido, usamos su propio ID, no el de la tarea anidada.
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderFeedItem}
+        ListHeaderComponent={showTopicTops ? (
+          <TopicTopSections
+            navigation={navigation}
+            onSelectTopic={(pch) => {
+              setTema(pch);
+              setSelectedSortBy('top_month');
+              feedListRef.current?.scrollToOffset({ offset: 0, animated: true });
+            }}
+          />
+        ) : null}
         onViewableItemsChanged={onFeedViewableItemsChanged}
         viewabilityConfig={feedViewabilityConfig}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={collapsibleH + stickyH} />}
