@@ -114,6 +114,8 @@ export const buildPlaylists = (task) => {
 
 export const getFirstMediaAnywhere = (task) => buildPlaylists(task).main[0]?.src || null;
 
+export const hasVideo = (task) => buildPlaylists(task).main.some((entry) => entry.type === 'video');
+
 export const getUserIdFromTask = (task) => {
   return task?.user?.profile?.id || task?.user?.profile_id || task?.user?.id || task?.user_id || null;
 };

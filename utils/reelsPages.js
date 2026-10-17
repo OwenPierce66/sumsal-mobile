@@ -14,7 +14,7 @@
  * @param {(content: any) => string | null} getMedia  devuelve el primer medio o null
  * @returns {any[]}
  */
-export function buildReelsFromPages(data, getMedia, includeContent = () => true) {
+export function buildReelsFromPages(data, getMedia) {
   if (!data?.pages) return [];
   const seen = new Set();
   const reels = [];
@@ -25,7 +25,6 @@ export function buildReelsFromPages(data, getMedia, includeContent = () => true)
       // Los items compartidos llevan el contenido dentro de `task`.
       const content = item.is_original ? item : item.task;
       if (!content) continue;
-      if (!includeContent(content, item)) continue;
       const anyMedia = getMedia(content);
       if (!anyMedia) continue;
       seen.add(item.id);
