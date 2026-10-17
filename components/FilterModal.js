@@ -177,7 +177,7 @@ const DraggableSubtheme = ({ name, index, subthemes, selected, onSelect, onReord
   );
 };
 
-const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, isSuperAdmin, currentPch }) => {
+const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, showVideoOnlyFilter = false, isSuperAdmin, currentPch }) => {
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
@@ -190,6 +190,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const [favoriteUsersOnly, setFavoriteUsersOnly] = useState(currentFavoriteUsers || false);
   const [verifiedUsersOnly, setVerifiedUsersOnly] = useState(currentVerifiedUsers || false);
   const [recommendedUsersOnly, setRecommendedUsersOnly] = useState(currentRecommendedUsers || false);
+  const [videosOnly, setVideosOnly] = useState(currentVideosOnly || false);
   // ✅ USAMOS LA PROP DIRECTAMENTE, NO UN ESTADO LOCAL
   const isSuper = isSuperAdmin;
   const [newCatName, setNewCatName] = useState('');
@@ -344,7 +345,8 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setFavoriteUsersOnly(currentFavoriteUsers || false);
     setVerifiedUsersOnly(currentVerifiedUsers || false);
     setRecommendedUsersOnly(currentRecommendedUsers || false);
-  }, [currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, visible, subthemesTree]);
+    setVideosOnly(currentVideosOnly || false);
+  }, [currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, visible, subthemesTree]);
 
   const fetchCategories = async () => {
     try {
@@ -554,6 +556,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       favorite_users_only: favoriteUsersOnly,
       verified_users_only: verifiedUsersOnly,
       recommended_users_only: recommendedUsersOnly,
+      videos_only: videosOnly,
     });
     onClose();
   };
@@ -569,6 +572,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setFavoriteUsersOnly(false);
     setVerifiedUsersOnly(false);
     setRecommendedUsersOnly(false);
+    setVideosOnly(false);
     onApply({
       category: '',
       status: '',
@@ -578,6 +582,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       favorite_users_only: false,
       verified_users_only: false,
       recommended_users_only: false,
+      videos_only: false,
     });
     onClose();
   };
@@ -860,6 +865,18 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   Usuarios Recomendados
                 </Text>
               </TouchableOpacity>
+              {showVideoOnlyFilter && (
+                <TouchableOpacity
+                  style={[styles.optionBadge, videosOnly && styles.optionBadgeActive]}
+                  onPress={() => setVideosOnly((value) => !value)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: videosOnly }}
+                >
+                  <Text style={[styles.optionText, videosOnly && styles.optionTextActive]}>
+                    Solo videos
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <Text style={styles.sectionTitle}>Fecha</Text>

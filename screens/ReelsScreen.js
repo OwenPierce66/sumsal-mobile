@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, Modal, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../App'; // ✅ IMPORTAMOS EL CONTEXTO
 import SideMenu from '../components/SideMenu';
 import api, { getImageUrl } from '../api';
@@ -19,6 +20,7 @@ import TaskActionsModal from '../components/TaskActionsModal';
 import useTaskActions from '../hooks/useTaskActions';
 
 const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'regular'];
+const REELS_VIDEOS_ONLY_KEY = 'reels.videosOnly';
 
 // ✅ FIX: Se mueven las funciones de vuelta aquí para evitar el error de "Module not found".
 const cleanVal = (v) => (v ? String(v).trim() : null);
@@ -108,7 +110,7 @@ const getSharedByInfo = (t) => {
   };
 };
 
-const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, setPaused, selectedReelId, handleReelTap, isUIVisible, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, getSharedByInfo, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, toggleProfileLike, likeAnimation, navigation, toggleFavorite, openShareModal, handleRepost, handleShowShares, handleShowLikes, handleShowProfileLikes, openActionModal, tema, taskLikesById, taskSharesById, profileLikesById, pageHeight }) => {
+const ReelRenderer = React.memo(({ item, index, activeIndex, isFocused, isMuted, paused, setPaused, selectedReelId, handleReelTap, isUIVisible, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, getSharedByInfo, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, toggleProfileLike, likeAnimation, navigation, toggleFavorite, openShareModal, handleRepost, handleShowShares, handleShowLikes, handleShowProfileLikes, openActionModal, tema, taskLikesById, taskSharesById, profileLikesById, pageHeight }) => {
   const tapToPause = Gesture.Tap()
     .maxDuration(250)
     .onEnd((event, success) => {
@@ -162,7 +164,7 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, se
         item={item}
         enrichedItem={enrichedItem}
         index={index}
-        isActive={index === activeIndex}
+        isActive={isFocused && index === activeIndex}
         isMuted={isMuted}
         paused={paused}
         setPaused={setPaused}
@@ -203,6 +205,7 @@ const ReelsScreen = ({ route }) => {
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
   const currentUserId = user?.id;
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
   const isOnline = useIsOnline();
   const [reels, setReels] = useState([]);
   const [tema, setTema] = useState('consejos');
@@ -229,6 +232,21 @@ const ReelsScreen = ({ route }) => {
   const [selectedFavoriteUsersOnly, setSelectedFavoriteUsersOnly] = useState(false);
   const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
+  const [selectedVideosOnly, setSelectedVideosOnly] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    AsyncStorage.getItem(REELS_VIDEOS_ONLY_KEY)
+      .then((value) => {
+        if (mounted) setSelectedVideosOnly(value === 'true');
+      })
+      .catch((error) => {
+        console.error('[ReelsScreen] No se pudo cargar la preferencia de solo videos:', error);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (isAdminFromContext !== undefined && isAdminFromContext !== null) {
@@ -319,8 +337,14 @@ const ReelsScreen = ({ route }) => {
 
   // ✅ Solo publicaciones (originales o compartidas) con algún medio.
   const serverReels = useMemo(
-    () => buildReelsFromPages(reelsQuery.data, getFirstMediaAnywhere),
-    [reelsQuery.data]
+    () => buildReelsFromPages(
+      reelsQuery.data,
+      getFirstMediaAnywhere,
+      selectedVideosOnly
+        ? (content) => buildPlaylists(content).main.some((entry) => entry.type === 'video')
+        : undefined
+    ),
+    [reelsQuery.data, selectedVideosOnly]
   );
   useEffect(() => {
     setReels(serverReels);
@@ -780,9 +804,18 @@ const ReelsScreen = ({ route }) => {
             <View style={styles.topBarRight} />
           </View>
         )}
-        {paused && (
-          <TouchableOpacity style={styles.pausedFilterButton} onPress={() => setFilterModalVisible(true)}>
-            <Ionicons name="options-outline" size={28} color="#fff" />
+        {isUIVisible && (
+          <TouchableOpacity
+            style={styles.pausedFilterButton}
+            onPress={() => {
+              setPaused(true);
+              setFilterModalVisible(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir filtros de Reels"
+          >
+            <Ionicons name="options-outline" size={26} color="#fff" />
+            <Text style={styles.filterButtonText}>Filtros</Text>
           </TouchableOpacity>
         )}
         {loading && reels.length === 0 ? (
@@ -804,7 +837,7 @@ const ReelsScreen = ({ route }) => {
             <FlatList
               data={reels}
               ref={flatListRef}
-              renderItem={({ item, index }) => ( <ReelRenderer item={item} index={index} activeIndex={activeIndex} isMuted={isMuted} paused={paused} setPaused={setPaused} selectedReelId={selectedReelId} handleReelTap={handleReelTap} isUIVisible={isUIVisible} expandedDescriptions={expandedDescriptions} toggleDescription={toggleDescription} viewStateById={viewStateById} sharedOpenById={sharedOpenById} toggleSharedBy={toggleSharedBy} getSharedByInfo={stableGetSharedByInfo} cycleViewOnly={cycleViewOnly} cycleClipWithinView={cycleClipWithinView} navigateClip={navigateClip} toggleLike={toggleLike} toggleProfileLike={toggleProfileLike} likeAnimation={likeAnimation} navigation={navigation} toggleFavorite={toggleFavorite} handleRepost={handleRepost} openShareModal={openShareModal} handleShowShares={handleShowShares} handleShowLikes={handleShowLikes} handleShowProfileLikes={handleShowProfileLikes} openActionModal={openActionModal} tema={tema} taskLikesById={taskLikesById} taskSharesById={taskSharesById} profileLikesById={profileLikesById} pageHeight={pageHeight} /> )}
+              renderItem={({ item, index }) => ( <ReelRenderer item={item} index={index} activeIndex={activeIndex} isFocused={isFocused} isMuted={isMuted} paused={paused} setPaused={setPaused} selectedReelId={selectedReelId} handleReelTap={handleReelTap} isUIVisible={isUIVisible} expandedDescriptions={expandedDescriptions} toggleDescription={toggleDescription} viewStateById={viewStateById} sharedOpenById={sharedOpenById} toggleSharedBy={toggleSharedBy} getSharedByInfo={stableGetSharedByInfo} cycleViewOnly={cycleViewOnly} cycleClipWithinView={cycleClipWithinView} navigateClip={navigateClip} toggleLike={toggleLike} toggleProfileLike={toggleProfileLike} likeAnimation={likeAnimation} navigation={navigation} toggleFavorite={toggleFavorite} handleRepost={handleRepost} openShareModal={openShareModal} handleShowShares={handleShowShares} handleShowLikes={handleShowLikes} handleShowProfileLikes={handleShowProfileLikes} openActionModal={openActionModal} tema={tema} taskLikesById={taskLikesById} taskSharesById={taskSharesById} profileLikesById={profileLikesById} pageHeight={pageHeight} /> )}
               keyExtractor={(item) => item.id.toString()}
               pagingEnabled
               snapToInterval={pageHeight}
@@ -819,6 +852,28 @@ const ReelsScreen = ({ route }) => {
               viewabilityConfig={viewabilityConfig}
               getItemLayout={getItemLayout}
               style={{ flex: 1 }} // Ensure FlatList itself takes all available vertical space
+              ListEmptyComponent={(
+                <View style={styles.emptyReels}>
+                  <Text style={styles.emptyReelsText}>
+                    {selectedVideosOnly
+                      ? 'No hay videos en las publicaciones cargadas.'
+                      : 'No hay publicaciones con contenido multimedia.'}
+                  </Text>
+                  {selectedVideosOnly && hasNextPage && (
+                    <TouchableOpacity
+                      style={styles.loadMoreVideosButton}
+                      onPress={() => fetchNextPage()}
+                      disabled={isFetchingNextPage}
+                    >
+                      {isFetchingNextPage ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <Text style={styles.loadMoreVideosText}>Buscar más videos</Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
               onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
               onEndReachedThreshold={0.5}
             />
@@ -835,6 +890,8 @@ const ReelsScreen = ({ route }) => {
           currentFavoriteUsers={selectedFavoriteUsersOnly}
           currentVerifiedUsers={selectedVerifiedUsersOnly}
           currentRecommendedUsers={selectedRecommendedUsersOnly}
+          currentVideosOnly={selectedVideosOnly}
+          showVideoOnlyFilter
           isSuperAdmin={isAdmin}
           onApply={(newFilters) => {
             setSelectedCategory(newFilters.category);
@@ -844,6 +901,17 @@ const ReelsScreen = ({ route }) => {
             setSelectedFavoriteUsersOnly(newFilters.favorite_users_only);
             setSelectedVerifiedUsersOnly(newFilters.verified_users_only);
             setSelectedRecommendedUsersOnly(newFilters.recommended_users_only);
+            if (newFilters.videos_only !== selectedVideosOnly) {
+              const previousVideosOnly = selectedVideosOnly;
+              const nextVideosOnly = Boolean(newFilters.videos_only);
+              setSelectedVideosOnly(nextVideosOnly);
+              AsyncStorage.setItem(REELS_VIDEOS_ONLY_KEY, String(newFilters.videos_only))
+                .catch((error) => {
+                  setSelectedVideosOnly(previousVideosOnly);
+                  console.error('[ReelsScreen] No se pudo guardar la preferencia de solo videos:', error);
+                  Alert.alert('No se guardó la preferencia', 'Inténtalo de nuevo.');
+                });
+            }
             // ✅ FIX: Si la lista se reordena, nos aseguramos de que el scroll vuelva al inicio
             // y el reel activo sea el primero. La carga la dispara el cambio de clave de la query.
             if (flatListRef.current) {
@@ -899,7 +967,12 @@ const styles = StyleSheet.create({
   topBarRight: { flex: 1, alignItems: 'flex-end' },
   topTab: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700', marginHorizontal: 12, textShadowColor: 'rgba(0, 0, 0, 0.5)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },
   activeTab: { color: '#fff', fontSize: 17 },
-  pausedFilterButton: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, right: 15, zIndex: 11, padding: 5 },
+  pausedFilterButton: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, right: 15, zIndex: 11, flexDirection: 'row', alignItems: 'center', gap: 5, padding: 7, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.45)' },
+  filterButtonText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  emptyReels: { minHeight: 240, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
+  emptyReelsText: { color: '#fff', fontSize: 14, textAlign: 'center' },
+  loadMoreVideosButton: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 20, backgroundColor: '#4dabf7' },
+  loadMoreVideosText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   overlayModal: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   actionModalContainer: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 40 : 24, shadowColor: "#000", shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
   modalDragHandle: { width: 40, height: 4, backgroundColor: "#e0e0e0", borderRadius: 2, alignSelf: "center", marginBottom: 20 },
