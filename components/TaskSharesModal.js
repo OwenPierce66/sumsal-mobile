@@ -47,17 +47,20 @@ const TaskSharesModal = ({
   );
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
-          <View style={styles.header}>
-            <Text style={styles.title}>Compartidas de esta publicación</Text>
-            <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Cerrar">
-              <Ionicons name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={onClose}
+            style={styles.headerBack}
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar"
+          >
+            <Ionicons name="arrow-back" size={24} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>Compartidas</Text>
+        </View>
+        <View style={styles.listWrap}>
           <FeedVideoVisibilityContext.Provider value={videoVisibility}>
             <FlatList
               ref={listRef}
@@ -93,20 +96,12 @@ const TaskSharesModal = ({
 };
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
-  sheet: {
-    backgroundColor: '#f1f3f5',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 12,
-    height: '88%',
-    overflow: 'hidden',
-  },
-  handle: { width: 40, height: 4, backgroundColor: '#ced4da', borderRadius: 2, alignSelf: 'center', marginBottom: 12 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 8 },
-  title: { fontSize: 17, fontWeight: '700', color: '#222', flex: 1, marginRight: 12 },
-  listContent: { paddingBottom: Platform.OS === 'ios' ? 40 : 24 },
+  container: { flex: 1, backgroundColor: '#FEF6F5' },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 34, paddingBottom: 16, backgroundColor: '#fff' },
+  headerBack: { width: 40, height: 40, justifyContent: 'center', alignItems: 'flex-start' },
+  headerTitle: { flex: 1, fontSize: 24, fontWeight: '800', color: '#333' },
+  listWrap: { flex: 1 },
+  listContent: { paddingTop: 8, paddingBottom: Platform.OS === 'ios' ? 40 : 24 },
   loader: { marginVertical: 16 },
   empty: { alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24 },
   emptyText: { color: '#999', textAlign: 'center' },
