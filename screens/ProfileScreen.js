@@ -28,7 +28,7 @@ import {
 
 // Controles opcionales del perfil (se guardan en el dispositivo; ocultos por defecto).
 const PROFILE_CONTROLS_KEY = 'profileControls';
-const DEFAULT_PROFILE_CONTROLS = { showFollowButton: false, showFilterAdd: false };
+const DEFAULT_PROFILE_CONTROLS = { showFollowButton: false, showFilterAdd: false, showRecommendations: false };
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
 
@@ -56,7 +56,7 @@ const ProfileScreen = ({ route, navigation }) => {
   const [viewMode, setViewMode] = useState('compact');
   const [visibleSections, setVisibleSections] = useState({});
   const [profileControls, setProfileControls] = useState(DEFAULT_PROFILE_CONTROLS);
-  const { showFollowButton, showFilterAdd } = profileControls;
+  const { showFollowButton, showFilterAdd, showRecommendations } = profileControls;
 
   useEffect(() => {
     let active = true;
@@ -67,6 +67,7 @@ const ProfileScreen = ({ route, navigation }) => {
         setProfileControls({
           showFollowButton: saved?.showFollowButton === true,
           showFilterAdd: saved?.showFilterAdd === true,
+          showRecommendations: saved?.showRecommendations === true,
         });
       })
       .catch(() => {});
@@ -185,6 +186,11 @@ const ProfileScreen = ({ route, navigation }) => {
   const toggleFollowButton = () => {
     setProfileMenuVisible(false);
     updateProfileControls({ showFollowButton: !profileControls.showFollowButton });
+  };
+
+  const toggleRecommendations = () => {
+    setProfileMenuVisible(false);
+    updateProfileControls({ showRecommendations: !profileControls.showRecommendations });
   };
 
   const toggleFilterAdd = () => {
@@ -524,12 +530,16 @@ const ProfileScreen = ({ route, navigation }) => {
         </View>
       ) : null}
 
-      <View style={styles.divider} />
-      <ProfileRecommendations
-        userId={socialUserId}
-        isCurrentUser={isCurrentUser}
-        onOpenProfile={openRecommendedProfile}
-      />
+      {showRecommendations ? (
+        <>
+          <View style={styles.divider} />
+          <ProfileRecommendations
+            userId={socialUserId}
+            isCurrentUser={isCurrentUser}
+            onOpenProfile={openRecommendedProfile}
+          />
+        </>
+      ) : null}
 
       <View style={styles.divider} />
       <View style={styles.sectionTitleRow}>
@@ -668,6 +678,16 @@ const ProfileScreen = ({ route, navigation }) => {
                 </Text>
               </TouchableOpacity>
             )}
+            <TouchableOpacity style={styles.profileMenuOption} onPress={toggleRecommendations}>
+              <Ionicons
+                name={showRecommendations ? 'eye-off-outline' : 'ribbon-outline'}
+                size={20}
+                color="#f59f00"
+              />
+              <Text style={styles.profileMenuText}>
+                {showRecommendations ? 'Ocultar recomendaciones' : 'Mostrar recomendaciones'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
