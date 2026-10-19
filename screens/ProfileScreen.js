@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useContext, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useContext, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList,
   ActivityIndicator, RefreshControl, Platform, Modal, Alert,
@@ -9,6 +9,7 @@ import moment from 'moment';
 import { Image } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import api, { getImageUrl } from '@api';
 import { AuthContext } from '@app';
@@ -24,6 +25,10 @@ import {
   useProfileCategories,
   useFavoritesFeed,
 } from '@hooks/useApi';
+
+// Controles opcionales del perfil (se guardan en el dispositivo; ocultos por defecto).
+const PROFILE_CONTROLS_KEY = 'profileControls';
+const DEFAULT_PROFILE_CONTROLS = { showFollowButton: false, showFilterAdd: false };
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
 
@@ -50,6 +55,23 @@ const ProfileScreen = ({ route, navigation }) => {
   const [favoriteFeedEnabled, setFavoriteFeedEnabled] = useState(false);
   const [viewMode, setViewMode] = useState('compact');
   const [visibleSections, setVisibleSections] = useState({});
+  const [profileControls, setProfileControls] = useState(DEFAULT_PROFILE_CONTROLS);
+  const { showFollowButton, showFilterAdd } = profileControls;
+
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(PROFILE_CONTROLS_KEY)
+      .then((raw) => {
+        if (!active || !raw) return;
+        const saved = JSON.parse(raw);
+        setProfileControls({
+          showFollowButton: saved?.showFollowButton === true,
+          showFilterAdd: saved?.showFilterAdd === true,
+        });
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   // ── Datos del usuario ─────────────────────────────────────────────────────
   const {
@@ -149,6 +171,25 @@ const ProfileScreen = ({ route, navigation }) => {
     } finally {
       setFollowUpdating(false);
     }
+  };
+
+  // Controles opcionales del perfil: ocultos hasta que se habilitan desde el menú de 3 puntos.
+  const updateProfileControls = useCallback((patch) => {
+    setProfileControls((prev) => {
+      const next = { ...prev, ...patch };
+      AsyncStorage.setItem(PROFILE_CONTROLS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const toggleFollowButton = () => {
+    setProfileMenuVisible(false);
+    updateProfileControls({ showFollowButton: !profileControls.showFollowButton });
+  };
+
+  const toggleFilterAdd = () => {
+    setProfileMenuVisible(false);
+    updateProfileControls({ showFilterAdd: !profileControls.showFilterAdd });
   };
 
   const openRecommendedProfile = useCallback((person) => {
@@ -454,6 +495,7 @@ const ProfileScreen = ({ route, navigation }) => {
 
       {!isCurrentUser ? (
         <View style={styles.profileActions}>
+          {showFollowButton ? (
           <TouchableOpacity
             style={[
               styles.followButton,
@@ -477,6 +519,7 @@ const ProfileScreen = ({ route, navigation }) => {
               </Text>
             )}
           </TouchableOpacity>
+          ) : null}
           <ReportContentButton targetType="user" targetId={socialUserId} />
         </View>
       ) : null}
@@ -533,15 +576,13 @@ const ProfileScreen = ({ route, navigation }) => {
           />
         )}
         <Text style={styles.topBarTitle}>Perfil</Text>
-        {isCurrentUser ? (
-          <TouchableOpacity
-            onPress={() => setProfileMenuVisible(true)}
-            style={styles.profileMenuButton}
-            accessibilityLabel="Opciones del perfil"
-          >
-            <Ionicons name="ellipsis-vertical" size={24} color="#333" />
-          </TouchableOpacity>
-        ) : null}
+        <TouchableOpacity
+          onPress={() => setProfileMenuVisible(true)}
+          style={styles.profileMenuButton}
+          accessibilityLabel="Opciones del perfil"
+        >
+          <Ionicons name="ellipsis-vertical" size={24} color="#333" />
+        </TouchableOpacity>
       </View>
 
       {/* Menú de opciones */}
@@ -557,6 +598,8 @@ const ProfileScreen = ({ route, navigation }) => {
           onPress={() => setProfileMenuVisible(false)}
         >
           <View style={styles.profileMenuCard}>
+            {isCurrentUser ? (
+              <>
             <TouchableOpacity style={styles.profileMenuOption} onPress={openFavoriteFeed}>
               <Ionicons name="star-outline" size={20} color="#f59f00" />
               <Text style={styles.profileMenuText}>Favoritos</Text>
@@ -600,6 +643,31 @@ const ProfileScreen = ({ route, navigation }) => {
                   : 'Usar mi filtro en toda la app'}
               </Text>
             </TouchableOpacity>
+              </>
+            ) : null}
+            {isCurrentUser ? (
+              <TouchableOpacity style={styles.profileMenuOption} onPress={toggleFilterAdd}>
+                <Ionicons
+                  name={showFilterAdd ? 'remove-circle-outline' : 'add-circle-outline'}
+                  size={20}
+                  color="#4dabf7"
+                />
+                <Text style={styles.profileMenuText}>
+                  {showFilterAdd ? 'Ocultar agregar categoría a mi filtro' : 'Mostrar agregar categoría a mi filtro'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.profileMenuOption} onPress={toggleFollowButton}>
+                <Ionicons
+                  name={showFollowButton ? 'heart-dislike-outline' : 'heart-outline'}
+                  size={20}
+                  color="#ff0b5a"
+                />
+                <Text style={styles.profileMenuText}>
+                  {showFollowButton ? 'Ocultar botón de seguir' : 'Mostrar botón de seguir'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -623,6 +691,7 @@ const ProfileScreen = ({ route, navigation }) => {
       {isCurrentUser ? (
         <PersonalCategoryFilter
           isOwner
+          canEdit={showFilterAdd}
           title="Mi filtro"
           excludeNames={appCategoryNames}
           onSelect={handleCategorySelect}
