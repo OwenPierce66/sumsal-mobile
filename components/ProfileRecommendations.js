@@ -1,7 +1,8 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert, StyleSheet, Switch, Text, TouchableOpacity, View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -17,9 +18,9 @@ import { useUserRecommendations } from '@hooks/useApi';
  *
  * Recomendar se hace desde el icono junto al nombre (`RecommendButton`).
  */
-const ProfileRecommendations = ({ userId, isCurrentUser, onOpenProfile }) => {
+const ProfileRecommendations = ({ userId, isCurrentUser, currentUserId, onOpenProfile }) => {
   const queryClient = useQueryClient();
-  const { data, isLoading, isError, refetch } = useUserRecommendations(userId);
+  const { data, dataUpdatedAt, isLoading, isError, refetch } = useUserRecommendations(userId);
   const [tab, setTab] = useState('received');
   const [togglingPublic, setTogglingPublic] = useState(false);
 
@@ -38,6 +39,32 @@ const ProfileRecommendations = ({ userId, isCurrentUser, onOpenProfile }) => {
       Alert.alert('Error', 'No se pudo cambiar la privacidad.');
     } finally {
       setTogglingPublic(false);
+    }
+  };
+
+  // Cambio inmediato del icono mientras llega la lista actualizada del servidor.
+  const [overrides, setOverrides] = useState({});
+  const [pendingPersonId, setPendingPersonId] = useState(null);
+  useEffect(() => { setOverrides({}); }, [dataUpdatedAt]);
+
+  const togglePersonRecommendation = async (personId, currentlyRecommended) => {
+    if (!personId || pendingPersonId) return;
+    setPendingPersonId(personId);
+    setOverrides((prev) => ({ ...prev, [personId]: !currentlyRecommended }));
+    try {
+      const endpoint = `users/${personId}/recommendations/`;
+      if (currentlyRecommended) await api.delete(endpoint);
+      else await api.post(endpoint, {});
+      await queryClient.invalidateQueries({ queryKey: ['userRecommendations'] });
+    } catch (error) {
+      setOverrides((prev) => {
+        const next = { ...prev };
+        delete next[personId];
+        return next;
+      });
+      Alert.alert('Error', error?.response?.data?.detail || 'No se pudo actualizar la recomendación.');
+    } finally {
+      setPendingPersonId(null);
     }
   };
 
@@ -100,23 +127,49 @@ const ProfileRecommendations = ({ userId, isCurrentUser, onOpenProfile }) => {
           {items?.length ? items.map((item) => {
             const person = item.user || {};
             const name = person.username || [person.first_name, person.last_name].filter(Boolean).join(' ') || 'Usuario';
+            const isSelf = currentUserId != null && String(person.id) === String(currentUserId);
+            const recommended = person.id in overrides ? overrides[person.id] : Boolean(item.is_recommended_by_me);
+            const baseCount = item.recommendations_count;
+            const count = typeof baseCount === 'number'
+              ? Math.max(0, baseCount + (person.id in overrides ? (overrides[person.id] ? 1 : 0) - (item.is_recommended_by_me ? 1 : 0) : 0))
+              : null;
             return (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.row}
-                onPress={() => onOpenProfile?.(person)}
-                accessibilityRole="button"
-                accessibilityLabel={`Abrir perfil de ${name}`}
-              >
-                <Image
-                  source={{ uri: getImageUrl(person.user_image || person.profile?.user_image) }}
-                  style={styles.avatar}
-                />
-                <View style={styles.rowBody}>
-                  <Text style={styles.rowName} numberOfLines={1}>{name}</Text>
-                  {item.comment ? <Text style={styles.rowComment}>{item.comment}</Text> : null}
+              <View key={item.id} style={styles.row}>
+                <TouchableOpacity
+                  style={styles.rowMain}
+                  onPress={() => onOpenProfile?.(person)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Abrir perfil de ${name}`}
+                >
+                  <Image
+                    source={{ uri: getImageUrl(person.user_image || person.profile?.user_image) }}
+                    style={styles.avatar}
+                  />
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowName} numberOfLines={1}>{name}</Text>
+                    {item.comment ? <Text style={styles.rowComment}>{item.comment}</Text> : null}
+                  </View>
+                </TouchableOpacity>
+                <View style={styles.rowEnd}>
+                  {count !== null ? <Text style={styles.rowCount}>{count}</Text> : null}
+                  {isSelf ? null : (
+                    <TouchableOpacity
+                      onPress={() => togglePersonRecommendation(person.id, recommended)}
+                      disabled={pendingPersonId === person.id}
+                      hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={recommended ? `Quitar recomendación a ${name}` : `Recomendar a ${name}`}
+                      accessibilityState={{ selected: recommended }}
+                    >
+                      <Ionicons
+                        name={recommended ? 'ribbon' : 'ribbon-outline'}
+                        size={22}
+                        color={recommended ? '#f59f00' : '#adb5bd'}
+                      />
+                    </TouchableOpacity>
+                  )}
                 </View>
-              </TouchableOpacity>
+              </View>
             );
           }) : (
             <Text style={styles.emptyText}>{emptyText}</Text>
@@ -142,6 +195,9 @@ const styles = StyleSheet.create({
   tabText: { color: '#666', fontSize: 13, fontWeight: '600' },
   tabTextActive: { color: '#1864ab' },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  rowEnd: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 10 },
+  rowCount: { color: '#555', fontWeight: '800', fontSize: 14 },
   avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#eee', marginRight: 10 },
   rowBody: { flex: 1 },
   rowName: { color: '#333', fontWeight: '700', fontSize: 14 },

@@ -538,6 +538,7 @@ const ProfileScreen = ({ route, navigation }) => {
           <ProfileRecommendations
             userId={socialUserId}
             isCurrentUser={isCurrentUser}
+            currentUserId={me?.id}
             onOpenProfile={openRecommendedProfile}
           />
         </>
