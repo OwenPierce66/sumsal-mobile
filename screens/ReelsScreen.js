@@ -206,6 +206,7 @@ const ReelsScreen = ({ route }) => {
   const isFocused = useIsFocused();
   const isOnline = useIsOnline();
   const [reels, setReels] = useState([]);
+  const repostInFlightRef = useRef(new Set());
   const [tema, setTema] = useState('consejos');
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted] = useState(false);
@@ -503,33 +504,51 @@ const ReelsScreen = ({ route }) => {
     const contentItem = item.is_original ? item : item.task;
 
     if (!taskId) return; // Salimos si no hay ID
-
-    setReels(prevReels => prevReels.map(r => {
-      const currentContent = r.is_original ? r : r.task;
-      if (currentContent && currentContent.id === taskId) {
-        return r.is_original ? { ...r, interaction_score: (r.interaction_score || 0) + 1 } : { ...r, task: { ...r.task, interaction_score: (r.task.interaction_score || 0) + 1 } };
-      }
-      return r;
-    }));
+    if (repostInFlightRef.current.has(taskId)) return;
+    repostInFlightRef.current.add(taskId);
+    const original = {
+      user_has_reposted: Boolean(contentItem.user_has_reposted),
+      user_has_liked: Boolean(contentItem.user_has_liked),
+      likes_count: contentItem.likes_count || 0,
+      interaction_score: contentItem.interaction_score || 0,
+    };
+    const nextReposted = !original.user_has_reposted;
+    const updateTask = (userHasReposted, userHasLiked, likesCount, interactionScore) => {
+      setReels(prevReels => prevReels.map(reel => {
+        const current = reel.is_original ? reel : reel.task;
+        if (!current || current.id !== taskId) return reel;
+        const updated = {
+          ...current,
+          user_has_reposted: userHasReposted,
+          user_has_liked: userHasLiked,
+          likes_count: likesCount,
+          interaction_score: interactionScore,
+        };
+        return reel.is_original ? updated : { ...reel, task: updated };
+      }));
+    };
+    const optimisticLiked = original.user_has_liked || nextReposted;
+    const optimisticLikesCount = original.likes_count + (!original.user_has_liked && nextReposted ? 1 : 0);
+    updateTask(nextReposted, optimisticLiked, optimisticLikesCount,
+      Math.max(0, original.interaction_score + (nextReposted ? 1 : -1)));
 
     try {
       const response = await api.post(`tasks/${taskId}/repost/`);
-      Alert.alert('Éxito', '¡Publicación impulsada!');
-
-      const finalScore = response.data.interaction_score;
-      setReels(prevReels => prevReels.map(r => {
-        const currentContent = r.is_original ? r : r.task;
-        if (currentContent && currentContent.id === taskId) {
-          return r.is_original ? { ...r, interaction_score: finalScore } : { ...r, task: { ...r.task, interaction_score: finalScore } };
-        }
-        return r;
-      }));
+      updateTask(
+        response.data.user_has_reposted,
+        response.data.user_has_liked,
+        response.data.likes_count,
+        response.data.interaction_score,
+      );
+      Alert.alert('Éxito', response.data.reposted ? '¡Publicación impulsada!' : 'Se quitó el impulso; el like se conserva.');
     } catch (error) {
       console.error('Error reposting task:', error.response?.data || error.message);
       Alert.alert('Error', 'No se pudo impulsar la publicación.');
-      // fetchReels(1);
+      updateTask(original.user_has_reposted, original.user_has_liked, original.likes_count, original.interaction_score);
+    } finally {
+      repostInFlightRef.current.delete(taskId);
     }
-  }, [reels]);
+  }, []);
 
   const toggleDescription = useCallback((id) => {
     setExpandedDescriptions(prev => ({...prev, [id]: !prev[id]}));
@@ -819,28 +838,6 @@ const ReelsScreen = ({ route }) => {
               viewabilityConfig={viewabilityConfig}
               getItemLayout={getItemLayout}
               style={{ flex: 1 }} // Ensure FlatList itself takes all available vertical space
-              ListEmptyComponent={(
-                <View style={styles.emptyReels}>
-                  <Text style={styles.emptyReelsText}>
-                    {selectedVideosOnly
-                      ? 'No hay videos en las publicaciones cargadas.'
-                      : 'No hay publicaciones con contenido multimedia.'}
-                  </Text>
-                  {selectedVideosOnly && hasNextPage && (
-                    <TouchableOpacity
-                      style={styles.loadMoreVideosButton}
-                      onPress={() => fetchNextPage()}
-                      disabled={isFetchingNextPage}
-                    >
-                      {isFetchingNextPage ? (
-                        <ActivityIndicator color="#fff" />
-                      ) : (
-                        <Text style={styles.loadMoreVideosText}>Buscar más videos</Text>
-                      )}
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
               onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
               onEndReachedThreshold={0.5}
             />

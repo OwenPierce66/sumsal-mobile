@@ -92,11 +92,14 @@ const TaskActionsModal = ({
                       <Text style={styles.actionText}>Editar</Text>
                     </TouchableOpacity>
                   )}
-                  <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handlers.delete}>
-                    <Ionicons name="trash-outline" size={20} color="#ff6b6b" />
-                    <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: 'bold' }]}>Eliminar</Text>
-                  </TouchableOpacity>
                 </>
+              )}
+
+              {(isOwner || isAdmin) && (
+                <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handlers.delete}>
+                  <Ionicons name="trash-outline" size={20} color="#ff6b6b" />
+                  <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: 'bold' }]}>Eliminar</Text>
+                </TouchableOpacity>
               )}
 
               {isAdmin && (

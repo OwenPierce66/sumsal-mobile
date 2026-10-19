@@ -48,6 +48,7 @@ const TasksScreen = ({ navigation, route }) => {
 
   const [tasks, setTasks] = useState([]);
   const [sharedTasks, setSharedTasks] = useState([]);
+  const repostInFlightRef = useRef(new Set());
   const [searchText, setSearchText] = useState('');
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [searchTasks, setSearchTasks] = useState([]);
@@ -332,33 +333,55 @@ const TasksScreen = ({ navigation, route }) => {
 
     const taskId = taskToRepost.isSharedTask ? taskToRepost.task.id : taskToRepost.id;
     if (!task) handleCloseShareActionMenu(); // Solo cerramos el menú si venimos de él
+    if (!taskId || repostInFlightRef.current.has(taskId)) return;
+    repostInFlightRef.current.add(taskId);
+    const currentTask = taskToRepost.isSharedTask ? taskToRepost.task : taskToRepost;
+    const original = {
+      user_has_reposted: Boolean(currentTask.user_has_reposted),
+      user_has_liked: Boolean(currentTask.user_has_liked),
+      likes_count: currentTask.likes_count || 0,
+      interaction_score: currentTask.interaction_score || 0,
+    };
+    const nextReposted = !original.user_has_reposted;
+    const updateTask = (userHasReposted, userHasLiked, likesCount, interactionScore) => {
+      const update = item => ({
+        ...item,
+        user_has_reposted: userHasReposted,
+        user_has_liked: userHasLiked,
+        likes_count: likesCount,
+        interaction_score: interactionScore,
+      });
+      setTasks(prev => prev.map(item => item.id === taskId ? update(item) : item));
+      setSearchTasks(prev => prev.map(item => item.id === taskId ? update(item) : item));
+      const updateShared = item => item.task?.id === taskId
+        ? { ...item, task: update(item.task) }
+        : item;
+      setSharedTasks(prev => prev.map(updateShared));
+      setSearchSharedTasks(prev => prev.map(updateShared));
+    };
+    const optimisticLiked = original.user_has_liked || nextReposted;
+    const optimisticLikesCount = original.likes_count + (!original.user_has_liked && nextReposted ? 1 : 0);
 
     try {
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, interaction_score: (t.interaction_score || 0) + 1 } : t));
-      setSharedTasks(prev => prev.map(s => {
-        if (s.task?.id === taskId) {
-          return { ...s, task: { ...s.task, interaction_score: (s.task.interaction_score || 0) + 1 } };
-        }
-        return s;
-      }));
+      updateTask(nextReposted, optimisticLiked, optimisticLikesCount,
+        Math.max(0, original.interaction_score + (nextReposted ? 1 : -1)));
 
       const response = await api.post(`/tasks/${taskId}/repost/`);
-      Alert.alert('Éxito', '¡Publicación impulsada!');
-
-      const finalScore = response.data.interaction_score;
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, interaction_score: finalScore } : t));
-      setSharedTasks(prev => prev.map(s => {
-        if (s.task?.id === taskId) {
-          return { ...s, task: { ...s.task, interaction_score: finalScore } };
-        }
-        return s;
-      }));
+      updateTask(
+        response.data.user_has_reposted,
+        response.data.user_has_liked,
+        response.data.likes_count,
+        response.data.interaction_score,
+      );
+      Alert.alert('Éxito', response.data.reposted ? '¡Publicación impulsada!' : 'Se quitó el impulso; el like se conserva.');
     } catch (error) {
       console.error("Error al repostear:", error.response?.data || error);
       alert("Error al repostear. Inténtalo de nuevo."); 
-      onRefresh();
+      updateTask(original.user_has_reposted, original.user_has_liked, original.likes_count, original.interaction_score);
+    } finally {
+      repostInFlightRef.current.delete(taskId);
     }
-  }, [selectedActionTask, tasks, sharedTasks]);
+  }, [selectedActionTask, handleCloseShareActionMenu]);
 
   // Acción para "Compartir con descripción" (abre el modal de descripción)
   const handleOpenShareDescriptionModal = () => {
@@ -792,6 +815,7 @@ const TasksScreen = ({ navigation, route }) => {
     setSelectedFavoritesOnly(newFilters.favorites_only ?? false);
     setSelectedFavoriteUsersOnly(newFilters.favorite_users_only ?? false);
     setSelectedVerifiedUsersOnly(newFilters.verified_users_only ?? false);
+    setSelectedRecommendedUsersOnly(newFilters.recommended_users_only ?? false);
     if (isTasksTab && newFilters.videos_only !== undefined) {
       const previousValue = selectedVideosOnly;
       const nextValue = Boolean(newFilters.videos_only);
@@ -802,7 +826,6 @@ const TasksScreen = ({ navigation, route }) => {
         Alert.alert('No se guardó la preferencia', 'Inténtalo de nuevo.');
       });
     }
-    setSelectedRecommendedUsersOnly(newFilters.recommended_users_only ?? false);
     setFilterModalVisible(false);
   }, [isTasksTab, selectedVideosOnly]);
 
@@ -1130,6 +1153,14 @@ const TasksScreen = ({ navigation, route }) => {
           categoryOrder(a, b)
           || (b.likes_count || 0) - (a.likes_count || 0)
         ));
+      case 'top_day':
+      case 'top_week':
+      case 'top_month':
+        return combined.sort((a, b) => (
+          categoryOrder(a, b)
+          || (b.period_likes_count || 0) - (a.period_likes_count || 0)
+          || new Date(b.created_at) - new Date(a.created_at)
+        ));
       case 'recent':
         return combined.sort((a, b) => (
           categoryOrder(a, b)
@@ -1153,6 +1184,9 @@ const TasksScreen = ({ navigation, route }) => {
       categoryPathRank(a, searchCategory)
       || (selectedSortBy === 'likes'
         ? (b.likes_count || 0) - (a.likes_count || 0)
+        : ['top_day', 'top_week', 'top_month'].includes(selectedSortBy)
+        ? (b.period_likes_count || 0) - (a.period_likes_count || 0)
+          || new Date(b.created_at) - new Date(a.created_at)
         : new Date(b.created_at) - new Date(a.created_at))
     ));
   }, [searchCategory, searchSharedTasks, searchTasks, selectedSortBy]);
@@ -1392,6 +1426,17 @@ const TasksScreen = ({ navigation, route }) => {
             onOpenSubMediaInReels={openSubMediaInReels}
           />
         </View>
+
+        <TouchableOpacity
+          style={{ alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 8 }}
+          onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}
+          accessibilityRole="button"
+          accessibilityLabel="Ver publicación original"
+        >
+          <Text style={{ color: '#4dabf7', fontSize: 13, fontWeight: '700' }}>
+            Ver publicación original
+          </Text>
+        </TouchableOpacity>
 
         <View style={styles.taskFooter}>
           <View style={styles.statsContainer}>
@@ -1899,7 +1944,6 @@ const TasksScreen = ({ navigation, route }) => {
         onClose={handleCloseShareActionMenu}
         onShare={handleOpenShareDescriptionModal} // Abre el modal de descripción
         onSendMessage={handleOpenTaskMessageShare}
-        onRepost={handleRepost}
         onShareToStory={handleShareToStory}
       />
 

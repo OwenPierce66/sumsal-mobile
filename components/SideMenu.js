@@ -83,6 +83,9 @@ const SideMenu = ({ navigation, signOut, user, buttonStyle }) => {
                 ['chatbox-outline', 'Foro', () => navigate('Forum')],
                 ['bookmarks-outline', 'Filtros guardados', () => openTaskMenu('openSavedFilters')],
                 ['eye-outline', 'Visibilidad de favoritos', () => openTaskMenu('openFavoriteVisibility')],
+                ...(user?.is_staff || user?.is_superuser
+                  ? [['shield-checkmark-outline', 'Administración', () => navigate('Profile', { screen: 'AdminCenter' })]]
+                  : []),
               ].map(([icon, label, onPress]) => (
                 <TouchableOpacity
                   key={label}

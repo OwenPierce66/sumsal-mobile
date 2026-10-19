@@ -13,10 +13,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import api, { getImageUrl } from '@api';
 import { AuthContext } from '@app';
 import SideMenu from '@components/SideMenu';
+import ReportContentButton from '@components/ReportContentButton';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import CategoryHierarchy from '@components/CategoryHierarchy';
 import {
   useMe,
+  useProfileSocial,
   useProfileTasksInfinite,
   useProfileCategories,
   useFavoritesFeed,
@@ -59,6 +61,15 @@ const ProfileScreen = ({ route, navigation }) => {
   const user = isCurrentUser
     ? me
     : { username: route?.params?.userName || '', user_image: route?.params?.userAvatar || null };
+
+  const socialUserId = isCurrentUser ? me?.id : userId;
+  const {
+    data: socialStats,
+    isLoading: socialLoading,
+    isError: socialStatsError,
+    refetch: refetchSocial,
+  } = useProfileSocial(socialUserId);
+  const [followUpdating, setFollowUpdating] = useState(false);
 
   // ownerId: el ID real del usuario para pasarlo a las categorías
   const ownerId = isCurrentUser ? me?.id : userId;
@@ -106,7 +117,8 @@ const ProfileScreen = ({ route, navigation }) => {
     useCallback(() => {
       if (isCurrentUser) refetchMe();
       refetchTasks();
-    }, [isCurrentUser])
+      if (socialUserId) refetchSocial();
+    }, [isCurrentUser, refetchMe, refetchTasks, refetchSocial, socialUserId])
   );
 
   // ── Acciones ──────────────────────────────────────────────────────────────
@@ -115,7 +127,25 @@ const ProfileScreen = ({ route, navigation }) => {
     if (isCurrentUser) refetchMe();
     refetchTasks();
     refetchCategories();
-  }, [isCurrentUser]);
+    if (socialUserId) refetchSocial();
+  }, [isCurrentUser, refetchMe, refetchTasks, refetchCategories, refetchSocial, socialUserId]);
+
+  const toggleFollow = async () => {
+    if (!socialUserId || !socialStats || followUpdating) return;
+    setFollowUpdating(true);
+    try {
+      const endpoint = `users/${socialUserId}/follow/`;
+      const response = socialStats.is_following
+        ? await api.delete(endpoint)
+        : await api.post(endpoint);
+      queryClient.setQueryData(['profileSocial', socialUserId], response.data);
+      queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
+    } catch {
+      Alert.alert('Error', 'No se pudo actualizar el seguimiento. Inténtalo de nuevo.');
+    } finally {
+      setFollowUpdating(false);
+    }
+  };
 
   const loadMoreTasks = () => {
     if (hasNextPage && !isFetchingNextPage) fetchNextPage();
@@ -380,6 +410,60 @@ const ProfileScreen = ({ route, navigation }) => {
         </View>
       </View>
 
+      {socialStatsError ? (
+        <TouchableOpacity
+          style={styles.socialStatsError}
+          onPress={() => refetchSocial()}
+          accessibilityRole="button"
+        >
+          <Text style={styles.socialStatsErrorText}>No se pudieron cargar las estadísticas. Toca para reintentar.</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.socialStatsRow}>
+          <View style={styles.socialStat}>
+            <Text style={styles.socialStatCount}>
+              {socialLoading ? '…' : socialStats?.followers_count ?? '—'}
+            </Text>
+            <Text style={styles.socialStatLabel}>Seguidores</Text>
+          </View>
+          <View style={styles.socialStat}>
+            <Text style={styles.socialStatCount}>
+              {socialLoading ? '…' : socialStats?.following_count ?? '—'}
+            </Text>
+            <Text style={styles.socialStatLabel}>Siguiendo</Text>
+          </View>
+        </View>
+      )}
+
+      {!isCurrentUser ? (
+        <View style={styles.profileActions}>
+          <TouchableOpacity
+            style={[
+              styles.followButton,
+              socialStats?.is_following && styles.followingButton,
+            ]}
+            onPress={toggleFollow}
+            disabled={!socialStats || socialLoading || followUpdating}
+            accessibilityRole="button"
+            accessibilityLabel={socialStats?.is_following ? 'Dejar de seguir' : 'Seguir'}
+          >
+            {followUpdating ? (
+              <ActivityIndicator size="small" color={socialStats?.is_following ? '#4dabf7' : '#fff'} />
+            ) : (
+              <Text
+                style={[
+                  styles.followButtonText,
+                  socialStats?.is_following && styles.followingButtonText,
+                ]}
+              >
+                {socialStats?.is_following ? 'Siguiendo' : 'Seguir'}
+              </Text>
+            )}
+          </TouchableOpacity>
+          <ReportContentButton targetType="user" targetId={socialUserId} />
+        </View>
+      ) : null}
+
       <View style={styles.divider} />
       <View style={styles.sectionTitleRow}>
         <Text style={styles.sectionTitle}>
@@ -643,6 +727,17 @@ const styles = StyleSheet.create({
   clearFilterText: { color: '#4dabf7', fontSize: 12, fontWeight: '700' },
   profileHeader: { padding: 20, backgroundColor: '#fff', marginBottom: 10 },
   profileInfoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  socialStatsRow: { flexDirection: 'row', gap: 28, marginBottom: 16 },
+  socialStat: { alignItems: 'flex-start' },
+  socialStatCount: { color: '#333', fontSize: 16, fontWeight: '800' },
+  socialStatLabel: { color: '#777', fontSize: 12, marginTop: 2 },
+  socialStatsError: { marginBottom: 16 },
+  socialStatsErrorText: { color: '#d9480f', fontSize: 12 },
+  followButton: { alignItems: 'center', justifyContent: 'center', minHeight: 38, borderRadius: 20, backgroundColor: '#4dabf7', paddingHorizontal: 22, alignSelf: 'flex-start', marginBottom: 4 },
+  profileActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  followingButton: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#4dabf7' },
+  followButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  followingButtonText: { color: '#4dabf7' },
   profileAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#eee', marginRight: 15 },
   profileTextContainer: { flex: 1 },
   profileName: { fontSize: 22, fontWeight: 'bold', color: '#333' },
