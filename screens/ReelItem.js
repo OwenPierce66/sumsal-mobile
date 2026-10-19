@@ -421,7 +421,7 @@ const styles = StyleSheet.create({
   sharedByDescription: { color: '#fff', fontSize: 13, marginTop: 4, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
   pausedSharedByLabel: { marginBottom: 6, alignSelf: 'flex-start', backgroundColor: 'rgba(0,0,0,0.35)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, pointerEvents: 'auto' },
   pausedSharedByText: { color: '#fff', fontSize: 12, fontWeight: '700', textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
-  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'none' },
+  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'box-none' },
   publicationRow: { flexDirection: 'row', alignItems: 'flex-end', width: '100%', paddingHorizontal: 10 },
   bottomSection: { flex: 1, minWidth: 0, padding: 10, paddingRight: 16, justifyContent: 'flex-end' },
   userInfo: { marginBottom: 10, pointerEvents: 'auto' },
