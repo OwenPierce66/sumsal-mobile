@@ -414,7 +414,7 @@ const TaskPostCard = ({
       <View style={styles.taskFooter}>
         <View style={styles.statsContainer}>
           <TouchableOpacity style={styles.stat} onPress={() => onRepost?.(task)}>
-            <Ionicons name="trending-up-outline" size={18} color="#f59f00" />
+            <Ionicons name={shown.user_has_reposted ? 'trending-up' : 'trending-up-outline'} size={18} color={shown.user_has_reposted ? '#f59f00' : '#999'} />
             <Text style={styles.statText}>{shown.interaction_score || 0}</Text>
           </TouchableOpacity>
 

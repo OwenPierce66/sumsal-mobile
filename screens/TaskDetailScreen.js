@@ -14,6 +14,7 @@ import TieredLikesModal from './TieredLikesModal';
 import ShareActionMenu from './ShareActionMenu';
 import TaskPostCard, { FeedVideoVisibilityContext } from '@components/TaskPostCard';
 import TaskActionsModal from '@components/TaskActionsModal';
+import ReportContentButton from '@components/ReportContentButton';
 import useTaskActions from '@hooks/useTaskActions';
 import TouchableUsername from '@components/TouchableUsername';
 import { useTaskDetail, useTaskComments, useMe, useIsAdmin } from '@hooks/useApi';
@@ -77,6 +78,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
               <Text style={styles.commentDate}>
                 {moment(comment.created_at).fromNow()}
               </Text>
+              <ReportContentButton targetType="comment" targetId={comment.id} size={15} />
               
               {/* BOTÃ“N DE ELIMINAR */}
               {(currentUserId === comment.created_by?.id || currentUserId === comment.user?.id) && (
@@ -190,6 +192,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
   // Autoplay de videos: se mide contra el ScrollView real (no toda la ventana)
   const scrollRef = useRef(null);
+  const repostInFlightRef = useRef(false);
   const getScrollBounds = useCallback((callback) => {
     const node = scrollRef.current?.getNativeScrollRef?.() || scrollRef.current;
     if (node && typeof node.measureInWindow === 'function') {
@@ -241,16 +244,45 @@ const TaskDetailScreen = ({ route, navigation }) => {
   }, [task?.id, navigation]);
 
   const handleRepost = useCallback(async () => {
-    if (!task?.id) return;
-    setTask(prev => prev ? { ...prev, interaction_score: (prev.interaction_score || 0) + 1 } : prev);
+    if (!task?.id || repostInFlightRef.current) return;
+    repostInFlightRef.current = true;
+    const original = {
+      user_has_reposted: Boolean(task.user_has_reposted),
+      user_has_liked: Boolean(task.user_has_liked),
+      likes_count: task.likes_count || 0,
+      interaction_score: task.interaction_score || 0,
+    };
+    const nextReposted = !original.user_has_reposted;
+    const updateTask = (userHasReposted, userHasLiked, likesCount, interactionScore) => {
+      setTask(prev => prev ? {
+        ...prev,
+        user_has_reposted: userHasReposted,
+        user_has_liked: userHasLiked,
+        likes_count: likesCount,
+        interaction_score: interactionScore,
+      } : prev);
+    };
+    updateTask(
+      nextReposted,
+      original.user_has_liked || nextReposted,
+      original.likes_count + (!original.user_has_liked && nextReposted ? 1 : 0),
+      Math.max(0, original.interaction_score + (nextReposted ? 1 : -1)),
+    );
     try {
       const response = await api.post(`/tasks/${task.id}/repost/`);
-      Alert.alert('Éxito', '¡Publicación impulsada!');
-      setTask(prev => prev ? { ...prev, interaction_score: response.data.interaction_score } : prev);
+      updateTask(
+        response.data.user_has_reposted,
+        response.data.user_has_liked,
+        response.data.likes_count,
+        response.data.interaction_score,
+      );
+      Alert.alert('Éxito', response.data.reposted ? '¡Publicación impulsada!' : 'Se quitó el impulso; el like se conserva.');
     } catch (error) {
       console.error('Error al repostear:', error.response?.data || error);
       Alert.alert('Error', 'Error al repostear. Inténtalo de nuevo.');
-      setTask(prev => prev ? { ...prev, interaction_score: Math.max(0, (prev.interaction_score || 0) - 1) } : prev);
+      updateTask(original.user_has_reposted, original.user_has_liked, original.likes_count, original.interaction_score);
+    } finally {
+      repostInFlightRef.current = false;
     }
   }, [task?.id, task?.user_has_reposted, task?.user_has_liked, task?.likes_count, task?.interaction_score]);
 
@@ -588,6 +620,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
             )}
           </TouchableOpacity>
         ) : null}
+        <ReportContentButton targetType="task" targetId={task.id} />
         <View style={{ width: 24 }} />
       </View>
 
@@ -734,7 +767,6 @@ const TaskDetailScreen = ({ route, navigation }) => {
         onClose={() => setShareActionMenuVisible(false)}
         onShare={() => { setShareActionMenuVisible(false); openShareModal(); }}
         onSendMessage={() => { setShareActionMenuVisible(false); openShareModal(); }}
-        onRepost={() => { setShareActionMenuVisible(false); handleRepost(); }}
         onShareToStory={() => { setShareActionMenuVisible(false); handleShareToStory(); }}
       />
 

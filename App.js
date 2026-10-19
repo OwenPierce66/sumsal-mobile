@@ -80,6 +80,7 @@ import ChatDetailScreen from './screens/ChatDetailScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import EditProfileScreen from './screens/EditProfileScreen';
 import FavoritesScreen from './screens/FavoritesScreen';
+import AdminScreen from './screens/AdminScreen';
 
 import { NotificationsProvider } from './contexts/NotificationsContext';
 
@@ -172,6 +173,7 @@ const ProfileStackNavigator = () => {
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
+      <Stack.Screen name="AdminCenter" component={AdminScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
   );

@@ -2,7 +2,7 @@ import React from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-const ShareActionMenu = ({ isVisible, onClose, onShare, onSendMessage, onRepost, onShareToStory }) => {
+const ShareActionMenu = ({ isVisible, onClose, onShare, onSendMessage, onShareToStory }) => {
   if (!isVisible) {
     return null;
   }
@@ -26,11 +26,6 @@ const ShareActionMenu = ({ isVisible, onClose, onShare, onSendMessage, onRepost,
           <TouchableOpacity style={styles.option} onPress={onSendMessage}>
             <Ionicons name="paper-plane-outline" size={24} color="#333" />
             <Text style={styles.optionText}>Enviar por mensaje</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.option} onPress={onRepost}>
-            <Ionicons name="trending-up-outline" size={24} color="#333" />
-            <Text style={styles.optionText}>Impulsar ahora (Repost)</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.option} onPress={onShareToStory}>

@@ -370,7 +370,7 @@ const ReelItemComponent = ({
 
               {/* ✅ CONTADOR DE IMPULSOS (REPOST) */}
               <TouchableOpacity style={[styles.iconButton, { marginBottom: 12 }]} onPress={() => handleRepost(contentItem)}>
-                <Ionicons name="trending-up" size={24} color="#f59f00" />
+                <Ionicons name={contentItem.user_has_reposted ? "trending-up" : "trending-up-outline"} size={24} color={contentItem.user_has_reposted ? "#f59f00" : "white"} />
                 <Text style={styles.iconText}>{contentItem.interaction_score || 0}</Text>
               </TouchableOpacity>
 

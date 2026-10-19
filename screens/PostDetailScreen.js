@@ -7,6 +7,7 @@ import 'moment/locale/es';
 import api, { getImageUrl } from '@api';
 import { Image } from 'expo-image';
 import TouchableUsername from '@components/TouchableUsername';
+import ReportContentButton from '@components/ReportContentButton';
 import { usePostDetail, useMe } from '@hooks/useApi';
 
 moment.locale('es');
@@ -35,7 +36,10 @@ const ReplyItem = ({ reply, depth = 0, onLike, onReply, onEdit, onDelete, curren
                 textStyle={styles.replyAuthor}
                 numberOfLines={1}
               />
-              <Text style={styles.replyDate}>{moment(reply.created_at).fromNow()}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={styles.replyDate}>{moment(reply.created_at).fromNow()}</Text>
+                <ReportContentButton targetType="forum_post" targetId={reply.id} size={15} />
+              </View>
             </View>
           </View>
           <TouchableOpacity
@@ -278,6 +282,7 @@ const PostDetailScreen = () => {
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
           <Text style={styles.screenHeaderTitle}>Detalle</Text>
+          <ReportContentButton targetType="forum_post" targetId={post.id} />
         </View>
 
         <View style={styles.postCard}>

@@ -21,6 +21,7 @@ import useTaskActions from '@hooks/useTaskActions';
 import TouchableUsername from '@components/TouchableUsername';
 import TaskPostCard, { FeedVideoVisibilityContext } from '@components/TaskPostCard';
 import ShareActionMenu from './ShareActionMenu';
+import ReportContentButton from '@components/ReportContentButton';
 import { useSharedTaskDetail, useMe, useIsAdmin } from '@hooks/useApi';
 
 moment.locale('es');
@@ -82,7 +83,10 @@ const SharedCommentItem = ({
               textStyle={styles.commentAuthor}
               numberOfLines={1}
             />
-            <Text style={styles.commentDate}>{moment(comment.created_at).fromNow()}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.commentDate}>{moment(comment.created_at).fromNow()}</Text>
+              <ReportContentButton targetType="shared_comment" targetId={comment.id} size={15} />
+            </View>
           </View>
         </View>
 
@@ -196,6 +200,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
 
   // Autoplay de videos: se mide contra el ScrollView real (no toda la ventana)
   const scrollRef = useRef(null);
+  const repostInFlightRef = useRef(false);
   const getScrollBounds = useCallback((callback) => {
     const node = scrollRef.current?.getNativeScrollRef?.() || scrollRef.current;
     if (node && typeof node.measureInWindow === 'function') {
@@ -255,17 +260,47 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
 
   const handleRepost = async () => {
     const originalId = sharedTask?.task?.id;
-    if (!originalId) return;
-    const bump = (delta) => setSharedTask(prev => prev ? { ...prev, task: { ...prev.task, interaction_score: Math.max(0, (prev.task.interaction_score || 0) + delta) } } : prev);
-    bump(1);
+    if (!originalId || repostInFlightRef.current) return;
+    repostInFlightRef.current = true;
+    const task = sharedTask.task;
+    const original = {
+      user_has_reposted: Boolean(task.user_has_reposted),
+      user_has_liked: Boolean(task.user_has_liked),
+      likes_count: task.likes_count || 0,
+      interaction_score: task.interaction_score || 0,
+    };
+    const nextReposted = !original.user_has_reposted;
+    const updateTask = (userHasReposted, userHasLiked, likesCount, interactionScore) => setSharedTask(prev => prev ? {
+      ...prev,
+      task: {
+        ...prev.task,
+        user_has_reposted: userHasReposted,
+        user_has_liked: userHasLiked,
+        likes_count: likesCount,
+        interaction_score: interactionScore,
+      },
+    } : prev);
+    updateTask(
+      nextReposted,
+      original.user_has_liked || nextReposted,
+      original.likes_count + (!original.user_has_liked && nextReposted ? 1 : 0),
+      Math.max(0, original.interaction_score + (nextReposted ? 1 : -1)),
+    );
     try {
       const response = await api.post(`/tasks/${originalId}/repost/`);
-      Alert.alert('Éxito', '¡Publicación impulsada!');
-      setSharedTask(prev => prev ? { ...prev, task: { ...prev.task, interaction_score: response.data.interaction_score } } : prev);
+      updateTask(
+        response.data.user_has_reposted,
+        response.data.user_has_liked,
+        response.data.likes_count,
+        response.data.interaction_score,
+      );
+      Alert.alert('Éxito', response.data.reposted ? '¡Publicación impulsada!' : 'Se quitó el impulso; el like se conserva.');
     } catch (error) {
       console.error('Error al repostear:', error.response?.data || error);
       Alert.alert('Error', 'Error al repostear. Inténtalo de nuevo.');
-      bump(-1);
+      updateTask(original.user_has_reposted, original.user_has_liked, original.likes_count, original.interaction_score);
+    } finally {
+      repostInFlightRef.current = false;
     }
   };
 
@@ -543,7 +578,9 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
               <Ionicons name="trash-outline" size={22} color="#ff6b6b" />
             </TouchableOpacity>
           </View>
-        ) : <View style={{ width: 24 }} />}
+        ) : (
+          <ReportContentButton targetType="shared_task" targetId={sharedTask?.id} />
+        )}
       </View>
 
       <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
@@ -700,7 +737,6 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
         onClose={() => setShareActionMenuVisible(false)}
         onShare={() => { setShareActionMenuVisible(false); openShareModal(); }}
         onSendMessage={() => { setShareActionMenuVisible(false); openShareModal(); }}
-        onRepost={() => { setShareActionMenuVisible(false); handleRepost(); }}
         onShareToStory={() => { setShareActionMenuVisible(false); handleShareToStory(); }}
       />
 

@@ -288,6 +288,22 @@ export function useMe() {
 }
 
 /**
+ * Estadísticas sociales y estado de seguimiento de un perfil.
+ */
+export function useProfileSocial(userId) {
+  return useQuery({
+    queryKey: ['profileSocial', userId],
+    queryFn: async () => {
+      const res = await api.get(`users/${userId}/social/`);
+      return res.data;
+    },
+    enabled: Boolean(userId),
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
  * Categorías del perfil: propias del usuario + categorías de la app presentes
  * en sus tareas + visibilidad del filtro personal (solo para usuario actual).
  *
