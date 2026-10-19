@@ -27,6 +27,8 @@ import { useIsOnline } from '../hooks/useIsOnline';
 import OfflineEmptyState from '../components/OfflineEmptyState';
 import TaskPostCard, { FeedVideoVisibilityContext, TaskSections } from '@components/TaskPostCard';
 import TaskActionsModal from '@components/TaskActionsModal';
+import TaskSharesModal from '@components/TaskSharesModal';
+import { getActionTaskInfo } from '@hooks/useTaskActions';
 import StoriesBar from '@components/StoriesBar';
 import TopicTopSections from '@components/TopicTopSections';
 import { dedupeFeedItems } from '../utils/feedItems';
@@ -169,6 +171,7 @@ const TasksScreen = ({ navigation, route }) => {
   // Modal de acciones (3 puntos)
   const [actionModalVisible, setActionModalVisible] = useState(false);
   const [selectedActionTask, setSelectedActionTask] = useState(null);
+  const [sharesModalTaskId, setSharesModalTaskId] = useState(null);
 
   // Estados para el flujo de compartir
   const [isActionMenuVisible, setActionMenuVisible] = useState(false);
@@ -395,6 +398,13 @@ const TasksScreen = ({ navigation, route }) => {
   const openActionModal = (task) => {
     setSelectedActionTask(task);
     setActionModalVisible(true);
+  };
+
+  const handleViewShares = () => {
+    const { sourceTask } = getActionTaskInfo(selectedActionTask, currentUserId);
+    if (!sourceTask?.id) return;
+    setActionModalVisible(false);
+    setSharesModalTaskId(sourceTask.id);
   };
 
   const handleDeleteTask = async () => {
@@ -1857,6 +1867,7 @@ const TasksScreen = ({ navigation, route }) => {
           toggleFavorite: handleToggleFavorite,
           pinFavorite: handlePinFavorite,
           share: () => { setActionModalVisible(false); handleOpenShareActionMenu(selectedActionTask); },
+          viewShares: handleViewShares,
           directMessage: handleDirectMessage,
           goToForum: handleGoToForum,
           toggleProfileFavorite: handleToggleProfileFavorite,
@@ -1865,6 +1876,17 @@ const TasksScreen = ({ navigation, route }) => {
           approvePodcast: handleApprovePodcast,
           toggleVerified: handleToggleVerified,
           toggleRecommended: handleToggleRecommended,
+        }}
+      />
+
+      {/* MODAL: todas las veces que se compartió la publicación seleccionada */}
+      <TaskSharesModal
+        visible={Boolean(sharesModalTaskId)}
+        taskId={sharesModalTaskId}
+        onClose={() => setSharesModalTaskId(null)}
+        onOpenShared={(sharedTaskId) => {
+          setSharesModalTaskId(null);
+          navigation.navigate('SharedTaskDetail', { sharedTaskId });
         }}
       />
 
