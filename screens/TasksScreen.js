@@ -30,6 +30,7 @@ import TaskPostCard, { FeedVideoVisibilityContext, TaskSections } from '@compone
 import TaskActionsModal from '@components/TaskActionsModal';
 import StoriesBar from '@components/StoriesBar';
 import TopicTopSections from '@components/TopicTopSections';
+import { dedupeFeedItems } from '../utils/feedItems';
 
 const TASKS_VIDEOS_ONLY_KEY = 'tasks.videosOnly';
 const LEGACY_REELS_VIDEOS_ONLY_KEY = 'reels.videosOnly';
@@ -1142,7 +1143,7 @@ const TasksScreen = ({ navigation, route }) => {
   const feedItems = React.useMemo(() => {
     const plainTasks = tasks.map((task) => ({ ...task, feedType: 'task' }));
     const sharedItems = sharedTasks.map((shared) => ({ ...shared, feedType: 'shared' }));
-    const combined = [...plainTasks, ...sharedItems];
+    const combined = dedupeFeedItems([...plainTasks, ...sharedItems]);
 
     const categoryOrder = selectedCategory
       ? (a, b) => categoryPathRank(a, selectedCategory) - categoryPathRank(b, selectedCategory)
@@ -1180,7 +1181,7 @@ const TasksScreen = ({ navigation, route }) => {
   const searchFeedItems = React.useMemo(() => {
     const plainTasks = searchTasks.map(task => ({ ...task, feedType: 'task' }));
     const sharedItems = searchSharedTasks.map(shared => ({ ...shared, feedType: 'shared' }));
-    return [...plainTasks, ...sharedItems].sort((a, b) => (
+    return dedupeFeedItems([...plainTasks, ...sharedItems]).sort((a, b) => (
       categoryPathRank(a, searchCategory)
       || (selectedSortBy === 'likes'
         ? (b.likes_count || 0) - (a.likes_count || 0)
@@ -1426,17 +1427,6 @@ const TasksScreen = ({ navigation, route }) => {
             onOpenSubMediaInReels={openSubMediaInReels}
           />
         </View>
-
-        <TouchableOpacity
-          style={{ alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 8 }}
-          onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}
-          accessibilityRole="button"
-          accessibilityLabel="Ver publicación original"
-        >
-          <Text style={{ color: '#4dabf7', fontSize: 13, fontWeight: '700' }}>
-            Ver publicación original
-          </Text>
-        </TouchableOpacity>
 
         <View style={styles.taskFooter}>
           <View style={styles.statsContainer}>
