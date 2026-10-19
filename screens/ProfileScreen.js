@@ -16,6 +16,7 @@ import { AuthContext } from '@app';
 import SideMenu from '@components/SideMenu';
 import ReportContentButton from '@components/ReportContentButton';
 import ProfileRecommendations from '@components/ProfileRecommendations';
+import RecommendButton from '@components/RecommendButton';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import CategoryHierarchy from '@components/CategoryHierarchy';
 import {
@@ -472,6 +473,7 @@ const ProfileScreen = ({ route, navigation }) => {
             </View>
           ) : null}
         </View>
+        <RecommendButton userId={socialUserId} isCurrentUser={isCurrentUser} />
       </View>
 
       {socialStatsError ? (
