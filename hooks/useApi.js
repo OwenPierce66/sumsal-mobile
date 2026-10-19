@@ -288,7 +288,7 @@ export function useMe() {
 }
 
 /**
- * Estadísticas sociales y estado de seguimiento de un perfil.
+ * Estadísticas de perfiles favoritos de un perfil: favorited_by_count, favorites_count (puede ser null si es privado) e is_favorited.
  */
 export function useProfileSocial(userId) {
   return useQuery({

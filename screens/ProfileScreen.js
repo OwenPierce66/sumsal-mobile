@@ -130,18 +130,21 @@ const ProfileScreen = ({ route, navigation }) => {
     if (socialUserId) refetchSocial();
   }, [isCurrentUser, refetchMe, refetchTasks, refetchCategories, refetchSocial, socialUserId]);
 
+  // "Seguir" = perfil favorito. El endpoint alterna (201 agregado / 204 quitado) y no devuelve contadores.
   const toggleFollow = async () => {
     if (!socialUserId || !socialStats || followUpdating) return;
     setFollowUpdating(true);
     try {
-      const endpoint = `users/${socialUserId}/follow/`;
-      const response = socialStats.is_following
-        ? await api.delete(endpoint)
-        : await api.post(endpoint);
-      queryClient.setQueryData(['profileSocial', socialUserId], response.data);
+      const response = await api.post('pfavoritos/agregar/', { perfil_id: socialUserId });
+      const isFavorited = response.status === 201;
+      queryClient.setQueryData(['profileSocial', socialUserId], (prev) => prev ? {
+        ...prev,
+        is_favorited: isFavorited,
+        favorited_by_count: Math.max(0, (prev.favorited_by_count || 0) + (isFavorited ? 1 : -1)),
+      } : prev);
       queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
     } catch {
-      Alert.alert('Error', 'No se pudo actualizar el seguimiento. Inténtalo de nuevo.');
+      Alert.alert('Error', 'No se pudo actualizar el perfil favorito. Inténtalo de nuevo.');
     } finally {
       setFollowUpdating(false);
     }
@@ -422,15 +425,15 @@ const ProfileScreen = ({ route, navigation }) => {
         <View style={styles.socialStatsRow}>
           <View style={styles.socialStat}>
             <Text style={styles.socialStatCount}>
-              {socialLoading ? '…' : socialStats?.followers_count ?? '—'}
+              {socialLoading ? '…' : socialStats?.favorited_by_count ?? '—'}
             </Text>
-            <Text style={styles.socialStatLabel}>Seguidores</Text>
+            <Text style={styles.socialStatLabel}>Lo tienen en favoritos</Text>
           </View>
           <View style={styles.socialStat}>
             <Text style={styles.socialStatCount}>
-              {socialLoading ? '…' : socialStats?.following_count ?? '—'}
+              {socialLoading ? '…' : socialStats?.favorites_count ?? '—'}
             </Text>
-            <Text style={styles.socialStatLabel}>Siguiendo</Text>
+            <Text style={styles.socialStatLabel}>Perfiles favoritos</Text>
           </View>
         </View>
       )}
@@ -440,23 +443,23 @@ const ProfileScreen = ({ route, navigation }) => {
           <TouchableOpacity
             style={[
               styles.followButton,
-              socialStats?.is_following && styles.followingButton,
+              socialStats?.is_favorited && styles.followingButton,
             ]}
             onPress={toggleFollow}
             disabled={!socialStats || socialLoading || followUpdating}
             accessibilityRole="button"
-            accessibilityLabel={socialStats?.is_following ? 'Dejar de seguir' : 'Seguir'}
+            accessibilityLabel={socialStats?.is_favorited ? 'Quitar de perfiles favoritos' : 'Agregar a perfiles favoritos'}
           >
             {followUpdating ? (
-              <ActivityIndicator size="small" color={socialStats?.is_following ? '#4dabf7' : '#fff'} />
+              <ActivityIndicator size="small" color={socialStats?.is_favorited ? '#4dabf7' : '#fff'} />
             ) : (
               <Text
                 style={[
                   styles.followButtonText,
-                  socialStats?.is_following && styles.followingButtonText,
+                  socialStats?.is_favorited && styles.followingButtonText,
                 ]}
               >
-                {socialStats?.is_following ? 'Siguiendo' : 'Seguir'}
+                {socialStats?.is_favorited ? 'En favoritos' : 'Agregar a favoritos'}
               </Text>
             )}
           </TouchableOpacity>
