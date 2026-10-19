@@ -7,7 +7,7 @@ import { getActionTaskInfo } from '@hooks/useTaskActions';
  * Menú de 3 puntos COMPLETO. Es el mismo para el feed, el detalle de tarea y el de tarea compartida.
  *
  * actionTask: tarea normal, o compartida marcada con `isSharedTask: true`.
- * handlers: { toggleFavorite, pinFavorite(kind), share, viewShares (opcional), directMessage, goToForum, toggleProfileFavorite,
+ * handlers: { toggleFavorite, pinFavorite(kind), viewShares (opcional), directMessage, goToForum, toggleProfileFavorite,
  *             edit, delete, approvePodcast, toggleVerified, toggleRecommended }
  * extraOptions: nodo opcional con opciones adicionales propias de la pantalla (p. ej. invitación a podcast).
  */
@@ -57,10 +57,6 @@ const TaskActionsModal = ({
               <TouchableOpacity style={styles.actionOption} onPress={() => handlers.pinFavorite('task')}>
                 <Ionicons name="pin-outline" size={20} color="#845ef7" />
                 <Text style={styles.actionText}>Anclar tarea en top 5</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionOption} onPress={handlers.share}>
-                <Ionicons name="share-social-outline" size={20} color="#555" />
-                <Text style={styles.actionText}>Compartir</Text>
               </TouchableOpacity>
               {handlers.viewShares ? (
                 <TouchableOpacity style={styles.actionOption} onPress={handlers.viewShares}>
