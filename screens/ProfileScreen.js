@@ -14,6 +14,7 @@ import api, { getImageUrl } from '@api';
 import { AuthContext } from '@app';
 import SideMenu from '@components/SideMenu';
 import ReportContentButton from '@components/ReportContentButton';
+import ProfileRecommendations from '@components/ProfileRecommendations';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import CategoryHierarchy from '@components/CategoryHierarchy';
 import {
@@ -149,6 +150,19 @@ const ProfileScreen = ({ route, navigation }) => {
       setFollowUpdating(false);
     }
   };
+
+  const openRecommendedProfile = useCallback((person) => {
+    if (!person?.id) return;
+    const params = person.id === me?.id
+      ? { userId: 'me' }
+      : {
+          userId: person.id,
+          userName: person.username || person.name,
+          userAvatar: getImageUrl(person.user_image || person.profile?.user_image),
+        };
+    if (typeof navigation.push === 'function') navigation.push('UserProfile', params);
+    else navigation.navigate('UserProfile', params);
+  }, [me?.id, navigation]);
 
   const loadMoreTasks = () => {
     if (hasNextPage && !isFetchingNextPage) fetchNextPage();
@@ -466,6 +480,13 @@ const ProfileScreen = ({ route, navigation }) => {
           <ReportContentButton targetType="user" targetId={socialUserId} />
         </View>
       ) : null}
+
+      <View style={styles.divider} />
+      <ProfileRecommendations
+        userId={socialUserId}
+        isCurrentUser={isCurrentUser}
+        onOpenProfile={openRecommendedProfile}
+      />
 
       <View style={styles.divider} />
       <View style={styles.sectionTitleRow}>

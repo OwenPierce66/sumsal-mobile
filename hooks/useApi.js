@@ -304,6 +304,24 @@ export function useProfileSocial(userId) {
 }
 
 /**
+ * Recomendaciones entre usuarios de un perfil: received/given (con comentario),
+ * conteos (null si el dueño las ocultó), `hidden`, `public` (solo importa al dueño),
+ * `is_recommended_by_me` y `my_comment`.
+ */
+export function useUserRecommendations(userId) {
+  return useQuery({
+    queryKey: ['userRecommendations', userId],
+    queryFn: async () => {
+      const res = await api.get(`users/${userId}/recommendations/`);
+      return res.data;
+    },
+    enabled: Boolean(userId),
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
  * Categorías del perfil: propias del usuario + categorías de la app presentes
  * en sus tareas + visibilidad del filtro personal (solo para usuario actual).
  *
