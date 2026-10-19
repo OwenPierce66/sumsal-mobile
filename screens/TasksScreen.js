@@ -29,6 +29,7 @@ import TaskPostCard, { FeedVideoVisibilityContext, TaskSections } from '@compone
 import TaskActionsModal from '@components/TaskActionsModal';
 import TaskSharesModal from '@components/TaskSharesModal';
 import { getActionTaskInfo } from '@hooks/useTaskActions';
+import useTaskSharesFeed from '@hooks/useTaskSharesFeed';
 import StoriesBar from '@components/StoriesBar';
 import TopicTopSections from '@components/TopicTopSections';
 import { dedupeFeedItems } from '../utils/feedItems';
@@ -46,7 +47,24 @@ const TasksScreen = ({ navigation, route }) => {
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
 
   const [tasks, setTasks] = useState([]);
-  const [sharedTasks, setSharedTasks] = useState([]);
+  const [sharedTasks, setRawSharedTasks] = useState([]);
+  // Modal "Ver compartidas": id de la publicación original cuyas compartidas se muestran.
+  const [sharesModalTaskId, setSharesModalTaskId] = useState(null);
+  const sharesFeed = useTaskSharesFeed(sharesModalTaskId);
+  const setSharesItems = sharesFeed.setItems;
+  // Las acciones de las tarjetas (like, impulso, favorito, borrar...) actualizan la lista con
+  // funciones; esas mismas actualizaciones se aplican a las tarjetas del modal para que
+  // reaccionen igual que las del feed. Las cargas completas del servidor solo reemplazan el feed.
+  const setSharedTasks = useCallback((valueOrUpdater) => {
+    setRawSharedTasks(valueOrUpdater);
+    if (typeof valueOrUpdater === 'function') setSharesItems(valueOrUpdater);
+  }, [setSharesItems]);
+  const sharesModalItems = useMemo(
+    () => sharesFeed.items.filter((shared) => shared.task?.id === sharesModalTaskId),
+    [sharesFeed.items, sharesModalTaskId]
+  );
+  // Al salir de esta pantalla (por ejemplo, a un detalle) el modal se cierra.
+  useFocusEffect(useCallback(() => () => setSharesModalTaskId(null), []));
   const repostInFlightRef = useRef(new Set());
   const [searchText, setSearchText] = useState('');
   const [searchExpanded, setSearchExpanded] = useState(false);
@@ -171,7 +189,6 @@ const TasksScreen = ({ navigation, route }) => {
   // Modal de acciones (3 puntos)
   const [actionModalVisible, setActionModalVisible] = useState(false);
   const [selectedActionTask, setSelectedActionTask] = useState(null);
-  const [sharesModalTaskId, setSharesModalTaskId] = useState(null);
 
   // Estados para el flujo de compartir
   const [isActionMenuVisible, setActionMenuVisible] = useState(false);
@@ -1882,12 +1899,13 @@ const TasksScreen = ({ navigation, route }) => {
       {/* MODAL: todas las veces que se compartió la publicación seleccionada */}
       <TaskSharesModal
         visible={Boolean(sharesModalTaskId)}
-        taskId={sharesModalTaskId}
         onClose={() => setSharesModalTaskId(null)}
-        onOpenShared={(sharedTaskId) => {
-          setSharesModalTaskId(null);
-          navigation.navigate('SharedTaskDetail', { sharedTaskId });
-        }}
+        items={sharesModalItems}
+        loading={sharesFeed.loading}
+        error={sharesFeed.error}
+        onLoadMore={sharesFeed.loadMore}
+        onRetry={sharesFeed.retry}
+        renderItem={({ item }) => renderSharedItemCard(item)}
       />
 
       {/* Nuevo Menú Modal de Acciones para Compartir */}
