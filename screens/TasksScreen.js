@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect, useContext, useRef, useMemo } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions,
   RefreshControl, TextInput, Platform, ActivityIndicator, Modal, Alert, Button, SafeAreaView, useWindowDimensions,
@@ -32,9 +31,6 @@ import StoriesBar from '@components/StoriesBar';
 import TopicTopSections from '@components/TopicTopSections';
 import { dedupeFeedItems } from '../utils/feedItems';
 
-const TASKS_VIDEOS_ONLY_KEY = 'tasks.videosOnly';
-const LEGACY_REELS_VIDEOS_ONLY_KEY = 'reels.videosOnly';
-const { hasVideo } = require('./reelUtils');
 
 const TasksScreen = ({ navigation, route }) => {
   const isTasksTab = route?.name === 'HomeMain';
@@ -159,7 +155,6 @@ const TasksScreen = ({ navigation, route }) => {
   const [selectedFavoriteUsersOnly, setSelectedFavoriteUsersOnly] = useState(false);
   const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
-  const [selectedVideosOnly, setSelectedVideosOnly] = useState(false);
 
   const [availableCategories, setAvailableCategories] = useState([]);
   const [showPersonalFilter, setShowPersonalFilter] = useState(false);
@@ -180,27 +175,6 @@ const TasksScreen = ({ navigation, route }) => {
   const [isShareModalVisible, setShareModalVisible] = useState(false);
   const [taskToShare, setTaskToShare] = useState(null);
   const [taskShareDetails, setTaskShareDetails] = useState(null);
-
-  useEffect(() => {
-    if (!isTasksTab) {
-      setSelectedVideosOnly(false);
-      return undefined;
-    }
-
-    let isCurrent = true;
-    AsyncStorage.getItem(TASKS_VIDEOS_ONLY_KEY)
-      .then(async (savedValue) => {
-        const value = savedValue ?? await AsyncStorage.getItem(LEGACY_REELS_VIDEOS_ONLY_KEY);
-        if (isCurrent) setSelectedVideosOnly(value === 'true');
-      })
-      .catch((error) => {
-        console.error('[TasksScreen] No se pudo cargar la preferencia de solo videos:', error);
-      });
-
-    return () => {
-      isCurrent = false;
-    };
-  }, [isTasksTab]);
 
   useEffect(() => {
     if (route?.params?.openSavedFilters) {
@@ -817,18 +791,8 @@ const TasksScreen = ({ navigation, route }) => {
     setSelectedFavoriteUsersOnly(newFilters.favorite_users_only ?? false);
     setSelectedVerifiedUsersOnly(newFilters.verified_users_only ?? false);
     setSelectedRecommendedUsersOnly(newFilters.recommended_users_only ?? false);
-    if (isTasksTab && newFilters.videos_only !== undefined) {
-      const previousValue = selectedVideosOnly;
-      const nextValue = Boolean(newFilters.videos_only);
-      setSelectedVideosOnly(nextValue);
-      AsyncStorage.setItem(TASKS_VIDEOS_ONLY_KEY, String(nextValue)).catch((error) => {
-        setSelectedVideosOnly(previousValue);
-        console.error('[TasksScreen] No se pudo guardar la preferencia de solo videos:', error);
-        Alert.alert('No se guardó la preferencia', 'Inténtalo de nuevo.');
-      });
-    }
     setFilterModalVisible(false);
-  }, [isTasksTab, selectedVideosOnly]);
+  }, []);
 
 
   const fetchSearchResults = useCallback(async (query) => {
@@ -1205,13 +1169,6 @@ const TasksScreen = ({ navigation, route }) => {
     && !selectedRecommendedUsersOnly
     && ['all', 'recent'].includes(selectedSortBy);
   const filteredTasks = displayedFeedItems.filter((item) => {
-    if (
-      isTasksTab
-      && selectedVideosOnly
-      && !hasVideo(item.feedType === 'shared' ? item.task : item)
-    ) {
-      return false;
-    }
     if (searchExpanded && searchHasStarted) return true;
     const title = item.feedType === 'shared' ? item.task?.title : item.title;
     const description = item.feedType === 'shared'
@@ -1782,23 +1739,8 @@ const TasksScreen = ({ navigation, route }) => {
           loading ? null : isOnline ? (
             <View style={{ alignItems: 'center', marginTop: 50, paddingHorizontal: 24 }}>
               <Text style={{ textAlign: 'center', color: '#999' }}>
-                {isTasksTab && selectedVideosOnly
-                  ? 'No hay videos en las publicaciones cargadas.'
-                  : 'No hay publicaciones para mostrar'}
+                No hay publicaciones para mostrar
               </Text>
-              {isTasksTab && selectedVideosOnly && tasksHasNext && (
-                <TouchableOpacity
-                  style={styles.loadMoreVideosButton}
-                  onPress={loadMoreTasks}
-                  disabled={loadingMore}
-                >
-                  {loadingMore ? (
-                    <ActivityIndicator color="#4dabf7" />
-                  ) : (
-                    <Text style={styles.loadMoreVideosText}>Buscar más videos</Text>
-                  )}
-                </TouchableOpacity>
-              )}
             </View>
           ) : (
             <OfflineEmptyState onRetry={onRefresh} />
@@ -1819,8 +1761,6 @@ const TasksScreen = ({ navigation, route }) => {
         currentFavoriteUsers={selectedFavoriteUsersOnly}
         currentVerifiedUsers={selectedVerifiedUsersOnly}
         currentRecommendedUsers={selectedRecommendedUsersOnly}
-        currentVideosOnly={isTasksTab && selectedVideosOnly}
-        showVideoOnlyFilter={isTasksTab}
         // ✅ PASAMOS EL ESTADO DE ADMIN DIRECTAMENTE
         isSuperAdmin={isAdmin}
         // ✅ SOLUCIÓN: Pasamos las categorías como prop.
@@ -2006,8 +1946,6 @@ const styles = StyleSheet.create({
   allCategoriesText: { color: '#1864ab', fontSize: 13, fontWeight: '600' },
   categorySearchContainer: { paddingHorizontal: 12, marginBottom: 8 },
   listContent: { paddingBottom: 100 },
-  loadMoreVideosButton: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 20, backgroundColor: '#4dabf7' },
-  loadMoreVideosText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   taskCard: { 
     backgroundColor: '#fff', 
     marginHorizontal: 12, 
