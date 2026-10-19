@@ -79,14 +79,6 @@ const ShareModal = ({
       });
       if (onShareSuccess) onShareSuccess(response.data);
 
-      if (navigation?.navigate) {
-        try {
-          navigation.navigate('TaskDetail', { taskId });
-        } catch (navError) {
-          // no-op: some screens don't expose that route in the current stack
-        }
-      }
-
       resetAndClose();
     } catch (shareError) {
       const backendError = shareError?.response?.data?.detail || shareError?.response?.data?.error || 'No se pudo compartir la publicación.';
