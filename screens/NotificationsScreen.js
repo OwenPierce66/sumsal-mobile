@@ -254,8 +254,92 @@ const NotificationsScreen = ({ navigation }) => {
 
   // ─── Render item ──────────────────────────────────────────────────────────
 
+  const [savingStoryId, setSavingStoryId] = useState(null);
+
+  const handleSaveStory = useCallback(async (notification) => {
+    const storyId = notification.data?.story_id || notification.target_id;
+    if (!storyId || savingStoryId) return;
+    setSavingStoryId(notification.id);
+    try {
+      await api.post(`stories/${storyId}/save/`);
+      if (!notification.is_read) markReadMutation.mutate(notification.id);
+      queryClient.invalidateQueries();
+      Alert.alert(
+        'Historia guardada',
+        'Ya está en tus aportaciones. Los me gusta que tenía se conservan en el total; cada persona vuelve a aparecer en la lista cuando le dé me gusta otra vez.'
+      );
+    } catch (error) {
+      Alert.alert('Error', error?.response?.data?.detail || 'No se pudo guardar la historia.');
+    } finally {
+      setSavingStoryId(null);
+    }
+  }, [markReadMutation, queryClient, savingStoryId]);
+
+  const renderStoryExpired = (item) => {
+    const story = item.data || {};
+    const saved = !!story.story_saved;
+    const gone = story.story_exists === false;
+    const preview = getImageUrl(story.story_image);
+    return (
+      <View style={[styles.storyAd, !item.is_read && styles.storyAdUnread]}>
+        <View style={styles.storyAdTag}>
+          <Ionicons name="time" size={12} color="#845ef7" />
+          <Text style={styles.storyAdTagText}>Tu historia terminó</Text>
+        </View>
+        <View style={styles.storyAdRow}>
+          {preview ? (
+            <Image source={{ uri: preview }} style={styles.storyAdThumb} contentFit="cover" />
+          ) : (
+            <View style={[styles.storyAdThumb, styles.storyAdThumbEmpty]}>
+              <Ionicons name={story.story_video ? 'videocam' : 'image'} size={24} color="#845ef7" />
+            </View>
+          )}
+          <View style={styles.storyAdCopy}>
+            <Text style={styles.storyAdTitle}>
+              {saved ? 'Guardada en tus aportaciones' : '¿Guardarla en tus aportaciones?'}
+            </Text>
+            <Text style={styles.storyAdText}>
+              {saved
+                ? 'Quienes le dieron me gusta aparecerán en la lista cuando se lo den otra vez; el total se conserva.'
+                : gone
+                  ? 'Esta historia ya no existe.'
+                  : 'Se guardará en el tema de historias. Si no la guardas, solo tú la conservas en privado.'}
+            </Text>
+          </View>
+        </View>
+        {!saved && !gone ? (
+          <View style={styles.storyAdActions}>
+            <TouchableOpacity
+              style={[styles.storyAdButton, styles.storyAdButtonPrimary]}
+              onPress={() => handleSaveStory(item)}
+              disabled={savingStoryId === item.id}
+              accessibilityLabel="Guardar historia en mis aportaciones"
+            >
+              {savingStoryId === item.id ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.storyAdButtonPrimaryText}>Guardar</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.storyAdButton}
+              onPress={() => (item.is_read ? null : markReadMutation.mutate(item.id))}
+              accessibilityLabel="No guardar ahora"
+            >
+              <Text style={styles.storyAdButtonText}>Ahora no</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        <Text style={[styles.time, !item.is_read && styles.timeUnread]}>
+          {moment(item.created_at).fromNow()}
+        </Text>
+      </View>
+    );
+  };
+
   const renderNotification = ({ item }) => {
     const type = getNotificationType(item);
+    if (type === 'story_expired') return renderStoryExpired(item);
     const config = NOTIFICATION_COPY[type] || { icon: 'notifications', color: '#4dabf7' };
     const isPodcastSpecial = ['podcast_invite', 'podcast_approved'].includes(type);
     const actor = item.actor || {};
@@ -383,6 +467,7 @@ const NotificationsScreen = ({ navigation }) => {
           data={notifications}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderNotification}
+          extraData={savingStoryId}
           refreshControl={
             <RefreshControl
               refreshing={isLoading}
@@ -475,6 +560,27 @@ const styles = StyleSheet.create({
   podcastHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 4 },
   podcastHeader: { fontSize: 12, fontWeight: '800', color: '#e64980', letterSpacing: 0.5, textTransform: 'uppercase' },
   podcastText: { color: '#a61e4d', fontWeight: '600' },
+  storyAd: {
+    padding: 14, marginBottom: 9, borderRadius: 16, backgroundColor: '#fff',
+    borderWidth: 1.5, borderColor: '#e5dbff',
+  },
+  storyAdUnread: { backgroundColor: '#f8f5ff' },
+  storyAdTag: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
+  storyAdTagText: { fontSize: 11, fontWeight: '800', color: '#845ef7', letterSpacing: 0.5, textTransform: 'uppercase' },
+  storyAdRow: { flexDirection: 'row', alignItems: 'center' },
+  storyAdThumb: { width: 56, height: 72, borderRadius: 10, marginRight: 12, backgroundColor: '#f1f3f5' },
+  storyAdThumbEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#f3f0ff' },
+  storyAdCopy: { flex: 1 },
+  storyAdTitle: { fontSize: 15, fontWeight: '800', color: '#2d3436' },
+  storyAdText: { fontSize: 13, lineHeight: 18, color: '#6c757d', marginTop: 3 },
+  storyAdActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  storyAdButton: {
+    flex: 1, minHeight: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#f1f3f5',
+  },
+  storyAdButtonPrimary: { backgroundColor: '#845ef7' },
+  storyAdButtonText: { color: '#495057', fontWeight: '700' },
+  storyAdButtonPrimaryText: { color: '#fff', fontWeight: '800' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
   emptyTitle: { marginTop: 12, fontSize: 16, fontWeight: '700', color: '#555', textAlign: 'center' },
   emptySubtitle: { marginTop: 5, fontSize: 13, color: '#999', textAlign: 'center' },

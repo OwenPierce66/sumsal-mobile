@@ -26,7 +26,9 @@ import {
   useProfileTasksInfinite,
   useProfileCategories,
   useFavoritesFeed,
+  useStories,
 } from '@hooks/useApi';
+import { STORY_WINDOW_MS, getStoryMedia, parseCreatedAtMs } from './Stories24hScreen';
 
 // Controles opcionales del perfil (se guardan en el dispositivo; ocultos por defecto).
 const PROFILE_CONTROLS_KEY = 'profileControls';
@@ -99,6 +101,23 @@ const ProfileScreen = ({ route, navigation }) => {
 
   // ownerId: el ID real del usuario para pasarlo a las categorías
   const ownerId = isCurrentUser ? me?.id : userId;
+
+  // ── Historia activa (aro en el avatar, como en otras redes) ───────────────
+  // Misma consulta y filtros que StoriesBar: comparten caché con Inicio.
+  const { data: storiesData } = useStories();
+  const activeStoryId = useMemo(() => {
+    if (!ownerId) return null;
+    const now = Date.now();
+    let first = null;
+    (Array.isArray(storiesData) ? storiesData : []).forEach((story) => {
+      const storyUserId = story?.user?.id || story?.user_id;
+      if (!storyUserId || String(storyUserId) !== String(ownerId) || !getStoryMedia(story)) return;
+      const createdMs = parseCreatedAtMs(story) || 0;
+      if (createdMs && now - createdMs > STORY_WINDOW_MS) return;
+      if (!first || createdMs < first.createdMs) first = { id: story.id, createdMs };
+    });
+    return first?.id ?? null;
+  }, [storiesData, ownerId]);
 
   // ── Tareas ────────────────────────────────────────────────────────────────
   const tasksParams = useMemo(
@@ -494,10 +513,20 @@ const ProfileScreen = ({ route, navigation }) => {
   const renderHeader = () => (
     <View style={styles.profileHeader}>
       <View style={styles.profileInfoContainer}>
-        <Image
-          source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }}
-          style={styles.profileAvatar}
-        />
+        <TouchableOpacity
+          style={styles.profileAvatarWrap}
+          activeOpacity={activeStoryId ? 0.8 : 1}
+          disabled={!activeStoryId}
+          onPress={() => navigation.navigate('Stories', { openStoryId: activeStoryId })}
+          accessibilityRole={activeStoryId ? 'button' : undefined}
+          accessibilityLabel={activeStoryId ? 'Ver historia' : undefined}
+        >
+          <Image
+            source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }}
+            style={styles.profileAvatar}
+          />
+          {activeStoryId ? <View pointerEvents="none" style={styles.profileStoryRing} /> : null}
+        </TouchableOpacity>
         <View style={styles.profileTextContainer}>
           <Text style={styles.profileName}>
             {user?.first_name
@@ -941,7 +970,12 @@ const styles = StyleSheet.create({
   followingButton: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#4dabf7' },
   followButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   followingButtonText: { color: '#4dabf7' },
-  profileAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#eee', marginRight: 15 },
+  profileAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#eee' },
+  profileAvatarWrap: { width: 70, height: 70, marginRight: 15 },
+  profileStoryRing: {
+    position: 'absolute', top: -5, left: -5, width: 80, height: 80, borderRadius: 40,
+    borderWidth: 3, borderColor: '#4dabf7',
+  },
   profileTextContainer: { flex: 1 },
   profileName: { fontSize: 22, fontWeight: 'bold', color: '#333' },
   profileEmail: { fontSize: 14, color: '#666', marginTop: 4 },
