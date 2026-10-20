@@ -1214,7 +1214,6 @@ const TasksScreen = ({ navigation, route }) => {
     && !selectedCategory
     && !selectedStatus
     && !selectedDateFilter
-    && !selectedFavoritesOnly
     && !selectedFavoriteUsersOnly
     && !selectedVerifiedUsersOnly
     && !selectedRecommendedUsersOnly
@@ -1961,7 +1960,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5' },
   feedRoot: { flex: 1, overflow: 'hidden' },
   stickyFilterZone: { backgroundColor: '#FEF6F5', paddingTop: 6, paddingBottom: 4 },
-  stickyCategories: { marginTop: 2, marginBottom: 0 },
+  stickyCategories: { marginTop: 0, marginBottom: 0 },
   collapsingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20 },
   fixedTitle: { zIndex: 2, backgroundColor: '#fff' },
   movingHeader: { zIndex: 1, backgroundColor: '#FEF6F5' },
