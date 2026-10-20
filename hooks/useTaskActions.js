@@ -63,6 +63,8 @@ export default function useTaskActions({
     if (!targetId) return;
     try {
       await api.post('favorites/pin/', { type: kind, target_id: targetId, is_pinned: true });
+      // Anclar agrega a favoritos si faltaba: recarga para actualizar los botones.
+      await refresh?.();
       Alert.alert('Favorito anclado', 'Se colocó dentro de tus primeros 5 favoritos.');
     } catch (error) {
       const message = error.response?.data?.is_pinned?.[0] || 'No se pudo anclar este favorito.';
@@ -70,7 +72,7 @@ export default function useTaskActions({
     } finally {
       close?.();
     }
-  }, [targetUser, sourceTask, close]);
+  }, [targetUser, sourceTask, close, refresh]);
 
   const share = useCallback(() => {
     close?.();

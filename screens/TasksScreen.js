@@ -706,6 +706,22 @@ const TasksScreen = ({ navigation, route }) => {
     if (!targetId) return;
     try {
       await api.post('favorites/pin/', { type: kind, target_id: targetId, is_pinned: true });
+      // Anclar implica favorito: refleja el cambio en las listas locales.
+      if (kind === 'task') {
+        setTasks(prev => prev.map(t => (t.id === targetId ? { ...t, is_favorited: true } : t)));
+        setSharedTasks(prev => prev.map(s => (
+          s.task?.id === targetId ? { ...s, task: { ...s.task, is_favorited: true } } : s
+        )));
+      } else {
+        const markUser = (u) => (u && typeof u === 'object' && String(u.id) === String(targetId)
+          ? { ...u, is_favorited: true } : u);
+        const markTask = (t) => ({ ...t, user: markUser(t.user), shared_by: markUser(t.shared_by) });
+        setTasks(prev => prev.map(markTask));
+        setSharedTasks(prev => prev.map(s => ({
+          ...markTask(s),
+          task: s.task ? markTask(s.task) : s.task,
+        })));
+      }
       Alert.alert('Favorito anclado', 'Se colocó dentro de tus primeros 5 favoritos.');
     } catch (error) {
       const message = error.response?.data?.is_pinned?.[0] || 'No se pudo anclar este favorito.';
