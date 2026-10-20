@@ -113,6 +113,23 @@ export default function useTaskActions({
     }
   }, [targetUser?.id, refresh, close]);
 
+  // Seguir -> Favorito -> Anclado: dejar de seguir quita también el favorito (lo hace el servidor).
+  const toggleFollow = useCallback(async () => {
+    if (!targetUser?.id) return;
+    try {
+      if (targetUser.is_following) {
+        await api.delete(`users/${targetUser.id}/follow/`);
+      } else {
+        await api.post(`users/${targetUser.id}/follow/`);
+      }
+      await refresh?.();
+    } catch (error) {
+      console.error('Error toggling follow:', error);
+    } finally {
+      close?.();
+    }
+  }, [targetUser?.id, targetUser?.is_following, refresh, close]);
+
   const toggleVerified = useCallback(async () => {
     if (!targetUser?.id) return;
     try {
@@ -202,6 +219,7 @@ export default function useTaskActions({
     share,
     directMessage,
     goToForum,
+    toggleFollow,
     toggleProfileFavorite,
     toggleVerified,
     toggleRecommended,

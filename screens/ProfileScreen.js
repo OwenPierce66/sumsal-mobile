@@ -175,8 +175,36 @@ const ProfileScreen = ({ route, navigation }) => {
     if (socialUserId) refetchSocial();
   }, [isCurrentUser, refetchMe, refetchTasks, refetchCategories, refetchSocial, socialUserId]);
 
-  // "Seguir" = perfil favorito. El endpoint alterna (201 agregado / 204 quitado) y no devuelve contadores.
+  // "Seguir" es una relación propia. Jerarquía: Seguir → Favorito → Anclado
+  // (favoritar sigue; dejar de seguir quita el favorito).
   const toggleFollow = async () => {
+    if (!socialUserId || !socialStats || followUpdating) return;
+    setFollowUpdating(true);
+    try {
+      const wasFollowing = !!socialStats.is_following;
+      const response = wasFollowing
+        ? await api.delete(`users/${socialUserId}/follow/`)
+        : await api.post(`users/${socialUserId}/follow/`);
+      const data = response.data || {};
+      queryClient.setQueryData(['profileSocial', socialUserId], (prev) => prev ? {
+        ...prev,
+        is_following: !!data.is_following,
+        is_favorited: !!data.is_favorited,
+        followers_count: data.followers_count ?? prev.followers_count,
+        favorited_by_count: wasFollowing && prev.is_favorited
+          ? Math.max(0, (prev.favorited_by_count || 0) - 1)
+          : prev.favorited_by_count,
+      } : prev);
+      queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
+    } catch {
+      Alert.alert('Error', 'No se pudo actualizar el seguimiento. Inténtalo de nuevo.');
+    } finally {
+      setFollowUpdating(false);
+    }
+  };
+
+  // Perfil favorito: el endpoint alterna (201 agregado / 204 quitado) y no devuelve contadores.
+  const toggleFavoriteProfile = async () => {
     if (!socialUserId || !socialStats || followUpdating) return;
     setFollowUpdating(true);
     try {
@@ -185,6 +213,11 @@ const ProfileScreen = ({ route, navigation }) => {
       queryClient.setQueryData(['profileSocial', socialUserId], (prev) => prev ? {
         ...prev,
         is_favorited: isFavorited,
+        // Favoritar sigue automáticamente (quitar el favorito no deja de seguir).
+        is_following: isFavorited ? true : prev.is_following,
+        followers_count: isFavorited && !prev.is_following
+          ? (prev.followers_count || 0) + 1
+          : prev.followers_count,
         favorited_by_count: Math.max(0, (prev.favorited_by_count || 0) + (isFavorited ? 1 : -1)),
       } : prev);
       queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
@@ -558,6 +591,18 @@ const ProfileScreen = ({ route, navigation }) => {
         <View style={styles.socialStatsRow}>
           <View style={styles.socialStat}>
             <Text style={styles.socialStatCount}>
+              {socialLoading ? '…' : socialStats?.followers_count ?? '—'}
+            </Text>
+            <Text style={styles.socialStatLabel}>Seguidores</Text>
+          </View>
+          <View style={styles.socialStat}>
+            <Text style={styles.socialStatCount}>
+              {socialLoading ? '…' : socialStats?.following_count ?? '—'}
+            </Text>
+            <Text style={styles.socialStatLabel}>Siguiendo</Text>
+          </View>
+          <View style={styles.socialStat}>
+            <Text style={styles.socialStatCount}>
               {socialLoading ? '…' : socialStats?.favorited_by_count ?? '—'}
             </Text>
             <Text style={styles.socialStatLabel}>Lo tienen en favoritos</Text>
@@ -573,29 +618,48 @@ const ProfileScreen = ({ route, navigation }) => {
 
       {!isCurrentUser ? (
         <View style={styles.profileActions}>
+          <TouchableOpacity
+            style={[
+              styles.followButton,
+              socialStats?.is_following && styles.followingButton,
+            ]}
+            onPress={toggleFollow}
+            disabled={!socialStats || socialLoading || followUpdating}
+            accessibilityRole="button"
+            accessibilityLabel={socialStats?.is_following ? 'Dejar de seguir' : 'Seguir'}
+          >
+            {followUpdating ? (
+              <ActivityIndicator size="small" color={socialStats?.is_following ? '#4dabf7' : '#fff'} />
+            ) : (
+              <Text
+                style={[
+                  styles.followButtonText,
+                  socialStats?.is_following && styles.followingButtonText,
+                ]}
+              >
+                {socialStats?.is_following ? 'Siguiendo' : 'Seguir'}
+              </Text>
+            )}
+          </TouchableOpacity>
           {showFollowButton ? (
           <TouchableOpacity
             style={[
               styles.followButton,
               socialStats?.is_favorited && styles.followingButton,
             ]}
-            onPress={toggleFollow}
+            onPress={toggleFavoriteProfile}
             disabled={!socialStats || socialLoading || followUpdating}
             accessibilityRole="button"
             accessibilityLabel={socialStats?.is_favorited ? 'Quitar de perfiles favoritos' : 'Agregar a perfiles favoritos'}
           >
-            {followUpdating ? (
-              <ActivityIndicator size="small" color={socialStats?.is_favorited ? '#4dabf7' : '#fff'} />
-            ) : (
-              <Text
-                style={[
-                  styles.followButtonText,
-                  socialStats?.is_favorited && styles.followingButtonText,
-                ]}
-              >
-                {socialStats?.is_favorited ? 'En favoritos' : 'Agregar a favoritos'}
-              </Text>
-            )}
+            <Text
+              style={[
+                styles.followButtonText,
+                socialStats?.is_favorited && styles.followingButtonText,
+              ]}
+            >
+              {socialStats?.is_favorited ? 'En favoritos' : 'Agregar a favoritos'}
+            </Text>
           </TouchableOpacity>
           ) : null}
           <ReportContentButton targetType="user" targetId={socialUserId} />
@@ -747,7 +811,7 @@ const ProfileScreen = ({ route, navigation }) => {
                   color="#ff0b5a"
                 />
                 <Text style={styles.profileMenuText}>
-                  {showFollowButton ? 'Ocultar botón de seguir' : 'Mostrar botón de seguir'}
+                  {showFollowButton ? 'Ocultar botón de favoritos' : 'Mostrar botón de favoritos'}
                 </Text>
               </TouchableOpacity>
             )}
@@ -959,7 +1023,7 @@ const styles = StyleSheet.create({
   clearFilterText: { color: '#4dabf7', fontSize: 12, fontWeight: '700' },
   profileHeader: { padding: 20, backgroundColor: '#fff', marginBottom: 10 },
   profileInfoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  socialStatsRow: { flexDirection: 'row', gap: 28, marginBottom: 16 },
+  socialStatsRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 22, rowGap: 8, marginBottom: 16 },
   socialStat: { alignItems: 'flex-start' },
   socialStatCount: { color: '#333', fontSize: 16, fontWeight: '800' },
   socialStatLabel: { color: '#777', fontSize: 12, marginTop: 2 },

@@ -9,7 +9,7 @@ import { setAccountActive } from '../utils/adminActions';
  * Menú de 3 puntos COMPLETO. Es el mismo para el feed, el detalle de tarea y el de tarea compartida.
  *
  * actionTask: tarea normal, o compartida marcada con `isSharedTask: true`.
- * handlers: { toggleFavorite, pinFavorite(kind), viewShares (opcional), directMessage, goToForum, toggleProfileFavorite,
+ * handlers: { toggleFavorite, pinFavorite(kind), viewShares (opcional), directMessage, goToForum, toggleFollow, toggleProfileFavorite,
  *             edit, delete, approvePodcast, toggleVerified, toggleRecommended }
  * extraOptions: nodo opcional con opciones adicionales propias de la pantalla (p. ej. invitación a podcast).
  */
@@ -30,6 +30,7 @@ const TaskActionsModal = ({
   const canSuspendAuthor = Boolean(me?.is_superuser) && isOtherUser && Boolean(targetUser?.id) && !targetUser?.is_superuser;
   const isFavorited = Boolean(sourceTask?.is_favorited);
   const isProfileFavorited = Boolean(targetUser?.is_favorited);
+  const isFollowing = Boolean(targetUser?.is_following);
   const categories = String(sourceTask?.categories || '')
     .split(',')
     .map((category) => category.trim().toLowerCase());
@@ -78,6 +79,10 @@ const TaskActionsModal = ({
                   <TouchableOpacity style={styles.actionOption} onPress={handlers.goToForum}>
                     <Ionicons name="newspaper-outline" size={20} color="#4dabf7" />
                     <Text style={styles.actionText}>Ir al foro</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.actionOption} onPress={handlers.toggleFollow}>
+                    <Ionicons name={isFollowing ? 'person-remove-outline' : 'person-add-outline'} size={20} color={isFollowing ? '#4dabf7' : '#555'} />
+                    <Text style={styles.actionText}>{isFollowing ? 'Dejar de seguir' : 'Seguir'}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.actionOption} onPress={handlers.toggleProfileFavorite}>
                     <Ionicons name={isProfileFavorited ? 'heart' : 'heart-outline'} size={20} color={isProfileFavorited ? '#ff0b5a' : '#555'} />

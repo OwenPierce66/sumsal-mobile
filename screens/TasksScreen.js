@@ -197,6 +197,7 @@ const TasksScreen = ({ navigation, route }) => {
     route?.params?.feedMode === 'favorites'
   );
   const [selectedFavoriteUsersOnly, setSelectedFavoriteUsersOnly] = useState(false);
+  const [selectedFollowedUsersOnly, setSelectedFollowedUsersOnly] = useState(false);
   const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
 
@@ -662,36 +663,63 @@ const TasksScreen = ({ navigation, route }) => {
     }
   };
 
-  const handleToggleProfileFavorite = async () => {
-    if (!selectedActionTask || (!selectedActionTask.user && !selectedActionTask.shared_by)) return;
+  // Aplica `patch` (p. ej. { is_following, is_favorited }) al usuario `perfilId`
+  // en cada tarea/compartida que lo muestre, para que todos los menús coincidan.
+  const patchUserEverywhere = (perfilId, patch) => {
+    const matches = (u) => u && (typeof u === "object" ? String(u.id) === String(perfilId) : String(u) === String(perfilId));
+    const patchUser = (u) => (matches(u) && typeof u === "object" ? { ...u, ...patch } : u);
+    const patchTask = (t) => {
+      if (!t) return t;
+      const next = { ...t };
+      if (t.user !== undefined) next.user = patchUser(t.user);
+      if (t.shared_by !== undefined) next.shared_by = patchUser(t.shared_by);
+      return next;
+    };
+    setTasks(prev => prev.map(patchTask));
+    setSharedTasks(prev => prev.map(s => ({ ...patchTask(s), task: patchTask(s.task) })));
+  };
+
+  const getActionTargetUser = () => {
+    if (!selectedActionTask || (!selectedActionTask.user && !selectedActionTask.shared_by)) return null;
+    const targetUser = selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user;
+    return typeof targetUser === "object" ? targetUser : { id: targetUser };
+  };
+
+  // Seguir -> Favorito -> Anclado: dejar de seguir quita también el favorito.
+  const handleToggleFollow = async () => {
+    const userObj = getActionTargetUser();
+    if (!userObj?.id) return;
     try {
-      const targetUser = selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user;
-      const userObj = typeof targetUser === "object" ? targetUser : { id: targetUser };
-      const perfilId = userObj.id;
+      const wasFollowing = !!userObj.is_following;
+      patchUserEverywhere(userObj.id, wasFollowing
+        ? { is_following: false, is_favorited: false }
+        : { is_following: true });
+      if (wasFollowing) {
+        await api.delete(`users/${userObj.id}/follow/`);
+      } else {
+        await api.post(`users/${userObj.id}/follow/`);
+      }
+      queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
+    } catch (error) {
+      console.error("Error toggling follow:", error);
+      patchUserEverywhere(userObj.id, { is_following: !!userObj.is_following, is_favorited: !!userObj.is_favorited });
+    } finally {
+      setActionModalVisible(false);
+    }
+  };
+
+  const handleToggleProfileFavorite = async () => {
+    const userObj = getActionTargetUser();
+    if (!userObj?.id) return;
+    try {
       const isFav = !userObj.is_favorited;
-
-      const updateTasksWithNewUserFav = (tasksList) => 
-        tasksList.map(t => {
-          if (t.user && (t.user.id === perfilId || t.user === perfilId)) {
-             return { ...t, user: typeof t.user === "object" ? { ...t.user, is_favorited: isFav } : t.user };
-          }
-          if (t.shared_by && (t.shared_by.id === perfilId || t.shared_by === perfilId)) {
-             return { ...t, shared_by: typeof t.shared_by === "object" ? { ...t.shared_by, is_favorited: isFav } : t.shared_by };
-          }
-          return t;
-        });
-
-      setTasks(prev => updateTasksWithNewUserFav(prev));
-      setSharedTasks(prev => prev.map(s => {
-        if (s.task) {
-           return { ...s, task: updateTasksWithNewUserFav([s.task])[0] };
-        }
-        return s;
-      }));
-      
-      await api.post("pfavoritos/agregar/", { perfil_id: perfilId });
+      // Favoritar sigue automáticamente; quitar el favorito no deja de seguir.
+      patchUserEverywhere(userObj.id, isFav ? { is_favorited: true, is_following: true } : { is_favorited: false });
+      await api.post("pfavoritos/agregar/", { perfil_id: userObj.id });
+      queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
     } catch (error) {
       console.error("Error toggling profile favorite:", error);
+      patchUserEverywhere(userObj.id, { is_favorited: !!userObj.is_favorited, is_following: !!userObj.is_following });
     } finally {
       setActionModalVisible(false);
     }
@@ -713,14 +741,7 @@ const TasksScreen = ({ navigation, route }) => {
           s.task?.id === targetId ? { ...s, task: { ...s.task, is_favorited: true } } : s
         )));
       } else {
-        const markUser = (u) => (u && typeof u === 'object' && String(u.id) === String(targetId)
-          ? { ...u, is_favorited: true } : u);
-        const markTask = (t) => ({ ...t, user: markUser(t.user), shared_by: markUser(t.shared_by) });
-        setTasks(prev => prev.map(markTask));
-        setSharedTasks(prev => prev.map(s => ({
-          ...markTask(s),
-          task: s.task ? markTask(s.task) : s.task,
-        })));
+        patchUserEverywhere(targetId, { is_favorited: true, is_following: true });
       }
       Alert.alert('Favorito anclado', 'Se colocó dentro de tus primeros 5 favoritos.');
     } catch (error) {
@@ -773,10 +794,11 @@ const TasksScreen = ({ navigation, route }) => {
     sort_by: selectedSortBy,
     favorites_only: selectedFavoritesOnly,
     favorite_users_only: selectedFavoriteUsersOnly,
+    followed_users_only: selectedFollowedUsersOnly,
     verified_users_only: selectedVerifiedUsersOnly,
     recommended_users_only: selectedRecommendedUsersOnly,
   }), [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy,
-      selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+      selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedFollowedUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   // ─── React Query: Tareas ─────────────────────────────────────────────────
   const {
@@ -841,7 +863,7 @@ const TasksScreen = ({ navigation, route }) => {
     tasksRefetch();
     sharedRefetch();
   }, [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy,
-      selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
+      selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedFollowedUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]));
 
   const onRefresh = useCallback(() => {
     tasksRefetch();
@@ -856,6 +878,7 @@ const TasksScreen = ({ navigation, route }) => {
     setSelectedSortBy(newFilters.sort_by ?? 'all');
     setSelectedFavoritesOnly(newFilters.favorites_only ?? false);
     setSelectedFavoriteUsersOnly(newFilters.favorite_users_only ?? false);
+    setSelectedFollowedUsersOnly(newFilters.followed_users_only ?? false);
     setSelectedVerifiedUsersOnly(newFilters.verified_users_only ?? false);
     setSelectedRecommendedUsersOnly(newFilters.recommended_users_only ?? false);
     setFilterModalVisible(false);
@@ -875,6 +898,7 @@ const TasksScreen = ({ navigation, route }) => {
       sortBy: selectedSortBy,
       favoritesOnly: selectedFavoritesOnly,
       favoriteUsersOnly: selectedFavoriteUsersOnly,
+      followedUsersOnly: selectedFollowedUsersOnly,
       verifiedUsersOnly: selectedVerifiedUsersOnly,
       recommendedUsersOnly: selectedRecommendedUsersOnly,
     });
@@ -905,6 +929,7 @@ const TasksScreen = ({ navigation, route }) => {
         sort_by: selectedSortBy,
         favorites_only: selectedFavoritesOnly,
         favorite_users_only: selectedFavoriteUsersOnly,
+        followed_users_only: selectedFollowedUsersOnly,
         verified_users_only: selectedVerifiedUsersOnly,
         recommended_users_only: selectedRecommendedUsersOnly,
       };
@@ -932,7 +957,7 @@ const TasksScreen = ({ navigation, route }) => {
     } finally {
       setSearchLoading(false);
     }
-  }, [tema, searchCategory, searchStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly, searchScope]);
+  }, [tema, searchCategory, searchStatus, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedFollowedUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly, searchScope]);
 
   useEffect(() => {
     if (!searchExpanded || !searchHasStarted) return undefined;
@@ -1231,6 +1256,7 @@ const TasksScreen = ({ navigation, route }) => {
     && !selectedStatus
     && !selectedDateFilter
     && !selectedFavoriteUsersOnly
+    && !selectedFollowedUsersOnly
     && !selectedVerifiedUsersOnly
     && !selectedRecommendedUsersOnly
     && ['all', 'recent'].includes(selectedSortBy);
@@ -1825,6 +1851,7 @@ const TasksScreen = ({ navigation, route }) => {
         currentSortBy={selectedSortBy}
         currentFavorites={selectedFavoritesOnly}
         currentFavoriteUsers={selectedFavoriteUsersOnly}
+        currentFollowedUsers={selectedFollowedUsersOnly}
         currentVerifiedUsers={selectedVerifiedUsersOnly}
         currentRecommendedUsers={selectedRecommendedUsersOnly}
         // ✅ PASAMOS EL ESTADO DE ADMIN DIRECTAMENTE
@@ -1897,6 +1924,7 @@ const TasksScreen = ({ navigation, route }) => {
           sort_by: selectedSortBy,
           favorites_only: selectedFavoritesOnly,
           favorite_users_only: selectedFavoriteUsersOnly,
+          followed_users_only: selectedFollowedUsersOnly,
           verified_users_only: selectedVerifiedUsersOnly,
           recommended_users_only: selectedRecommendedUsersOnly,
         }}
@@ -1926,6 +1954,7 @@ const TasksScreen = ({ navigation, route }) => {
           viewShares: handleViewShares,
           directMessage: handleDirectMessage,
           goToForum: handleGoToForum,
+          toggleFollow: handleToggleFollow,
           toggleProfileFavorite: handleToggleProfileFavorite,
           edit: handleEditTask,
           delete: handleDeleteTask,

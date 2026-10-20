@@ -177,7 +177,7 @@ const DraggableSubtheme = ({ name, index, subthemes, selected, onSelect, onReord
   );
 };
 
-const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, showVideoOnlyFilter = false, isSuperAdmin, currentPch }) => {
+const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentFollowedUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, showVideoOnlyFilter = false, isSuperAdmin, currentPch }) => {
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
@@ -188,6 +188,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const [sortBy, setSortBy] = useState(currentSortBy || 'recent');
   const [favoritesOnly, setFavoritesOnly] = useState(currentFavorites || false);
   const [favoriteUsersOnly, setFavoriteUsersOnly] = useState(currentFavoriteUsers || false);
+  const [followedUsersOnly, setFollowedUsersOnly] = useState(currentFollowedUsers || false);
   const [verifiedUsersOnly, setVerifiedUsersOnly] = useState(currentVerifiedUsers || false);
   const [recommendedUsersOnly, setRecommendedUsersOnly] = useState(currentRecommendedUsers || false);
   const [videosOnly, setVideosOnly] = useState(currentVideosOnly || false);
@@ -343,10 +344,11 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setSortBy(currentSortBy || 'recent');
     setFavoritesOnly(currentFavorites || false);
     setFavoriteUsersOnly(currentFavoriteUsers || false);
+    setFollowedUsersOnly(currentFollowedUsers || false);
     setVerifiedUsersOnly(currentVerifiedUsers || false);
     setRecommendedUsersOnly(currentRecommendedUsers || false);
     setVideosOnly(currentVideosOnly || false);
-  }, [currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, visible, subthemesTree]);
+  }, [currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentFollowedUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, visible, subthemesTree]);
 
   const fetchCategories = async () => {
     try {
@@ -557,6 +559,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       verified_users_only: verifiedUsersOnly,
       recommended_users_only: recommendedUsersOnly,
       videos_only: videosOnly,
+      followed_users_only: followedUsersOnly,
     });
     onClose();
   };
@@ -573,6 +576,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setVerifiedUsersOnly(false);
     setRecommendedUsersOnly(false);
     setVideosOnly(showVideoOnlyFilter);
+    setFollowedUsersOnly(false);
     onApply({
       category: '',
       status: '',
@@ -583,6 +587,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       verified_users_only: false,
       recommended_users_only: false,
       videos_only: showVideoOnlyFilter,
+      followed_users_only: false,
     });
     onClose();
   };
@@ -836,6 +841,22 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
               <TouchableOpacity
                 style={[
                   styles.optionBadge,
+              <TouchableOpacity
+                style={[
+                  styles.optionBadge,
+                  followedUsersOnly && styles.optionBadgeActive,
+                ]}
+                onPress={() => setFollowedUsersOnly(!followedUsersOnly)}
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    followedUsersOnly && styles.optionTextActive,
+                  ]}
+                >
+                  Personas que sigo
+                </Text>
+              </TouchableOpacity>
                   verifiedUsersOnly && styles.optionBadgeActive,
                 ]}
                 onPress={() => setVerifiedUsersOnly(!verifiedUsersOnly)}
@@ -939,6 +960,22 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
               <TouchableOpacity
                 style={[
                   styles.optionBadge,
+              <TouchableOpacity
+                style={[
+                  styles.optionBadge,
+                  followedUsersOnly && styles.optionBadgeActive,
+                ]}
+                onPress={() => setFollowedUsersOnly(!followedUsersOnly)}
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    followedUsersOnly && styles.optionTextActive,
+                  ]}
+                >
+                  Personas que sigo
+                </Text>
+              </TouchableOpacity>
                   verifiedUsersOnly && styles.optionBadgeActive,
                 ]}
                 onPress={() => setVerifiedUsersOnly(!verifiedUsersOnly)}

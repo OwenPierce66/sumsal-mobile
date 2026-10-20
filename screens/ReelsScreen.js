@@ -231,6 +231,7 @@ const ReelsScreen = ({ route }) => {
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [selectedFavoritesOnly, setSelectedFavoritesOnly] = useState(false);
   const [selectedFavoriteUsersOnly, setSelectedFavoriteUsersOnly] = useState(false);
+  const [selectedFollowedUsersOnly, setSelectedFollowedUsersOnly] = useState(false);
   const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
   const [selectedVideosOnly, setSelectedVideosOnly] = useState(true);
@@ -322,9 +323,10 @@ const ReelsScreen = ({ route }) => {
     sort_by: selectedSortBy,
     favorites_only: selectedFavoritesOnly,
     favorite_users_only: selectedFavoriteUsersOnly,
+    followed_users_only: selectedFollowedUsersOnly,
     verified_users_only: selectedVerifiedUsersOnly,
     recommended_users_only: selectedRecommendedUsersOnly,
-  }), [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }), [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedFollowedUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   const reelsQuery = useReelsInfinite(reelsParams);
   const {
@@ -885,6 +887,7 @@ const ReelsScreen = ({ route }) => {
           currentSortBy={selectedSortBy}
           currentFavorites={selectedFavoritesOnly}
           currentFavoriteUsers={selectedFavoriteUsersOnly}
+          currentFollowedUsers={selectedFollowedUsersOnly}
           currentVerifiedUsers={selectedVerifiedUsersOnly}
           currentRecommendedUsers={selectedRecommendedUsersOnly}
           currentVideosOnly={selectedVideosOnly}
@@ -896,6 +899,7 @@ const ReelsScreen = ({ route }) => {
             setSelectedSortBy(newFilters.sort_by);
             setSelectedFavoritesOnly(newFilters.favorites_only);
             setSelectedFavoriteUsersOnly(newFilters.favorite_users_only);
+            setSelectedFollowedUsersOnly(newFilters.followed_users_only ?? false);
             setSelectedVerifiedUsersOnly(newFilters.verified_users_only);
             setSelectedRecommendedUsersOnly(newFilters.recommended_users_only);
             if (newFilters.videos_only !== selectedVideosOnly) {
