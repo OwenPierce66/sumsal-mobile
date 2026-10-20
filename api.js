@@ -77,6 +77,29 @@ export const authInterceptorController = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CAMBIOS DE RELACIONES (seguir / favorito / anclado / bloquear)
+// Cualquier escritura exitosa sobre estas rutas avisa a los suscriptores
+// (hooks/useMyRelations) para refrescar los corazones junto a cada nombre.
+// ─────────────────────────────────────────────────────────────────────────────
+const RELATION_WRITE_PATH = /(\/|^)(follow|pfavoritos\/agregar|favorites\/pin|block)\/?(\?|$)/;
+const relationsListeners = new Set();
+
+export const subscribeRelationsChange = (listener) => {
+  relationsListeners.add(listener);
+  return () => relationsListeners.delete(listener);
+};
+
+const emitRelationsChangeIfNeeded = (config) => {
+  const method = String(config?.method || 'get').toLowerCase();
+  if (method === 'get') return;
+  if (!RELATION_WRITE_PATH.test(String(config?.url || ''))) return;
+  relationsListeners.forEach((listener) => {
+    try { listener(); } catch (e) { /* un suscriptor no debe romper la respuesta */ }
+  });
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CLIENTE HTTP PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
 // Axios infers JSON for objects; React Native's XHR must set the multipart boundary.
@@ -118,7 +141,10 @@ api.interceptors.request.use(
 // sesión y llama a signOut() para redirigir al login sin un error crudo.
 // ─────────────────────────────────────────────────────────────────────────────
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    emitRelationsChangeIfNeeded(response?.config);
+    return response;
+  },
 
   async (error) => {
     const originalRequest = error.config;
