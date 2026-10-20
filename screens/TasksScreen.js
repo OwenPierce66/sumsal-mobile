@@ -116,9 +116,9 @@ const TasksScreen = ({ navigation, route }) => {
     const delta = y - lastScrollYRef.current;
     lastScrollYRef.current = y;
     const max = searchExpanded ? 0 : collapsibleH;
-    // Al deslizar hacia abajo se oculta; al deslizar hacia arriba NO reaparece (solo si se arrastra el filtro).
+    // Al deslizar hacia abajo se oculta y al deslizar hacia arriba reaparece (tambien se puede arrastrar el filtro).
     // Nunca se oculta mas de lo que se ha desplazado, asi que arriba del todo se ve completo.
-    const next = max > 0 ? Math.min(Math.max(collapseRef.current + Math.max(delta, 0), 0), Math.min(max, y)) : 0;
+    const next = max > 0 ? Math.min(Math.max(collapseRef.current + delta, 0), Math.min(max, y)) : 0;
     if (next === collapseRef.current) return;
     collapseRef.current = next;
     headerTranslateY.setValue(-next);
