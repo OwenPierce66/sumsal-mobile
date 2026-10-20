@@ -108,9 +108,10 @@ const TasksScreen = ({ navigation, route }) => {
   const stickyShiftY = useRef(new Animated.Value(0)).current;
   const lastScrollYRef = useRef(0);
   const collapseRef = useRef(0);
+  const [titleH, setTitleH] = useState(0);
   const [collapsibleH, setCollapsibleH] = useState(0);
   const [stickyH, setStickyH] = useState(0);
-  const STICKY_TOP_GAP = 24;
+  const STICKY_TOP_GAP = 0;
   const extraRef = useRef(0);
   // Aplica el estado del encabezado: 'collapse' oculta la zona superior (titulo, historias, temas) y
   // 'extra' oculta ademas las categorias (hasta salir por completo de la pantalla).
@@ -1512,9 +1513,9 @@ const TasksScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.feedRoot}>
-      <Animated.View style={[styles.collapsingHeader, { transform: [{ translateY: headerTranslateY }] }]}>
-      {/* Zona colapsable: titulo/botones, historias, pestañas y 'todas las categorias' */}
-      <View onLayout={(e) => setCollapsibleH(e.nativeEvent.layout.height)}>
+      <View style={styles.collapsingHeader} pointerEvents="box-none">
+      {/* Titulo fijo: siempre visible (Inicio/Tareas, buscar, filtrar, crear) */}
+      <View style={styles.fixedTitle} onLayout={(e) => setTitleH(e.nativeEvent.layout.height)}>
       {searchExpanded ? (
         <View style={styles.searchHeader}>
           <View style={styles.searchHeaderRow}>
@@ -1623,7 +1624,11 @@ const TasksScreen = ({ navigation, route }) => {
           </View>
         </View>
       )}
+      </View>
 
+      {/* Zona movil: historias, temas y categorias se deslizan por debajo del titulo fijo */}
+      <Animated.View style={[styles.movingHeader, { transform: [{ translateY: headerTranslateY }] }]}>
+      <View onLayout={(e) => setCollapsibleH(e.nativeEvent.layout.height)}>
       {!searchExpanded ? <StoriesBar navigation={navigation} /> : null}
 
       <View style={styles.temaSelector}>
@@ -1647,7 +1652,7 @@ const TasksScreen = ({ navigation, route }) => {
 
       </View>
 
-      {/* Zona fija: el filtro de categorias es lo unico que queda visible al deslizar hacia abajo */}
+      {/* Categorias: al deslizar hacia arriba reaparecen solas; arrastrandolas hacia abajo vuelve la zona superior */}
       <Animated.View onLayout={(e) => setStickyH(e.nativeEvent.layout.height)} style={[styles.stickyFilterZone, { transform: [{ translateY: stickyShiftY }] }]} {...filterPanResponder.panHandlers}>
       <CategoryHierarchy
         availableCategories={categoriesWithSelectedSearchPath}
@@ -1742,7 +1747,8 @@ const TasksScreen = ({ navigation, route }) => {
         />
       )}
         </Animated.View>
-      </Animated.View>
+        </Animated.View>
+      </View>
 
       <FeedVideoVisibilityContext.Provider value={feedVideoVisibility}>
       <FlatList
@@ -1764,7 +1770,7 @@ const TasksScreen = ({ navigation, route }) => {
         ) : null}
         onViewableItemsChanged={onFeedViewableItemsChanged}
         viewabilityConfig={feedViewabilityConfig}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={collapsibleH + stickyH} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={titleH + collapsibleH + stickyH} />}
         onScroll={event => {
           const offset = event.nativeEvent.contentOffset.y;
           feedScrollOffsetRef.current = offset;
@@ -1774,7 +1780,7 @@ const TasksScreen = ({ navigation, route }) => {
           }
         }}
         scrollEventThrottle={16}
-        contentContainerStyle={[styles.listContent, { paddingTop: collapsibleH + stickyH }]}
+        contentContainerStyle={[styles.listContent, { paddingTop: titleH + collapsibleH + stickyH }]}
         
         // ⚡ LAS PROPS MÁGICAS DE RENDIMIENTO Y SCROLL INFINITO
         onEndReached={handleLoadMore}
@@ -1961,7 +1967,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5' },
   feedRoot: { flex: 1, overflow: 'hidden' },
   stickyFilterZone: { backgroundColor: '#FEF6F5', paddingTop: 6, paddingBottom: 4 },
-  collapsingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, backgroundColor: '#FEF6F5' },
+  collapsingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20 },
+  fixedTitle: { zIndex: 2, backgroundColor: '#fff' },
+  movingHeader: { zIndex: 1, backgroundColor: '#FEF6F5' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 34, paddingBottom: 16, backgroundColor: '#fff' },
   headerIdentity: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerMenuButton: { padding: 2 },
