@@ -84,7 +84,7 @@ const StoriesBar = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  wrap: { backgroundColor: '#fff', paddingTop: 10, paddingBottom: 12, borderTopWidth: 1, borderTopColor: '#f1f1f1' },
+  wrap: { backgroundColor: '#fff', paddingTop: 14, paddingBottom: 12, borderTopWidth: 1, borderTopColor: '#f1f1f1' },
   strip: { paddingHorizontal: 16, gap: 14 },
   bubble: { width: 72, alignItems: 'center' },
   ring: {

@@ -21,7 +21,7 @@ const keyFor = value => normalize(value).toLowerCase();
 // infinito de renders ("Maximum update depth exceeded").
 const EMPTY_PATH = [];
 
-const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemoveCategory, selectedStatus = '', onStatusSelect, showDescendants = false, selectedCategoryPath = EMPTY_PATH, deselectable = false }) => {
+const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemoveCategory, selectedStatus = '', onStatusSelect, showDescendants = false, selectedCategoryPath = EMPTY_PATH, deselectable = false, containerStyle }) => {
   const [tree, setTree] = useState(DEFAULT_SUBTHEMES);
   const [selectedPath, setSelectedPath] = useState([]);
   const [collapsedLevels, setCollapsedLevels] = useState(new Set());
@@ -222,7 +222,7 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemove
   if (!topLevel.length) return null;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       {renderLevel(topLevel, 0, 'root')}
     </View>
   );

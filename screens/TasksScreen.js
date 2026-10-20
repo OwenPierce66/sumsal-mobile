@@ -15,7 +15,6 @@ import SavedFiltersModal from '@components/SavedFiltersModal';
 import { Video } from 'expo-av';
 import ShareModal from '@components/ShareModal';
 import { AuthContext } from '@app';
-import SideMenu from '@components/SideMenu';
 import ShareActionMenu from './ShareActionMenu';
 import TouchableUsername from '@components/TouchableUsername';
 import CategoryHierarchy from '@components/CategoryHierarchy';
@@ -1601,12 +1600,6 @@ const TasksScreen = ({ navigation, route }) => {
       ) : (
         <View style={styles.header}>
           <View style={styles.headerIdentity}>
-            <SideMenu
-              navigation={navigation}
-              signOut={signOut}
-              user={user}
-              buttonStyle={styles.headerMenuButton}
-            />
             <Text style={styles.headerTitle}>
               {isTasksTab ? 'Tareas' : 'Inicio'}
             </Text>
@@ -1655,6 +1648,7 @@ const TasksScreen = ({ navigation, route }) => {
       {/* Categorias: al deslizar hacia arriba reaparecen solas; arrastrandolas hacia abajo vuelve la zona superior */}
       <Animated.View onLayout={(e) => setStickyH(e.nativeEvent.layout.height)} style={[styles.stickyFilterZone, { transform: [{ translateY: stickyShiftY }] }]} {...filterPanResponder.panHandlers}>
       <CategoryHierarchy
+        containerStyle={styles.stickyCategories}
         availableCategories={categoriesWithSelectedSearchPath}
         selectedCategoryPath={activeCategoryPath}
         onRemoveCategory={(value, level) => {
@@ -1967,10 +1961,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5' },
   feedRoot: { flex: 1, overflow: 'hidden' },
   stickyFilterZone: { backgroundColor: '#FEF6F5', paddingTop: 6, paddingBottom: 4 },
+  stickyCategories: { marginTop: 6, marginBottom: 4 },
   collapsingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20 },
   fixedTitle: { zIndex: 2, backgroundColor: '#fff' },
   movingHeader: { zIndex: 1, backgroundColor: '#FEF6F5' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 34, paddingBottom: 16, backgroundColor: '#fff' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 34, paddingBottom: 12, backgroundColor: '#fff' },
   headerIdentity: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerMenuButton: { padding: 2 },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#333' },
@@ -2009,7 +2004,7 @@ const styles = StyleSheet.create({
     outlineStyle: 'none',
     borderWidth: 0,
   },
-  temaSelector: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12, gap: 10 },
+  temaSelector: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 10 },
   temaBadge: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, paddingVertical: 12, borderRadius: 22, backgroundColor: '#eee' },
   temaBadgeActive: { backgroundColor: '#333' },
   temaBadgeText: { fontSize: 13, fontWeight: 'bold', color: '#666' },
