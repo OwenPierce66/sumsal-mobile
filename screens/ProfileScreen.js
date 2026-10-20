@@ -12,6 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import api, { getImageUrl } from '@api';
+import { setAccountActive, setAccountStaff } from '../utils/adminActions';
 import { AuthContext } from '@app';
 import SideMenu from '@components/SideMenu';
 import ReportContentButton from '@components/ReportContentButton';
@@ -197,6 +198,46 @@ const ProfileScreen = ({ route, navigation }) => {
   const toggleFilterAdd = () => {
     setProfileMenuVisible(false);
     updateProfileControls({ showFilterAdd: !profileControls.showFilterAdd });
+  };
+
+  // ── Moderación (solo superadmin, sobre perfiles ajenos) ───────────────────
+  const isSuperAdmin = Boolean(sessionUser?.is_superuser);
+  const adminState = socialStats?.admin_state;
+  const adminTargetName = user?.username || route?.params?.userName || '';
+
+  const afterAdminChange = useCallback(() => {
+    refetchSocial();
+    queryClient.invalidateQueries({ queryKey: ['userRecommendations', socialUserId] });
+  }, [refetchSocial, queryClient, socialUserId]);
+
+  const adminToggleVerified = async () => {
+    setProfileMenuVisible(false);
+    try {
+      await api.post(`admin/users/${socialUserId}/verify/`, { is_verified: !adminState?.is_verified });
+      afterAdminChange();
+    } catch (error) {
+      Alert.alert('No se pudo actualizar', error.response?.data?.detail || 'Inténtalo de nuevo.');
+    }
+  };
+
+  const adminToggleRecommended = async () => {
+    setProfileMenuVisible(false);
+    try {
+      await api.post(`admin/users/${socialUserId}/recommend/`, { is_recommended: !adminState?.is_recommended });
+      afterAdminChange();
+    } catch (error) {
+      Alert.alert('No se pudo actualizar', error.response?.data?.detail || 'Inténtalo de nuevo.');
+    }
+  };
+
+  const adminToggleActive = () => {
+    setProfileMenuVisible(false);
+    setAccountActive(socialUserId, adminTargetName, !adminState?.is_active, afterAdminChange);
+  };
+
+  const adminToggleStaff = () => {
+    setProfileMenuVisible(false);
+    setAccountStaff(socialUserId, adminTargetName, !adminState?.is_staff, afterAdminChange);
   };
 
   const openRecommendedProfile = useCallback((person) => {
@@ -691,6 +732,51 @@ const ProfileScreen = ({ route, navigation }) => {
                 {showRecommendations ? 'Ocultar recomendaciones' : 'Mostrar recomendaciones'}
               </Text>
             </TouchableOpacity>
+            {isSuperAdmin && !isCurrentUser && adminState ? (
+              <>
+                <Text style={styles.profileMenuSection}>Administración</Text>
+                <TouchableOpacity style={styles.profileMenuOption} onPress={adminToggleVerified}>
+                  <Ionicons
+                    name={adminState.is_verified ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                    size={20}
+                    color="#4dabf7"
+                  />
+                  <Text style={styles.profileMenuText}>
+                    {adminState.is_verified ? 'Quitar verificación' : 'Verificar perfil'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.profileMenuOption} onPress={adminToggleRecommended}>
+                  <Ionicons
+                    name={adminState.is_recommended ? 'ribbon' : 'ribbon-outline'}
+                    size={20}
+                    color="#f59f00"
+                  />
+                  <Text style={styles.profileMenuText}>
+                    {adminState.is_recommended ? 'Quitar recomendación' : 'Recomendar perfil'}
+                  </Text>
+                </TouchableOpacity>
+                {!adminState.is_superuser ? (
+                  <>
+                    <TouchableOpacity style={styles.profileMenuOption} onPress={adminToggleActive}>
+                      <Ionicons
+                        name={adminState.is_active ? 'pause-circle-outline' : 'play-circle-outline'}
+                        size={20}
+                        color={adminState.is_active ? '#ff6b6b' : '#2f9e44'}
+                      />
+                      <Text style={[styles.profileMenuText, adminState.is_active && { color: '#ff6b6b' }]}>
+                        {adminState.is_active ? 'Suspender cuenta' : 'Reactivar cuenta'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.profileMenuOption} onPress={adminToggleStaff}>
+                      <Ionicons name="shield-outline" size={20} color="#845ef7" />
+                      <Text style={styles.profileMenuText}>
+                        {adminState.is_staff ? 'Quitar staff' : 'Hacer staff'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : null}
+              </>
+            ) : null}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -817,6 +903,7 @@ const styles = StyleSheet.create({
   profileMenuCard: { backgroundColor: '#fff', borderRadius: 12, padding: 6, minWidth: 220, elevation: 6 },
   profileMenuOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12, gap: 8 },
   profileMenuText: { color: '#333', fontSize: 14, fontWeight: '600' },
+  profileMenuSection: { color: '#868e96', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginTop: 6, paddingHorizontal: 12, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#f1f3f5' },
   appFilterSection: { marginBottom: 6 },
   appFilterTitle: { marginHorizontal: 16, fontSize: 13, fontWeight: '800', color: '#555' },
   emptyFilterText: { marginHorizontal: 16, marginTop: 6, color: '#999', fontSize: 12 },

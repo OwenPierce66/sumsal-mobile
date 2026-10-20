@@ -2,6 +2,8 @@ import React from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getActionTaskInfo } from '@hooks/useTaskActions';
+import { useMe } from '@hooks/useApi';
+import { setAccountActive } from '../utils/adminActions';
 
 /**
  * Menú de 3 puntos COMPLETO. Es el mismo para el feed, el detalle de tarea y el de tarea compartida.
@@ -24,6 +26,8 @@ const TaskActionsModal = ({
   const { height: windowHeight } = useWindowDimensions();
   const { isShared, sourceTask, targetUser, isOwner } = getActionTaskInfo(actionTask, currentUserId);
   const isOtherUser = Boolean(targetUser) && String(currentUserId) !== String(targetUser?.id || targetUser);
+  const { data: me } = useMe();
+  const canSuspendAuthor = Boolean(me?.is_superuser) && isOtherUser && Boolean(targetUser?.id) && !targetUser?.is_superuser;
   const isFavorited = Boolean(sourceTask?.is_favorited);
   const isProfileFavorited = Boolean(targetUser?.is_favorited);
   const categories = String(sourceTask?.categories || '')
@@ -130,6 +134,22 @@ const TaskActionsModal = ({
                     />
                     <Text style={styles.actionText}>{targetUser?.profile?.is_recommended ? 'Quitar Recomendación' : 'Recomendar Perfil'}</Text>
                   </TouchableOpacity>
+                  {canSuspendAuthor ? (
+                    <TouchableOpacity
+                      style={styles.actionOption}
+                      onPress={() => {
+                        onClose?.();
+                        setAccountActive(
+                          targetUser.id,
+                          targetUser.username || targetUser.first_name || '',
+                          false,
+                        );
+                      }}
+                    >
+                      <Ionicons name="pause-circle-outline" size={20} color="#ff6b6b" />
+                      <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: '700' }]}>Suspender cuenta del autor</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </>
               )}
 
