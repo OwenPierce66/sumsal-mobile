@@ -203,6 +203,15 @@ const ProfileScreen = ({ route, navigation }) => {
     }
   };
 
+  const openFollowList = (mode) => {
+    if (!socialUserId) return;
+    navigation.navigate('FollowList', {
+      userId: socialUserId,
+      mode,
+      userName: user?.username || route?.params?.userName || '',
+    });
+  };
+
   // Perfil favorito: el endpoint alterna (201 agregado / 204 quitado) y no devuelve contadores.
   const toggleFavoriteProfile = async () => {
     if (!socialUserId || !socialStats || followUpdating) return;
@@ -589,18 +598,30 @@ const ProfileScreen = ({ route, navigation }) => {
         </TouchableOpacity>
       ) : (
         <View style={styles.socialStatsRow}>
-          <View style={styles.socialStat}>
+          <TouchableOpacity
+            style={styles.socialStat}
+            onPress={() => openFollowList('followers')}
+            disabled={!socialUserId}
+            accessibilityRole="button"
+            accessibilityLabel="Ver seguidores"
+          >
             <Text style={styles.socialStatCount}>
               {socialLoading ? '…' : socialStats?.followers_count ?? '—'}
             </Text>
             <Text style={styles.socialStatLabel}>Seguidores</Text>
-          </View>
-          <View style={styles.socialStat}>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.socialStat}
+            onPress={() => openFollowList('following')}
+            disabled={!socialUserId}
+            accessibilityRole="button"
+            accessibilityLabel="Ver a quién sigue"
+          >
             <Text style={styles.socialStatCount}>
               {socialLoading ? '…' : socialStats?.following_count ?? '—'}
             </Text>
             <Text style={styles.socialStatLabel}>Siguiendo</Text>
-          </View>
+          </TouchableOpacity>
           <View style={styles.socialStat}>
             <Text style={styles.socialStatCount}>
               {socialLoading ? '…' : socialStats?.favorited_by_count ?? '—'}

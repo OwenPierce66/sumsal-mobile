@@ -80,6 +80,7 @@ import ChatDetailScreen from './screens/ChatDetailScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import EditProfileScreen from './screens/EditProfileScreen';
 import FavoritesScreen from './screens/FavoritesScreen';
+import FollowListScreen from './screens/FollowListScreen';
 import AdminScreen from './screens/AdminScreen';
 
 import { NotificationsProvider } from './contexts/NotificationsContext';
@@ -100,6 +101,7 @@ const TasksStackNavigator = () => {
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="FollowList" component={FollowListScreen} />
     </Stack.Navigator>
   );
 };
@@ -117,6 +119,7 @@ const HomeStackNavigator = () => {
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
@@ -129,6 +132,7 @@ const MessagesStackNavigator = () => {
       <Stack.Screen name="ChatList" component={ChatListScreen} />
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
@@ -141,6 +145,7 @@ const NotificationsStackNavigator = () => {
       <Stack.Screen name="NotificationsMain" component={NotificationsScreen} />
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
@@ -169,6 +174,8 @@ const ProfileStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
+      <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
