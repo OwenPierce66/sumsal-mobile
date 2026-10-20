@@ -572,7 +572,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setFavoriteUsersOnly(false);
     setVerifiedUsersOnly(false);
     setRecommendedUsersOnly(false);
-    setVideosOnly(false);
+    setVideosOnly(showVideoOnlyFilter);
     onApply({
       category: '',
       status: '',
@@ -582,7 +582,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       favorite_users_only: false,
       verified_users_only: false,
       recommended_users_only: false,
-      videos_only: false,
+      videos_only: showVideoOnlyFilter,
     });
     onClose();
   };
@@ -873,7 +873,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   accessibilityState={{ checked: videosOnly }}
                 >
                   <Text style={[styles.optionText, videosOnly && styles.optionTextActive]}>
-                    Solo videos
+                    {videosOnly ? 'Solo videos' : 'Videos e imágenes'}
                   </Text>
                 </TouchableOpacity>
               )}

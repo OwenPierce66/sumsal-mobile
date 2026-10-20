@@ -233,13 +233,13 @@ const ReelsScreen = ({ route }) => {
   const [selectedFavoriteUsersOnly, setSelectedFavoriteUsersOnly] = useState(false);
   const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
-  const [selectedVideosOnly, setSelectedVideosOnly] = useState(false);
+  const [selectedVideosOnly, setSelectedVideosOnly] = useState(true);
 
   useEffect(() => {
     let mounted = true;
     AsyncStorage.getItem(REELS_VIDEOS_ONLY_KEY)
       .then((value) => {
-        if (mounted) setSelectedVideosOnly(value === 'true');
+        if (mounted) setSelectedVideosOnly(value === null ? true : value === 'true');
       })
       .catch((error) => {
         console.error('[ReelsScreen] No se pudo cargar la preferencia de solo videos:', error);
@@ -823,18 +823,18 @@ const ReelsScreen = ({ route }) => {
             <View style={styles.topBarRight} />
           </View>
         )}
-        {isUIVisible && (
+        {isUIVisible && paused && (
           <TouchableOpacity
             style={styles.pausedFilterButton}
             onPress={() => {
               setPaused(true);
               setFilterModalVisible(true);
             }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityRole="button"
             accessibilityLabel="Abrir filtros de Reels"
           >
-            <Ionicons name="options-outline" size={26} color="#fff" />
-            <Text style={styles.filterButtonText}>Filtros</Text>
+            <Ionicons name="options-outline" size={28} color="#fff" style={styles.filterButtonIcon} />
           </TouchableOpacity>
         )}
         {loading && reels.length === 0 ? (
@@ -957,15 +957,15 @@ const ReelsScreen = ({ route }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10, paddingHorizontal: 15, pointerEvents: 'box-none' },
+  topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 42, width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10, paddingHorizontal: 15, pointerEvents: 'box-none' },
   topBarLeft: { flex: 1 },
   reelsMenuButton: { padding: 4 },
   topBarCenter: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flex: 3 },
   topBarRight: { flex: 1, alignItems: 'flex-end' },
   topTab: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700', marginHorizontal: 12, textShadow: '1px 1px 3px rgba(0, 0, 0, 0.5)' },
   activeTab: { color: '#fff', fontSize: 17 },
-  pausedFilterButton: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, right: 15, zIndex: 11, flexDirection: 'row', alignItems: 'center', gap: 5, padding: 7, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.45)' },
-  filterButtonText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  pausedFilterButton: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 42, right: 15, zIndex: 11, padding: 4 },
+  filterButtonIcon: { textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   emptyReels: { minHeight: 240, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
   emptyReelsText: { color: '#fff', fontSize: 14, textAlign: 'center' },
   loadMoreVideosButton: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 20, backgroundColor: '#4dabf7' },
