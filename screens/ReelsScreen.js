@@ -958,7 +958,7 @@ const ReelsScreen = ({ route }) => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 42, width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10, paddingHorizontal: 15, pointerEvents: 'box-none' },
-  topBarLeft: { flex: 1 },
+  topBarLeft: { flex: 1, minHeight: 36, justifyContent: 'center', alignItems: 'flex-start' },
   reelsMenuButton: { padding: 4 },
   topBarCenter: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flex: 3 },
   topBarRight: { flex: 1, alignItems: 'flex-end' },

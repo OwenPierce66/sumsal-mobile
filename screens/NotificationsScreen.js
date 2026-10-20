@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Platform,
   RefreshControl,
   StyleSheet,
   Text,
@@ -428,7 +429,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f6f7f9' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12,
+    paddingHorizontal: 16, paddingTop: Platform.OS === 'android' ? 34 : 14, paddingBottom: 12,
     backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eceef1',
   },
   headerButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },

@@ -267,7 +267,7 @@ const ForumScreen = ({ navigation, route }) => {
 
 const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: '#FEF6F5' },
-  header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingTop: Platform.OS === 'android' ? 34 : 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   headerTitle:  { fontSize: 24, fontWeight: '800', color: '#333' },
   backBtn:      { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
   createBtn:    { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
