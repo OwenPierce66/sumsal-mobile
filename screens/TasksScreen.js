@@ -111,25 +111,48 @@ const TasksScreen = ({ navigation, route }) => {
   const [collapsibleH, setCollapsibleH] = useState(0);
   const [stickyH, setStickyH] = useState(0);
   const STICKY_TOP_GAP = 24;
+  const extraRef = useRef(0);
+  // Aplica el estado del encabezado: 'collapse' oculta la zona superior (titulo, historias, temas) y
+  // 'extra' oculta ademas las categorias (hasta salir por completo de la pantalla).
+  const applyHeaderState = useCallback((collapse, extra) => {
+    const max = collapsibleH;
+    collapseRef.current = collapse;
+    extraRef.current = extra;
+    headerTranslateY.setValue(-(collapse + extra));
+    stickyShiftY.setValue(max > 0 ? (collapse / max) * STICKY_TOP_GAP : 0);
+  }, [collapsibleH, headerTranslateY, stickyShiftY]);
   const updateHeaderCollapse = useCallback((offset) => {
     const y = Math.max(0, offset);
     const delta = y - lastScrollYRef.current;
     lastScrollYRef.current = y;
     const max = searchExpanded ? 0 : collapsibleH;
-    // Al deslizar hacia abajo se oculta y al deslizar hacia arriba reaparece (tambien se puede arrastrar el filtro).
+    if (max <= 0) {
+      if (collapseRef.current !== 0 || extraRef.current !== 0) applyHeaderState(0, 0);
+      return;
+    }
+    const extraMax = stickyH + STICKY_TOP_GAP + 4;
+    let collapse = collapseRef.current;
+    let extra = extraRef.current;
+    if (delta > 0) {
+      // Al deslizar hacia abajo se oculta todo: primero la zona superior y despues las categorias.
+      const toTop = Math.min(delta, max - collapse);
+      collapse += toTop;
+      extra += delta - toTop;
+    } else if (delta < 0) {
+      // Al deslizar hacia arriba reaparecen SOLO las categorias; la zona superior no vuelve
+      // hasta arrastrar desde las categorias o llegar arriba del todo.
+      extra += delta;
+    }
     // Nunca se oculta mas de lo que se ha desplazado, asi que arriba del todo se ve completo.
-    const next = max > 0 ? Math.min(Math.max(collapseRef.current + delta, 0), Math.min(max, y)) : 0;
-    if (next === collapseRef.current) return;
-    collapseRef.current = next;
-    headerTranslateY.setValue(-next);
-    stickyShiftY.setValue(max > 0 ? (next / max) * STICKY_TOP_GAP : 0);
-  }, [searchExpanded, collapsibleH, headerTranslateY, stickyShiftY]);
+    collapse = Math.min(Math.max(collapse, 0), Math.min(max, y));
+    extra = collapse < max ? 0 : Math.min(Math.max(extra, 0), extraMax);
+    if (collapse === collapseRef.current && extra === extraRef.current) return;
+    applyHeaderState(collapse, extra);
+  }, [searchExpanded, collapsibleH, stickyH, applyHeaderState]);
   useEffect(() => {
     // Al cambiar la altura o entrar/salir de la busqueda, se muestra el encabezado completo
-    collapseRef.current = 0;
-    headerTranslateY.setValue(0);
-    stickyShiftY.setValue(0);
-  }, [searchExpanded, collapsibleH, headerTranslateY, stickyShiftY]);
+    applyHeaderState(0, 0);
+  }, [searchExpanded, collapsibleH, applyHeaderState]);
 
   // Arrastrar el filtro hacia abajo muestra la zona superior; hacia arriba la oculta (con ajuste al soltar).
   const collapsibleHRef = useRef(0);
@@ -140,6 +163,7 @@ const TasksScreen = ({ navigation, route }) => {
   const applyCollapse = useCallback((value) => {
     const max = collapsibleHRef.current;
     collapseRef.current = value;
+    extraRef.current = 0;
     headerTranslateY.setValue(-value);
     stickyShiftY.setValue(max > 0 ? (value / max) * STICKY_TOP_GAP : 0);
   }, [headerTranslateY, stickyShiftY]);
