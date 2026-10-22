@@ -953,31 +953,23 @@ const ChatDetailScreen = ({ route, navigation }) => {
         </View>
       )}
 
-      {liveTranslateOn && !editingMessageId ? (
-        <View style={styles.liveTranslateBox}>
-          <View style={styles.liveTranslateHeader}>
-            <Ionicons name="language-outline" size={14} color="#7048e8" />
-            <Text style={styles.liveTranslateLabel}>Inglés · se envía con tu mensaje</Text>
-            {livePreview.status === 'loading' ? <ActivityIndicator size="small" color="#7048e8" /> : null}
-            <TouchableOpacity onPress={() => handleToggleLiveTranslate(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={styles.liveTranslateOff}>Desactivar</Text>
-            </TouchableOpacity>
+      {liveTranslateOn && !editingMessageId && newMessage.trim() ? (() => {
+        const resolved = livePreview.forText === newMessage.trim();
+        const isError = livePreview.status === 'error' && resolved;
+        const hidden = livePreview.sameLanguage && resolved;
+        if (hidden || (!livePreview.text && !isError && livePreview.status !== 'loading')) return null;
+        return (
+          <View style={styles.liveTranslateBox}>
+            {isError ? (
+              <Text style={styles.liveTranslateError}>{livePreview.error}</Text>
+            ) : livePreview.text ? (
+              <Text style={resolved ? styles.liveTranslateText : styles.liveTranslateTextDim}>{livePreview.text}</Text>
+            ) : (
+              <ActivityIndicator size="small" color="#999" style={styles.liveTranslateSpinner} />
+            )}
           </View>
-          {!newMessage.trim() ? (
-            <Text style={styles.liveTranslateHint}>Escribe en español y aquí verás la traducción al inglés.</Text>
-          ) : livePreview.status === 'error' && livePreview.forText === newMessage.trim() ? (
-            <Text style={styles.liveTranslateError}>{livePreview.error}</Text>
-          ) : livePreview.sameLanguage && livePreview.forText === newMessage.trim() ? (
-            <Text style={styles.liveTranslateHint}>Ya parece estar en inglés; se enviará sin traducción.</Text>
-          ) : livePreview.text ? (
-            <Text style={livePreview.forText === newMessage.trim() ? styles.liveTranslateText : styles.liveTranslateTextDim}>
-              {livePreview.text}
-            </Text>
-          ) : (
-            <Text style={styles.liveTranslateHint}>Traduciendo…</Text>
-          )}
-        </View>
-      ) : null}
+        );
+      })() : null}
 
       <View style={styles.inputContainer}>
         <TouchableOpacity style={styles.attachBtn} onPress={pickImage}>
@@ -1258,13 +1250,10 @@ const styles = StyleSheet.create({
   translationLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 2 },
   translationLabelMe: { color: 'rgba(255,255,255,0.9)' },
   translationLabelThem: { color: '#7048e8' },
-  liveTranslateBox: { backgroundColor: '#f3f0ff', borderTopWidth: 1, borderTopColor: '#e5dbff', paddingHorizontal: 14, paddingVertical: 8 },
-  liveTranslateHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
-  liveTranslateLabel: { flex: 1, fontSize: 11, fontWeight: '700', color: '#7048e8', textTransform: 'uppercase', letterSpacing: 0.3 },
-  liveTranslateOff: { fontSize: 12, fontWeight: '600', color: '#7048e8' },
+  liveTranslateBox: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', paddingHorizontal: 16, paddingVertical: 8 },
   liveTranslateText: { fontSize: 15, color: '#333' },
-  liveTranslateTextDim: { fontSize: 15, color: '#999' },
-  liveTranslateHint: { fontSize: 13, color: '#8a7fb5' },
+  liveTranslateTextDim: { fontSize: 15, color: '#aaa' },
+  liveTranslateSpinner: { alignSelf: 'flex-start' },
   liveTranslateError: { fontSize: 13, color: '#e03131' },
   chatMenuToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 4 },
   chatMenuButton: { paddingLeft: 12, paddingVertical: 4 },
