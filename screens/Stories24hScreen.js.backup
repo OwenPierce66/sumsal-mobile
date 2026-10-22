@@ -1,0 +1,1382 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image as RNImage,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { Video } from 'expo-av';
+import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import api, { getImageUrl } from '../api';
+import TieredLikesModal from './TieredLikesModal';
+
+const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
+const IMAGE_DURATION_MS = 6500;
+const STORY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const cleanVal = (value) => {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const parseCreatedAtMs = (story) => {
+  const raw = story?.created_at || story?.createdAt || null;
+  if (!raw) return null;
+  const ms = Date.parse(String(raw));
+  return Number.isFinite(ms) ? ms : null;
+};
+
+const getStoryMedia = (story) => {
+  const videoPath =
+    cleanVal(story?.video) ||
+    cleanVal(story?.primary_video) ||
+    cleanVal(story?.video_url) ||
+    cleanVal(story?.media_url) ||
+    cleanVal(story?.subtasks?.[0]?.video) ||
+    cleanVal(story?.subfactores?.[0]?.video) ||
+    cleanVal(story?.subfuentes?.[0]?.video);
+
+  if (videoPath) {
+    return { type: 'video', src: getImageUrl(videoPath) };
+  }
+
+  const imagePath =
+    cleanVal(story?.image) ||
+    cleanVal(story?.image_url) ||
+    cleanVal(story?.photo) ||
+    cleanVal(story?.picture) ||
+    cleanVal(story?.subtasks?.[0]?.image) ||
+    cleanVal(story?.subfactores?.[0]?.image) ||
+    cleanVal(story?.subfuentes?.[0]?.image);
+
+  if (imagePath) {
+    return { type: 'image', src: getImageUrl(imagePath) };
+  }
+
+  return null;
+};
+
+const formatAgo = (ms, nowMs) => {
+  if (!ms) return '';
+  const diff = Math.max(0, nowMs - ms);
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'ahora';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+};
+
+const getExtensionFromMime = (mimeType, fallback = 'bin') => {
+  if (!mimeType) return fallback;
+  if (mimeType.includes('mp4')) return 'mp4';
+  if (mimeType.includes('webm')) return 'webm';
+  if (mimeType.includes('quicktime')) return 'mov';
+  if (mimeType.includes('jpeg')) return 'jpg';
+  if (mimeType.includes('png')) return 'png';
+  return fallback;
+};
+
+const looksLikeVideoName = (name) => {
+  if (!name) return false;
+  return /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(String(name));
+};
+
+const isLikelyVideoFile = (file, fallbackType, uri) => {
+  const mime = file?.type || '';
+  const name = file?.name || '';
+  const rawUri = String(uri || '').toLowerCase();
+  const uriLooksVideo =
+    rawUri.startsWith('data:video/')
+    || rawUri.includes('video/mp4')
+    || rawUri.includes('video/webm')
+    || /\.(mp4|mov|avi|mkv|webm|m4v)(\?|$)/i.test(rawUri);
+  return mime.startsWith('video/') || looksLikeVideoName(name) || uriLooksVideo || fallbackType === 'video';
+};
+
+const Stories24hScreen = ({ route }) => {
+  const navigation = useNavigation();
+  const [stories, setStories] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [currentUserId, setCurrentUserId] = useState(null);
+
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [activeUserIndex, setActiveUserIndex] = useState(0);
+  const [activeStoryIndex, setActiveStoryIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const [progress, setProgress] = useState(0);
+
+  const [likesModalVisible, setLikesModalVisible] = useState(false);
+  const [likesModalUrl, setLikesModalUrl] = useState('');
+  const [likesModalTitle, setLikesModalTitle] = useState('Usuarios');
+
+  const [shareSourceTaskId, setShareSourceTaskId] = useState(null);
+  const [shareToStoryCaption, setShareToStoryCaption] = useState('');
+  const [sharingToStory, setSharingToStory] = useState(false);
+  const [shareToStoryError, setShareToStoryError] = useState('');
+  const [sharedStories, setSharedStories] = useState({});
+  const [shareActionModalVisible, setShareActionModalVisible] = useState(false);
+  const [favorites, setFavorites] = useState([]);
+
+  const [uploadVisible, setUploadVisible] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadUri, setUploadUri] = useState(null);
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadType, setUploadType] = useState(null);
+  const [uploadCaption, setUploadCaption] = useState('');
+  const [uploadError, setUploadError] = useState('');
+
+  const imageTimerRef = useRef(null);
+  const progressTimerRef = useRef(null);
+  const lastFinishedStoryIdRef = useRef(null);
+
+  const resetUploadState = useCallback(() => {
+    if (Platform.OS === 'web' && uploadUri && uploadUri.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(uploadUri);
+      } catch (error) {}
+    }
+    setUploadUri(null);
+    setUploadFile(null);
+    setUploadType(null);
+    setUploadCaption('');
+    setUploadError('');
+  }, [uploadUri]);
+
+  useEffect(() => {
+    return () => {
+      if (Platform.OS === 'web' && uploadUri && uploadUri.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(uploadUri);
+        } catch (error) {}
+      }
+    };
+  }, [uploadUri]);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => setNowMs(Date.now()), 60000);
+    return () => clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    const resolveCurrentUser = async () => {
+      try {
+        const meResponse = await api.get('users/me/');
+        const meId = meResponse?.data?.id || null;
+        if (meId) {
+          setCurrentUserId(meId);
+          fetchFavorites(meId);
+          return;
+        }
+      } catch (error) {}
+
+      try {
+        const fallbackId = await AsyncStorage.getItem('userId');
+        if (fallbackId) {
+          setCurrentUserId(fallbackId);
+          fetchFavorites(fallbackId);
+        }
+      } catch (error) {}
+    };
+
+    resolveCurrentUser();
+  }, []);
+
+  const fetchFavorites = useCallback(async (userId) => {
+    try {
+      const response = await api.get(`users/${userId}/favoritos/`);
+      const favoritesList = Array.isArray(response.data?.results) ? response.data.results : [];
+      setFavorites(favoritesList);
+    } catch (error) {
+      // Silently fail - favoritos are optional
+    }
+  }, []);
+
+  const fetchStories = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await api.get('stories/', {
+        params: { limit: 60, offset: 0 },
+      });
+      const rawItems = Array.isArray(response.data?.results) ? response.data.results : [];
+      const mappedStories = rawItems
+        .map((story) => {
+          const createdMs = parseCreatedAtMs(story);
+          const media = getStoryMedia(story);
+          return { ...story, _createdMs: createdMs, _storyMedia: media };
+        })
+        .filter((story) => !!story._storyMedia && (story._createdMs ? nowMs - story._createdMs <= STORY_WINDOW_MS : true));
+      setStories(mappedStories);
+      
+      // Load shared stories metadata
+      const sharedMetadata = await AsyncStorage.getItem('sharedStoriesMetadata');
+      if (sharedMetadata) {
+        setSharedStories(JSON.parse(sharedMetadata));
+      }
+    } catch (error) {
+      Alert.alert('Error', 'No se pudieron cargar las historias.');
+      setStories([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [nowMs]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchStories();
+    }, [fetchStories])
+  );
+
+  const storyUsers = useMemo(() => {
+    const grouped = new Map();
+    stories.forEach((story) => {
+      const userId = story?.user?.id || story?.user_id;
+      if (!userId) return;
+      if (!grouped.has(userId)) {
+        grouped.set(userId, {
+          userId,
+          username: cleanVal(story?.user?.username) || cleanVal(story?.username) || 'Usuario',
+          avatar: getImageUrl(story?.user?.user_image),
+          latestMs: story._createdMs || 0,
+          stories: [],
+        });
+      }
+      const current = grouped.get(userId);
+      current.stories.push(story);
+      current.latestMs = Math.max(current.latestMs, story._createdMs || 0);
+    });
+
+    const users = Array.from(grouped.values()).map((entry) => ({
+      ...entry,
+      stories: [...entry.stories].sort((a, b) => (a._createdMs || 0) - (b._createdMs || 0)),
+    }));
+
+    users.sort((a, b) => (b.latestMs || 0) - (a.latestMs || 0));
+    return users;
+  }, [stories]);
+
+  const activeUser = storyUsers[activeUserIndex] || null;
+  const activeStory = activeUser?.stories?.[activeStoryIndex] || null;
+  const activeMedia = activeStory?._storyMedia || null;
+  const activeStoryOwnerId = activeStory?.user?.id || activeStory?.user_id || null;
+  const isOwnActiveStory = !!(currentUserId && activeStoryOwnerId && String(currentUserId) === String(activeStoryOwnerId));
+  const isUploadVideo = useMemo(
+    () => isLikelyVideoFile(uploadFile, uploadType, uploadUri),
+    [uploadFile, uploadType, uploadUri]
+  );
+
+  const clearStoryTimers = useCallback(() => {
+    if (imageTimerRef.current) {
+      clearTimeout(imageTimerRef.current);
+      imageTimerRef.current = null;
+    }
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+  }, []);
+
+  const closeViewer = useCallback(() => {
+    clearStoryTimers();
+    setViewerOpen(false);
+    setPaused(false);
+    setProgress(0);
+    setActiveUserIndex(0);
+    setActiveStoryIndex(0);
+  }, [clearStoryTimers]);
+
+  const openViewerFor = useCallback((userIndex) => {
+    if (userIndex < 0 || userIndex >= storyUsers.length) return;
+    clearStoryTimers();
+    setActiveUserIndex(userIndex);
+    setActiveStoryIndex(0);
+    setPaused(false);
+    setProgress(0);
+    setViewerOpen(true);
+  }, [clearStoryTimers, storyUsers.length]);
+
+  useEffect(() => {
+    const targetStoryId = route?.params?.openStoryId;
+    if (!targetStoryId || storyUsers.length === 0) return;
+
+    const targetUserIndex = storyUsers.findIndex((userItem) =>
+      (userItem.stories || []).some((story) => String(story.id) === String(targetStoryId))
+    );
+
+    if (targetUserIndex < 0) {
+      navigation.setParams?.({ openStoryId: undefined });
+      return;
+    }
+
+    const targetStoryIndex = (storyUsers[targetUserIndex]?.stories || []).findIndex(
+      (story) => String(story.id) === String(targetStoryId)
+    );
+
+    clearStoryTimers();
+    setActiveUserIndex(targetUserIndex);
+    setActiveStoryIndex(Math.max(0, targetStoryIndex));
+    setPaused(false);
+    setProgress(0);
+    setViewerOpen(true);
+    navigation.setParams?.({ openStoryId: undefined });
+  }, [route?.params?.openStoryId, storyUsers, clearStoryTimers, navigation]);
+
+  const goNextUser = useCallback(() => {
+    if (activeUserIndex < storyUsers.length - 1) {
+      setActiveUserIndex((prev) => prev + 1);
+      setActiveStoryIndex(0);
+      setProgress(0);
+      setPaused(false);
+      return true;
+    }
+    return false;
+  }, [activeUserIndex, storyUsers.length]);
+
+  const goPrevUser = useCallback(() => {
+    if (activeUserIndex > 0) {
+      setActiveUserIndex((prev) => prev - 1);
+      const prevStories = storyUsers[activeUserIndex - 1]?.stories?.length || 1;
+      setActiveStoryIndex(Math.max(0, prevStories - 1));
+      setProgress(0);
+      setPaused(false);
+      return true;
+    }
+    return false;
+  }, [activeUserIndex, storyUsers]);
+
+  const nextStory = useCallback(() => {
+    if (!activeUser) return;
+    if (activeStoryIndex < (activeUser.stories.length - 1)) {
+      setActiveStoryIndex((prev) => prev + 1);
+      setProgress(0);
+      setPaused(false);
+      return;
+    }
+    const moved = goNextUser();
+    if (!moved) closeViewer();
+  }, [activeUser, activeStoryIndex, goNextUser, closeViewer, activeUserIndex, activeStory?.id]);
+
+  const prevStory = useCallback(() => {
+    if (!activeUser) return;
+    if (activeStoryIndex > 0) {
+      setActiveStoryIndex((prev) => prev - 1);
+      setProgress(0);
+      setPaused(false);
+      return;
+    }
+    const moved = goPrevUser();
+    if (!moved) closeViewer();
+  }, [activeUser, activeStoryIndex, goPrevUser, closeViewer]);
+
+  useEffect(() => {
+    clearStoryTimers();
+    if (!viewerOpen || !activeStory || !activeMedia || paused) return undefined;
+
+    if (activeMedia.type === 'image') {
+      const startMs = Date.now();
+      progressTimerRef.current = setInterval(() => {
+        const elapsed = Date.now() - startMs;
+        setProgress(Math.min(1, elapsed / IMAGE_DURATION_MS));
+      }, 60);
+
+      imageTimerRef.current = setTimeout(() => {
+        setProgress(1);
+        nextStory();
+      }, IMAGE_DURATION_MS);
+    }
+
+    return () => clearStoryTimers();
+  }, [viewerOpen, activeStory?.id, activeMedia?.type, paused, nextStory, clearStoryTimers, activeUserIndex, activeStoryIndex]);
+
+  const updateStoryById = useCallback((storyId, updater) => {
+    setStories((prev) => prev.map((story) => {
+      if (String(story.id) !== String(storyId)) return story;
+      return updater(story);
+    }));
+  }, []);
+
+  useEffect(() => {
+    lastFinishedStoryIdRef.current = null;
+  }, [activeStory?.id]);
+
+  useEffect(() => {
+    if (!viewerOpen) return;
+
+    if (storyUsers.length === 0) {
+      closeViewer();
+      return;
+    }
+
+    if (activeUserIndex >= storyUsers.length) {
+      const fixedUserIndex = Math.max(0, storyUsers.length - 1);
+      setActiveUserIndex(fixedUserIndex);
+      setActiveStoryIndex(0);
+      return;
+    }
+
+    const currentStories = storyUsers[activeUserIndex]?.stories || [];
+    if (currentStories.length === 0) {
+      if (activeUserIndex < storyUsers.length - 1) {
+        setActiveUserIndex((prev) => Math.min(prev + 1, storyUsers.length - 1));
+        setActiveStoryIndex(0);
+      } else {
+        closeViewer();
+      }
+      return;
+    }
+
+    if (activeStoryIndex >= currentStories.length) {
+      const fixedStoryIndex = Math.max(0, currentStories.length - 1);
+      setActiveStoryIndex(fixedStoryIndex);
+    }
+  }, [viewerOpen, storyUsers, activeUserIndex, activeStoryIndex, closeViewer]);
+
+  useEffect(() => {
+    if (!viewerOpen) return;
+  }, [viewerOpen, activeUserIndex, activeStoryIndex, activeUser?.userId, activeStory?.id, activeMedia]);
+
+  const handleToggleLike = useCallback(async () => {
+    if (!activeStory) return;
+    const storyId = activeStory.id;
+    const liked = !!activeStory.user_has_liked;
+
+    updateStoryById(storyId, (story) => ({
+      ...story,
+      user_has_liked: !liked,
+      likes_count: (story.likes_count || 0) + (liked ? -1 : 1),
+    }));
+
+    try {
+      const response = await api.post(`tasks/${storyId}/like/`);
+      const finalLiked = !!response.data?.liked;
+      const finalCount = response.data?.likes_count ?? 0;
+      updateStoryById(storyId, (story) => ({
+        ...story,
+        user_has_liked: finalLiked,
+        likes_count: finalCount,
+      }));
+    } catch (error) {
+      updateStoryById(storyId, (story) => ({
+        ...story,
+        user_has_liked: liked,
+        likes_count: (story.likes_count || 0) + (liked ? 1 : -1),
+      }));
+      Alert.alert('Error', 'No se pudo actualizar el like.');
+    }
+  }, [activeStory, updateStoryById]);
+
+  const handleToggleFavorite = useCallback(async () => {
+    if (!activeStory) return;
+    const storyId = activeStory.id;
+    const isFavorited = !!activeStory.is_favorited;
+
+    updateStoryById(storyId, (story) => ({ ...story, is_favorited: !isFavorited }));
+    try {
+      await api.post('favoritos/agregar/', { task_id: storyId });
+    } catch (error) {
+      updateStoryById(storyId, (story) => ({ ...story, is_favorited: isFavorited }));
+      Alert.alert('Error', 'No se pudo actualizar favorito.');
+    }
+  }, [activeStory, updateStoryById]);
+
+  const handleShowLikes = useCallback((storyId) => {
+    setLikesModalTitle('Me gusta');
+    setLikesModalUrl(`tasks/${storyId}/users-who-liked/`);
+    setLikesModalVisible(true);
+  }, []);
+
+  const handleShowShares = useCallback((storyId) => {
+    setLikesModalTitle('Compartido por');
+    setLikesModalUrl(`tasks/${storyId}/users-who-shared/`);
+    setLikesModalVisible(true);
+  }, []);
+
+  const openShareModal = useCallback((storyId) => {
+    if (!activeStory) return;
+    setShareSourceTaskId(storyId);
+    setShareToStoryCaption('');
+    setShareToStoryError('');
+    setShareActionModalVisible(true);
+  }, [activeStory]);
+
+  const handleShareStoryIntoMyStory = useCallback(async () => {
+   if (!shareSourceTaskId) return;
+   setSharingToStory(true);
+   setShareToStoryError('');
+   try {
+     const response = await api.post('stories/share-task/', {
+       task_id: shareSourceTaskId,
+       caption: shareToStoryCaption.trim(),
+     });
+      
+     // Store source task info for display in AsyncStorage
+     if (response.data?.id) {
+       const sharedInfo = {
+         source_task_id: response.data.source_task_id,
+         source_task_user: response.data.source_task_user,
+         source_task_description: response.data.source_task_description,
+         source_task_share_count: response.data.source_task_share_count || 0,
+       };
+        
+       // Save to AsyncStorage
+       const existingShared = await AsyncStorage.getItem('sharedStoriesMetadata');
+       const sharedMap = existingShared ? JSON.parse(existingShared) : {};
+       sharedMap[response.data.id] = sharedInfo;
+       await AsyncStorage.setItem('sharedStoriesMetadata', JSON.stringify(sharedMap));
+        
+       // Update local state
+       setSharedStories(prev => ({
+         ...prev,
+         [response.data.id]: sharedInfo
+       }));
+     }
+      
+     setShareActionModalVisible(false);
+     setShareSourceTaskId(null);
+     setShareToStoryCaption('');
+      fetchStories();
+      Alert.alert('Listo', 'Historia compartida en tu historia.');
+    } catch (error) {
+      const backendError =
+        error?.response?.data?.error
+        || error?.response?.data?.detail
+        || 'No se pudo compartir esta historia en tu historia.';
+      setShareToStoryError(
+        Array.isArray(backendError) ? backendError.join(', ') : String(backendError)
+      );
+    } finally {
+      setSharingToStory(false);
+    }
+  }, [shareSourceTaskId, shareToStoryCaption, fetchStories]);
+
+  const pickStoryMedia = useCallback(async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsEditing: Platform.OS !== 'web',
+      quality: 0.8,
+      videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
+    });
+    if (result.canceled) return;
+    const asset = result.assets?.[0];
+    if (!asset?.uri) return;
+    if (Platform.OS === 'web' && uploadUri && uploadUri.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(uploadUri);
+      } catch (error) {}
+    }
+
+    const pickedFile = asset.file || null;
+    const pickedMimeType = pickedFile?.type || '';
+    const assetMimeType = asset.mimeType || '';
+    const filenameHint = `${asset.fileName || pickedFile?.name || ''}`.toLowerCase();
+    const mediaType = (
+      asset.type === 'video'
+      || assetMimeType.startsWith('video/')
+      || pickedMimeType.startsWith('video/')
+      || /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(filenameHint)
+      || (typeof asset.duration === 'number' && asset.duration > 0)
+      || String(asset.uri || '').toLowerCase().startsWith('data:video/')
+    ) ? 'video' : 'image';
+
+    const previewUri = (Platform.OS === 'web' && pickedFile)
+      ? URL.createObjectURL(pickedFile)
+      : asset.uri;
+
+    setUploadUri(previewUri);
+    setUploadFile(pickedFile);
+    setUploadType(mediaType);
+  }, [uploadUri]);
+
+  const submitStory = useCallback(async () => {
+    if (!uploadUri || !uploadType) {
+      setUploadError('Selecciona una imagen o video.');
+      return;
+    }
+
+    setUploading(true);
+    setUploadError('');
+    const formData = new FormData();
+    formData.append('caption', uploadCaption.trim());
+
+    try {
+      if (Platform.OS === 'web') {
+        const blob = uploadFile || (await (await fetch(uploadUri)).blob());
+        const blobMimeType = blob?.type || '';
+        const originalName = uploadFile?.name || '';
+        const isVideoBlob = isLikelyVideoFile(
+          { type: blobMimeType, name: originalName },
+          uploadType,
+          uploadUri
+        );
+
+        const fieldName = isVideoBlob ? 'video' : 'image';
+        const fallbackExtension = isVideoBlob ? 'mp4' : 'jpg';
+        const extension = getExtensionFromMime(blobMimeType, fallbackExtension);
+        const filename = uploadFile?.name || `story.${extension}`;
+        formData.append(fieldName, blob, filename);
+      } else {
+        const extension = uploadType === 'video' ? 'mp4' : 'jpg';
+        const mimeType = uploadType === 'video' ? 'video/mp4' : 'image/jpeg';
+        const fieldName = uploadType === 'video' ? 'video' : 'image';
+        formData.append(fieldName, {
+          uri: uploadUri,
+          name: `story.${extension}`,
+          type: mimeType,
+        });
+      }
+
+      await api.post('stories/', formData);
+      setUploadVisible(false);
+      resetUploadState();
+      fetchStories();
+    } catch (error) {
+      const backendError =
+        error?.response?.data?.caption
+        || error?.response?.data?.image
+        || error?.response?.data?.video
+        || error?.response?.data?.detail
+        || error?.response?.data?.error;
+      setUploadError(
+        Array.isArray(backendError)
+          ? backendError.join(', ')
+          : (backendError || 'No se pudo subir la historia.')
+      );
+    } finally {
+      setUploading(false);
+    }
+  }, [uploadUri, uploadFile, uploadType, uploadCaption, fetchStories, resetUploadState]);
+
+
+  const onVideoStatusUpdate = useCallback((status) => {
+    if (!viewerOpen || !activeMedia || activeMedia.type !== 'video') return;
+    if (!status?.isLoaded) return;
+    if (status.durationMillis && status.positionMillis >= 0) {
+      setProgress(Math.min(1, status.positionMillis / status.durationMillis));
+    }
+    if (status.didJustFinish) {
+      const currentStoryId = activeStory?.id ? String(activeStory.id) : null;
+      if (!currentStoryId) return;
+      if (lastFinishedStoryIdRef.current === currentStoryId) return;
+      lastFinishedStoryIdRef.current = currentStoryId;
+      setProgress(1);
+      nextStory();
+    }
+  }, [viewerOpen, activeMedia, nextStory, activeStory?.id, activeUserIndex, activeStoryIndex]);
+
+  const handleSendToFavorite = useCallback(async (favoriteUserId) => {
+    if (!activeStory?.id) return;
+    try {
+      // Enviar historia por DM al favorito seleccionado
+      const contextPayload = {
+        storyId: activeStory.id,
+        storyTitle: activeStory.title || 'Historia',
+        storyDescription: activeStory.description || '',
+        storyMediaType: activeStory?._storyMedia?.type || null,
+      };
+      
+      // Navegar al chat del favorito y enviar el contexto
+      setShareActionModalVisible(false);
+      setShareSourceTaskId(null);
+      navigation.navigate('ChatDetail', {
+        chatId: favoriteUserId,
+        type: 'direct',
+        title: '',
+        avatar: '',
+        storyReplyContext: contextPayload,
+      });
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo enviar la historia.');
+    }
+  }, [activeStory, navigation]);
+    if (!activeStory?.user?.id) return;
+    const contextPayload = {
+      storyId: activeStory.id,
+      storyTitle: activeStory.title || 'Historia',
+      storyDescription: activeStory.description || '',
+      storyMediaType: activeStory?._storyMedia?.type || null,
+    };
+    closeViewer();
+    navigation.navigate('ChatDetail', {
+      chatId: activeStory.user.id,
+      type: 'direct',
+      title: activeStory.user.username || 'Usuario',
+      avatar: getImageUrl(activeStory.user.user_image),
+      storyReplyContext: contextPayload,
+    });
+  }, [activeStory, navigation, closeViewer]);
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.topBar}>
+        <Text style={styles.title}>Historias (24h)</Text>
+        <View style={styles.topActions}>
+          <TouchableOpacity style={styles.topBtn} onPress={fetchStories}>
+            <Ionicons name="refresh" size={20} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.topBtn} onPress={() => setUploadVisible(true)}>
+            <Ionicons name="add" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {isLoading ? (
+        <ActivityIndicator size="large" color="#4dabf7" style={{ marginTop: 24 }} />
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+          <TouchableOpacity style={styles.addStoryBubble} onPress={() => setUploadVisible(true)}>
+            <View style={styles.addStoryAvatar}>
+              <Ionicons name="add" size={24} color="#fff" />
+            </View>
+            <Text style={styles.bubbleName}>Tu historia</Text>
+          </TouchableOpacity>
+
+          {storyUsers.map((userItem, index) => (
+            <TouchableOpacity
+              key={`story-user-${userItem.userId}`}
+              style={styles.storyBubble}
+              onPress={() => openViewerFor(index)}
+            >
+              <View style={styles.storyAvatarRing}>
+                {userItem.avatar ? (
+                  <Image source={{ uri: userItem.avatar }} style={styles.storyAvatarImage} contentFit="cover" />
+                ) : (
+                  <View style={styles.storyAvatarFallback}>
+                    <Ionicons name="person" size={20} color="#ddd" />
+                  </View>
+                )}
+              </View>
+              <Text numberOfLines={1} style={styles.bubbleName}>{userItem.username}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+      {!isLoading && storyUsers.length === 0 ? (
+        <View style={styles.emptyWrap}>
+          <Text style={styles.emptyTitle}>No hay historias activas</Text>
+          <Text style={styles.emptySubtitle}>Publica una historia con el botón +.</Text>
+        </View>
+      ) : null}
+
+      <Modal visible={viewerOpen} animationType="fade" onRequestClose={closeViewer}>
+        <View style={styles.viewerRoot}>
+          {activeStory && activeMedia ? (
+            <>
+              <View style={styles.progressBarWrap}>
+                {(activeUser?.stories || []).map((storyItem, index) => {
+                  const done = index < activeStoryIndex;
+                  const active = index === activeStoryIndex;
+                  const segmentProgress = done ? 1 : active ? progress : 0;
+                  return (
+                    <View key={`segment-${storyItem.id}`} style={styles.progressSegment}>
+                      <View style={[styles.progressFill, { width: `${Math.max(0, Math.min(1, segmentProgress)) * 100}%` }]} />
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={styles.viewerHeader}>
+                <TouchableOpacity style={styles.headerBtn} onPress={closeViewer}>
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+                <View style={styles.viewerUserMeta}>
+                  <Text style={styles.viewerUsername}>{activeUser?.username}</Text>
+                  <Text style={styles.viewerTime}>{formatAgo(activeStory._createdMs, nowMs)}</Text>
+                </View>
+                <TouchableOpacity style={styles.headerBtn} onPress={() => setMuted((prev) => !prev)}>
+                  <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={22} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.mediaWrap}>
+                {activeMedia.type === 'video' ? (
+                  <Video
+                    key={`viewer-video-${activeStory.id}`}
+                    source={{ uri: activeMedia.src }}
+                    style={styles.media}
+                    resizeMode="cover"
+                    isMuted={muted}
+                    shouldPlay={!paused}
+                    isLooping={false}
+                    onPlaybackStatusUpdate={onVideoStatusUpdate}
+                  />
+                ) : (
+                  <Image source={{ uri: activeMedia.src }} style={styles.media} contentFit="cover" />
+                )}
+                <View style={styles.tapZones}>
+                  <Pressable style={styles.tapZone} onPress={prevStory} />
+                  <Pressable style={styles.tapZone} onPress={nextStory} />
+                </View>
+              </View>
+
+              {activeStory.description || (sharedStories[activeStory?.id]?.source_task_description) ? (
+                <View style={styles.storyDescription}>
+                  {}
+                  {sharedStories[activeStory?.id] ? (
+                    <>
+                      {}
+                      <Text style={styles.sharedByText}>
+                        Compartido por <Text style={{ fontWeight: '700' }}>@{sharedStories[activeStory?.id].source_task_user}</Text>
+                      </Text>
+                      {sharedStories[activeStory?.id].source_task_description ? (
+                        <Text style={[styles.storyDescriptionText, { marginTop: 8 }]}>
+                          {sharedStories[activeStory?.id].source_task_description}
+                        </Text>
+                      ) : null}
+                      {activeStory.description ? (
+                        <Text style={[styles.storyDescriptionText, { marginTop: 8, fontStyle: 'italic', color: '#ccc' }]}>
+                          {activeStory.description}
+                        </Text>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      {}
+                      <Text style={styles.storyDescriptionText}>{activeStory.description}</Text>
+                    </>
+                  )}
+                </View>
+              ) : null}
+
+              <View style={styles.viewerFooter}>
+                <TouchableOpacity style={styles.actionBtn} onPress={handleToggleLike}>
+                  <Ionicons name={activeStory.user_has_liked ? 'heart' : 'heart-outline'} size={22} color={activeStory.user_has_liked ? '#ff4d6d' : '#fff'} />
+                  <Text style={styles.actionCount}>{activeStory.likes_count || 0}</Text>
+                </TouchableOpacity>
+
+                {!isOwnActiveStory ? (
+                  <TouchableOpacity style={styles.actionBtn} onPress={handleReplyToCreator}>
+                    <Ionicons name="chatbubble-outline" size={22} color="#fff" />
+                    <Text style={styles.actionCount}>Responder</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity style={styles.actionBtn} onPress={() => openShareModal(activeStory.id)}>
+                  <Ionicons name="share-social-outline" size={22} color="#fff" />
+                  <Text style={styles.actionCount}>{activeStory.share_count || 0}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.actionBtn} onPress={() => setPaused((prev) => !prev)}>
+                  <Ionicons name={paused ? 'play' : 'pause'} size={22} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              {isOwnActiveStory ? (
+                <View style={styles.secondaryActions}>
+                  <TouchableOpacity onPress={() => handleShowLikes(activeStory.id)}>
+                    <Text style={styles.secondaryActionText}>Ver likes</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => handleShowShares(activeStory.id)}>
+                    <Text style={styles.secondaryActionText}>Ver compartidos</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </>
+          ) : (
+            <View style={styles.viewerLoading}>
+              <ActivityIndicator size="large" color="#4dabf7" />
+            </View>
+          )}
+        </View>
+      </Modal>
+
+      <Modal visible={uploadVisible} transparent animationType="slide" onRequestClose={() => !uploading && setUploadVisible(false)}>
+        <View style={styles.uploadOverlay}>
+          <View style={styles.uploadModal}>
+            <View style={styles.uploadHeader}>
+              <Text style={styles.uploadTitle}>Subir historia (24h)</Text>
+              <TouchableOpacity disabled={uploading} onPress={() => { setUploadVisible(false); resetUploadState(); }}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.uploadPicker} onPress={pickStoryMedia} disabled={uploading}>
+              {uploadUri ? (
+                isUploadVideo ? (
+                  Platform.OS === 'web' ? (
+                    <video
+                      src={uploadUri}
+                      controls
+                      playsInline
+                      style={{ width: '100%', height: '100%', objectFit: 'contain', backgroundColor: '#000' }}
+                    />
+                  ) : (
+                    <Video source={{ uri: uploadUri }} style={styles.uploadPreview} useNativeControls resizeMode="contain" />
+                  )
+                ) : (
+                  <RNImage source={{ uri: uploadUri }} style={styles.uploadPreview} resizeMode="cover" />
+                )
+              ) : (
+                <Text style={styles.uploadPlaceholder}>Selecciona una imagen o video</Text>
+              )}
+            </TouchableOpacity>
+
+            <TextInput
+              value={uploadCaption}
+              onChangeText={setUploadCaption}
+              placeholder="Texto (opcional)"
+              placeholderTextColor="#999"
+              multiline
+              editable={!uploading}
+              style={styles.uploadInput}
+            />
+
+            {!!uploadError && <Text style={styles.uploadError}>{uploadError}</Text>}
+
+            <View style={styles.uploadActions}>
+              <TouchableOpacity disabled={uploading} style={styles.uploadCancel} onPress={() => { setUploadVisible(false); resetUploadState(); }}>
+                <Text style={styles.uploadCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity disabled={uploading} style={styles.uploadSubmit} onPress={submitStory}>
+                <Text style={styles.uploadSubmitText}>{uploading ? 'Subiendo…' : 'Publicar'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={shareActionModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShareActionModalVisible(false)}
+      >
+        <View style={styles.shareOptionsOverlay}>
+          <View style={styles.shareOptionsModal}>
+            <View style={styles.shareOptionsHeader}>
+              <Text style={styles.shareOptionsTitle}>Compartir historia</Text>
+              <TouchableOpacity disabled={sharingToStory} onPress={() => setShareActionModalVisible(false)}>
+                <Ionicons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            {activeStory && (activeStory.user?.id === currentUserId || activeStory.user_id === currentUserId) ? (
+              // Si es TU historia: solo "Enviar a alguien más"
+              <>
+                <Text style={styles.shareOptionsSubtitle}>Enviar a un favorito</Text>
+                {favorites && favorites.length > 0 ? (
+                  <ScrollView style={styles.favoritesListContainer}>
+                    {favorites.map((favorite) => (
+                      <TouchableOpacity
+                        key={favorite.id}
+                        style={styles.favoriteItem}
+                        onPress={() => handleSendToFavorite(favorite.id)}
+                      >
+                        <RNImage
+                          source={{ uri: getImageUrl(favorite.user_image) }}
+                          style={styles.favoriteAvatar}
+                        />
+                        <View style={styles.favoriteInfo}>
+                          <Text style={styles.favoriteName}>{favorite.username || 'Usuario'}</Text>
+                        </View>
+                        <Ionicons name="arrow-forward" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <View style={styles.noFavoritesContainer}>
+                    <Ionicons name="heart-outline" size={48} color="#999" />
+                    <Text style={styles.noFavoritesText}>No tienes favoritos aún</Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              // Si NO es tu historia: "Compartir en mi historia" + "Enviar a alguien más"
+              <>
+                <View style={styles.shareStoryCard}>
+                  <Text style={styles.shareStoryCardTitle}>Compartir esta historia en tu historia</Text>
+                  <TextInput
+                    value={shareToStoryCaption}
+                    onChangeText={setShareToStoryCaption}
+                    placeholder="Comentario opcional"
+                    placeholderTextColor="#9a9a9a"
+                    editable={!sharingToStory}
+                    style={styles.shareStoryInput}
+                  />
+                  {!!shareToStoryError && <Text style={styles.shareStoryError}>{shareToStoryError}</Text>}
+                  <TouchableOpacity
+                    style={[styles.shareStorySubmit, sharingToStory && { opacity: 0.7 }]}
+                    onPress={handleShareStoryIntoMyStory}
+                    disabled={sharingToStory}
+                  >
+                    <Text style={styles.shareStorySubmitText}>{sharingToStory ? 'Compartiendo…' : 'Compartir en mi historia'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.shareOptionsSubtitle}>O enviar a un favorito</Text>
+                {favorites && favorites.length > 0 ? (
+                  <ScrollView style={[styles.favoritesListContainer, { maxHeight: 200 }]}>
+                    {favorites.map((favorite) => (
+                      <TouchableOpacity
+                        key={favorite.id}
+                        style={styles.favoriteItem}
+                        onPress={() => handleSendToFavorite(favorite.id)}
+                      >
+                        <RNImage
+                          source={{ uri: getImageUrl(favorite.user_image) }}
+                          style={styles.favoriteAvatar}
+                        />
+                        <View style={styles.favoriteInfo}>
+                          <Text style={styles.favoriteName}>{favorite.username || 'Usuario'}</Text>
+                        </View>
+                        <Ionicons name="arrow-forward" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <View style={styles.noFavoritesContainer}>
+                    <Ionicons name="heart-outline" size={28} color="#999" />
+                    <Text style={styles.noFavoritesText}>No tienes favoritos aún</Text>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <TieredLikesModal
+        visible={likesModalVisible}
+        onClose={() => setLikesModalVisible(false)}
+        apiUrl={likesModalUrl}
+        title={likesModalTitle}
+      />
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#000' },
+  topBar: {
+    paddingTop: 52,
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  title: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  topActions: { flexDirection: 'row', gap: 10 },
+  topBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#1f1f1f', alignItems: 'center', justifyContent: 'center' },
+  strip: { paddingHorizontal: 12, paddingBottom: 10, gap: 12 },
+  storyBubble: { width: 74, alignItems: 'center' },
+  addStoryBubble: { width: 74, alignItems: 'center' },
+  storyAvatarRing: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    borderWidth: 2,
+    borderColor: '#4dabf7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  addStoryAvatar: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    borderWidth: 2,
+    borderColor: '#51cf66',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#121212',
+    marginBottom: 6,
+  },
+  storyAvatarImage: { width: 58, height: 58, borderRadius: 29 },
+  storyAvatarFallback: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#222',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bubbleName: { color: '#ddd', fontSize: 12, maxWidth: 74 },
+  emptyWrap: { marginTop: 24, alignItems: 'center', paddingHorizontal: 16 },
+  emptyTitle: { color: '#fff', fontWeight: '700', fontSize: 16, marginBottom: 6 },
+  emptySubtitle: { color: '#999', fontSize: 13, textAlign: 'center' },
+  viewerRoot: { flex: 1, backgroundColor: '#000' },
+  progressBarWrap: {
+    position: 'absolute',
+    top: 56,
+    left: 10,
+    right: 10,
+    zIndex: 10,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  progressSegment: { flex: 1, height: 3, backgroundColor: '#2d2d2d', borderRadius: 99, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: '#fff' },
+  viewerHeader: {
+    position: 'absolute',
+    top: 66,
+    left: 10,
+    right: 10,
+    zIndex: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerUserMeta: {
+    flex: 1,
+    marginHorizontal: 12,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  viewerUsername: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  viewerTime: { color: '#ccc', fontSize: 12, marginTop: 2 },
+  mediaWrap: { flex: 1 },
+  media: { width: windowWidth, height: windowHeight },
+  tapZones: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+  },
+  tapZone: { flex: 1 },
+  storyDescription: {
+   position: 'absolute',
+   bottom: 160,
+   left: 12,
+   right: 12,
+   zIndex: 11,
+   backgroundColor: 'rgba(0,0,0,0.5)',
+   borderRadius: 12,
+   paddingVertical: 10,
+   paddingHorizontal: 12,
+  },
+  storyDescriptionText: { color: '#fff', fontSize: 14, lineHeight: 20 },
+  sharedByText: { color: '#4dabf7', fontSize: 12, fontWeight: '600' },
+  viewerFooter: {
+    position: 'absolute',
+    bottom: 74,
+    left: 10,
+    right: 10,
+    zIndex: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    paddingVertical: 8,
+    paddingHorizontal: 11,
+    borderRadius: 999,
+  },
+  actionCount: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  secondaryActions: {
+    position: 'absolute',
+    bottom: 24,
+    left: 14,
+    right: 14,
+    zIndex: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  secondaryActionText: { color: '#ddd', fontSize: 13, fontWeight: '600' },
+  viewerLoading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  uploadOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.82)',
+    justifyContent: 'center',
+    padding: 14,
+  },
+  uploadModal: {
+    backgroundColor: '#111',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    overflow: 'hidden',
+  },
+  uploadHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#232323',
+  },
+  uploadTitle: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  uploadPicker: {
+    margin: 14,
+    height: 240,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#333',
+    backgroundColor: '#060606',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadPreview: { width: '100%', height: '100%' },
+  uploadPlaceholder: { color: '#aaa', fontSize: 13 },
+  uploadInput: {
+    marginHorizontal: 14,
+    marginBottom: 10,
+    minHeight: 80,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    color: '#fff',
+    backgroundColor: '#181818',
+    textAlignVertical: 'top',
+  },
+  uploadError: { color: '#ff8f8f', marginHorizontal: 14, marginBottom: 8, fontSize: 12 },
+  uploadActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    padding: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#232323',
+  },
+  uploadCancel: {
+    backgroundColor: '#212121',
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  uploadCancelText: { color: '#fff', fontWeight: '600' },
+  uploadSubmit: {
+    backgroundColor: '#4dabf7',
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  uploadSubmitText: { color: '#fff', fontWeight: '700' },
+  shareOptionsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 14,
+  },
+  shareOptionsModal: {
+    backgroundColor: '#111',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    padding: 14,
+    gap: 12,
+  },
+  shareOptionsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  shareOptionsTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  shareOptionsSubtitle: { color: '#bbb', fontSize: 13, fontWeight: '600', marginTop: 4, marginBottom: 8 },
+  shareOptionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#2d2d2d',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  shareOptionText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  shareStoryCard: {
+    borderWidth: 1,
+    borderColor: '#2d2d2d',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#161616',
+    gap: 10,
+  },
+  shareStoryCardTitle: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  shareStoryInput: {
+    borderWidth: 1,
+    borderColor: '#343434',
+    borderRadius: 10,
+    backgroundColor: '#1e1e1e',
+    color: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  shareStoryError: { color: '#ff8f8f', fontSize: 12 },
+  shareStorySubmit: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4dabf7',
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  shareStorySubmitText: { color: '#fff', fontWeight: '700' },
+  favoritesListContainer: {
+    maxHeight: 400,
+  },
+  favoriteItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a2a2a',
+  },
+  favoriteAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  favoriteInfo: {
+    flex: 1,
+  },
+  favoriteName: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  favoriteHandle: {
+    color: '#999',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  noFavoritesContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    gap: 12,
+  },
+  noFavoritesText: {
+    color: '#999',
+    fontSize: 14,
+  },
+});
+
+export default Stories24hScreen;
+
