@@ -212,6 +212,12 @@ const ProfileScreen = ({ route, navigation }) => {
     });
   };
 
+  // FavoritesScreen: sin userId muestra los propios; con userId, los públicos de esa persona.
+  const openFavoriteProfiles = () => {
+    if (!socialUserId) return;
+    navigation.navigate('Favorites', isCurrentUser ? undefined : { userId: socialUserId });
+  };
+
   // Perfil favorito: el endpoint alterna (201 agregado / 204 quitado) y no devuelve contadores.
   const toggleFavoriteProfile = async () => {
     if (!socialUserId || !socialStats || followUpdating) return;
@@ -622,18 +628,30 @@ const ProfileScreen = ({ route, navigation }) => {
             </Text>
             <Text style={styles.socialStatLabel}>Siguiendo</Text>
           </TouchableOpacity>
-          <View style={styles.socialStat}>
+          <TouchableOpacity
+            style={styles.socialStat}
+            onPress={() => openFollowList('favoritedBy')}
+            disabled={!socialUserId}
+            accessibilityRole="button"
+            accessibilityLabel="Ver quién lo tiene en favoritos"
+          >
             <Text style={styles.socialStatCount}>
               {socialLoading ? '…' : socialStats?.favorited_by_count ?? '—'}
             </Text>
             <Text style={styles.socialStatLabel}>Lo tienen en favoritos</Text>
-          </View>
-          <View style={styles.socialStat}>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.socialStat}
+            onPress={openFavoriteProfiles}
+            disabled={!socialUserId || socialStats?.favorites_count == null}
+            accessibilityRole="button"
+            accessibilityLabel="Ver perfiles favoritos"
+          >
             <Text style={styles.socialStatCount}>
               {socialLoading ? '…' : socialStats?.favorites_count ?? '—'}
             </Text>
             <Text style={styles.socialStatLabel}>Perfiles favoritos</Text>
-          </View>
+          </TouchableOpacity>
         </View>
       )}
 

@@ -22,24 +22,35 @@ const getName = (user) => (
 );
 
 /**
- * Lista de seguidores / seguidos de un usuario.
- * Params: userId, mode ('followers' | 'following'), userName (opcional).
+ * Lista de personas relacionadas con un usuario.
+ * Params: userId, userName (opcional) y mode:
+ *   'followers'   -> quién lo sigue
+ *   'following'   -> a quién sigue
+ *   'favoritedBy' -> quién lo tiene en favoritos (solo quienes lo hacen público)
  */
+const MODES = {
+  followers: { title: 'Seguidores', path: 'followers', empty: 'Todavía no tiene seguidores.' },
+  following: { title: 'Siguiendo', path: 'following', empty: 'Todavía no sigue a nadie.' },
+  favoritedBy: { title: 'Lo tienen en favoritos', path: 'favorited-by', empty: 'Nadie visible lo tiene en favoritos.' },
+};
+
 const FollowListScreen = ({ navigation, route }) => {
   const userId = route?.params?.userId;
-  const mode = route?.params?.mode === 'following' ? 'following' : 'followers';
+  const mode = MODES[route?.params?.mode] ? route.params.mode : 'followers';
+  const { title, path, empty: emptyText } = MODES[mode];
   const ownerName = route?.params?.userName;
-  const title = mode === 'followers' ? 'Seguidores' : 'Siguiendo';
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ['followList', userId, mode],
-    queryFn: async () => (await api.get(`users/${userId}/${mode}/`)).data,
+    queryFn: async () => (await api.get(`users/${userId}/${path}/`)).data,
     enabled: !!userId,
     refetchOnMount: 'always',
   });
 
   const users = data?.users ?? [];
-  const total = data?.count ?? users.length;
+  // `count` es el total real; `visible_count` (solo favoritedBy) los que se pueden listar.
+  const total = data?.visible_count ?? data?.count ?? users.length;
+  const hiddenCount = data?.visible_count != null ? Math.max(0, (data.count ?? 0) - data.visible_count) : 0;
   const refreshing = isFetching && !isLoading;
 
   const openProfile = useCallback((user) => {
@@ -105,13 +116,14 @@ const FollowListScreen = ({ navigation, route }) => {
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
-          ListHeaderComponent={users.length > 0 ? (
-            <Text style={styles.count}>{total} {total === 1 ? 'persona' : 'personas'}</Text>
+          ListHeaderComponent={users.length > 0 || hiddenCount > 0 ? (
+            <Text style={styles.count}>
+              {users.length > 0 ? `${total} ${total === 1 ? 'persona' : 'personas'}` : ''}
+              {hiddenCount > 0 ? `${users.length > 0 ? ' · ' : ''}${hiddenCount} ${hiddenCount === 1 ? 'oculta' : 'ocultas'} por privacidad` : ''}
+            </Text>
           ) : null}
           ListEmptyComponent={(
-            <Text style={styles.empty}>
-              {mode === 'followers' ? 'Todavía no tiene seguidores.' : 'Todavía no sigue a nadie.'}
-            </Text>
+            <Text style={styles.empty}>{emptyText}</Text>
           )}
         />
       )}
