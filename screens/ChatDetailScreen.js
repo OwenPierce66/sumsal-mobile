@@ -13,6 +13,14 @@ import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
 import TouchableUsername from '@components/TouchableUsername';
 import { useMe } from '@hooks/useApi';
+import {
+  canTranslateMessage,
+  languageName,
+  translationEndpoint,
+  translationErrorMessage,
+  translationFromResponse,
+  translationKey,
+} from '../utils/translation';
 
 const STORY_REPLY_PREFIX = '↪ Respuesta a tu historia:';
 const TASK_SHARE_PREFIX = '↪ Publicación compartida:';
@@ -97,9 +105,10 @@ const parseSharedContentFromMessage = (content) => {
   };
 };
 
-const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, onOpenMessageMenu, onNavigateToProfile, onOpenContent, navigation }) => {
+const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, onOpenMessageMenu, onNavigateToProfile, onOpenContent, translation, onToggleTranslation, navigation }) => {
   const pan = useRef(new Animated.ValueXY()).current;
   const { contentContext, bodyText } = parseSharedContentFromMessage(item?.content || '');
+  const showTranslated = translation?.status === 'done' && !translation.sameLanguage && !translation.showOriginal;
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -149,11 +158,7 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, o
             contentContext ? styles.sharedContentMessageBubble : null,
             isMe ? styles.messageBubbleMe : styles.messageBubbleThem,
           ]}
-          onLongPress={() => {
-            if (isMe) {
-              onOpenMessageMenu(item);
-            }
-          }}
+          onLongPress={() => onOpenMessageMenu(item)}
           activeOpacity={0.9}
         >
           {item.replied_to && (
@@ -198,8 +203,24 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, o
 
           {bodyText ? (
             <Text style={[styles.messageText, isMe ? styles.messageTextMe : styles.messageTextThem]}>
-              {bodyText}
+              {showTranslated ? translation.text : bodyText}
             </Text>
+          ) : null}
+          {translation?.status === 'loading' ? (
+            <Text style={[styles.translationNote, isMe ? styles.translationNoteMe : styles.translationNoteThem]}>
+              Traduciendo…
+            </Text>
+          ) : null}
+          {translation?.status === 'done' ? (
+            <TouchableOpacity onPress={() => onToggleTranslation && onToggleTranslation(item)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+              <Text style={[styles.translationNote, isMe ? styles.translationNoteMe : styles.translationNoteThem]}>
+                {translation.sameLanguage
+                  ? 'Ya está en tu idioma'
+                  : showTranslated
+                    ? `Traducido${translation.sourceLang && languageName(translation.sourceLang) ? ` del ${languageName(translation.sourceLang)}` : ''} · Ver original`
+                    : 'Mostrando original · Ver traducción'}
+              </Text>
+            </TouchableOpacity>
           ) : null}
           
           {item.image && (
@@ -244,6 +265,8 @@ const ChatDetailScreen = ({ route, navigation }) => {
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [selectedMessageForMenu, setSelectedMessageForMenu] = useState(null);
   const [isMessageMenuVisible, setIsMessageMenuVisible] = useState(false);
+  // Traducciones por mensaje: { 'direct:12': { status, text, sourceLang, sameLanguage, showOriginal } }
+  const [translations, setTranslations] = useState({});
   const [loading,     setLoading]     = useState(true);
   // currentUser ahora viene de React Query en lugar de api.get('users/me/')
   const { data: currentUser } = useMe();
@@ -486,6 +509,60 @@ const ChatDetailScreen = ({ route, navigation }) => {
     handleDeleteMessage(messageId);
   };
 
+  // --- Traductor (bajo demanda, en mensajes directos y de grupo) ---
+  const selectedIsMe = !!currentUser && selectedMessageForMenu?.sender?.id === currentUser.id;
+  const selectedCanTranslate = canTranslateMessage(selectedMessageForMenu);
+  const selectedTranslation = selectedMessageForMenu
+    ? translations[translationKey(type, selectedMessageForMenu.id)]
+    : undefined;
+
+  const showTranslationError = (message) => {
+    if (Platform.OS === 'web') {
+      window.alert(message);
+    } else {
+      Alert.alert('Traducción', message);
+    }
+  };
+
+  const requestTranslation = async (message) => {
+    const key = translationKey(type, message.id);
+    setTranslations((prev) => ({ ...prev, [key]: { status: 'loading' } }));
+    try {
+      const res = await api.post(translationEndpoint(type, message.id), {});
+      setTranslations((prev) => ({ ...prev, [key]: translationFromResponse(res.data) }));
+    } catch (error) {
+      setTranslations((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      showTranslationError(translationErrorMessage(error));
+    }
+  };
+
+  // Alterna entre la traducción y el original de un mensaje ya traducido.
+  const handleToggleTranslation = useCallback((message) => {
+    const key = translationKey(type, message.id);
+    setTranslations((prev) => {
+      const current = prev[key];
+      if (current?.status !== 'done') return prev;
+      return { ...prev, [key]: { ...current, showOriginal: !current.showOriginal } };
+    });
+  }, [type]);
+
+  const handleMenuTranslate = () => {
+    if (!selectedMessageForMenu) return;
+    const message = selectedMessageForMenu;
+    const current = translations[translationKey(type, message.id)];
+    closeMessageMenu();
+    if (current?.status === 'loading') return;
+    if (current?.status === 'done') {
+      handleToggleTranslation(message);
+      return;
+    }
+    requestTranslation(message);
+  };
+
   const handleEditMessage = (message) => {
     setEditingMessageId(message.id);
     setNewMessage(message.content || '');
@@ -520,6 +597,13 @@ const ChatDetailScreen = ({ route, navigation }) => {
           : `massaging/messages/${editingMessageId}/`;
         const response = await api.patch(updatePath, { content: newMessage.trim() });
         setMessages(prev => prev.map(message => message.id === editingMessageId ? response.data : message));
+        const editedKey = translationKey(type, editingMessageId);
+        setTranslations(prev => {
+          if (!prev[editedKey]) return prev;
+          const next = { ...prev };
+          delete next[editedKey];
+          return next;
+        });
         setEditingMessageId(null);
         setNewMessage('');
         return;
@@ -647,6 +731,8 @@ const ChatDetailScreen = ({ route, navigation }) => {
         onOpenMessageMenu={openMessageMenu}
         onNavigateToProfile={navigateToProfile}
         onOpenContent={handleOpenContentFromMessage}
+        translation={translations[translationKey(type, item.id)]}
+        onToggleTranslation={handleToggleTranslation}
         navigation={navigation}
       />
     );
@@ -683,6 +769,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
         <FlatList
           data={messages}
           keyExtractor={(item) => item.id.toString()}
+          extraData={translations}
           renderItem={renderMessage}
           inverted
           contentContainerStyle={styles.messagesList}
@@ -783,16 +870,28 @@ const ChatDetailScreen = ({ route, navigation }) => {
                 {selectedMessageForMenu.content}
               </Text>
             ) : null}
-            {selectedMessageForMenu?.content ? (
+            {selectedCanTranslate ? (
+              <TouchableOpacity style={styles.messageMenuOption} onPress={handleMenuTranslate}>
+                <Ionicons name="language-outline" size={21} color="#7048e8" />
+                <Text style={styles.messageMenuOptionText}>
+                  {selectedTranslation?.status === 'done' && !selectedTranslation.showOriginal
+                    ? 'Ver original'
+                    : 'Traducir'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {selectedIsMe && selectedMessageForMenu?.content ? (
               <TouchableOpacity style={styles.messageMenuOption} onPress={handleMenuEdit}>
                 <Ionicons name="pencil-outline" size={21} color="#228be6" />
                 <Text style={styles.messageMenuOptionText}>Editar mensaje</Text>
               </TouchableOpacity>
             ) : null}
-            <TouchableOpacity style={styles.messageMenuOption} onPress={handleMenuDelete}>
-              <Ionicons name="trash-outline" size={21} color="#e03131" />
-              <Text style={[styles.messageMenuOptionText, styles.messageMenuDeleteText]}>Eliminar mensaje</Text>
-            </TouchableOpacity>
+            {selectedIsMe ? (
+              <TouchableOpacity style={styles.messageMenuOption} onPress={handleMenuDelete}>
+                <Ionicons name="trash-outline" size={21} color="#e03131" />
+                <Text style={[styles.messageMenuOptionText, styles.messageMenuDeleteText]}>Eliminar mensaje</Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity style={styles.messageMenuCancel} onPress={closeMessageMenu}>
               <Text style={styles.messageMenuCancelText}>Cancelar</Text>
             </TouchableOpacity>
@@ -984,6 +1083,9 @@ const styles = StyleSheet.create({
   messageTime: { fontSize: 10, alignSelf: 'flex-end', marginTop: 4 },
   messageTimeMe: { color: 'rgba(255,255,255,0.7)' },
   messageTimeThem: { color: '#999' },
+  translationNote: { fontSize: 11, fontStyle: 'italic', marginTop: 4 },
+  translationNoteMe: { color: 'rgba(255,255,255,0.85)' },
+  translationNoteThem: { color: '#7048e8' },
   messageVideo: { width: 220, height: 150, borderRadius: 10, marginTop: 8, backgroundColor: '#222' },
 
   repliedToContainer: { padding: 8, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3 },

@@ -20,6 +20,7 @@ import ProfileRecommendations from '@components/ProfileRecommendations';
 import RecommendButton from '@components/RecommendButton';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import CategoryHierarchy from '@components/CategoryHierarchy';
+import LanguagePickerModal from '@components/LanguagePickerModal';
 import {
   useMe,
   useProfileSocial,
@@ -55,6 +56,7 @@ const ProfileScreen = ({ route, navigation }) => {
   // ── Estado local (solo UI, no datos remotos) ──────────────────────────────
   const [selectedCategory, setSelectedCategory] = useState('');
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
+  const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [showFavoriteFeed, setShowFavoriteFeed] = useState(false);
   const [favoriteFeedEnabled, setFavoriteFeedEnabled] = useState(false);
   const [viewMode, setViewMode] = useState('compact');
@@ -810,6 +812,16 @@ const ProfileScreen = ({ route, navigation }) => {
               <Ionicons name="pencil-outline" size={20} color="#4dabf7" />
               <Text style={styles.profileMenuText}>Editar perfil</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileMenuOption}
+              onPress={() => {
+                setProfileMenuVisible(false);
+                setLanguageModalVisible(true);
+              }}
+            >
+              <Ionicons name="language-outline" size={20} color="#7048e8" />
+              <Text style={styles.profileMenuText}>Mi idioma (traductor)</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.profileMenuOption} onPress={handleLogout}>
               <Ionicons name="log-out-outline" size={20} color="#ff6b6b" />
               <Text style={styles.profileMenuText}>Cerrar sesión</Text>
@@ -912,6 +924,10 @@ const ProfileScreen = ({ route, navigation }) => {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {isCurrentUser ? (
+        <LanguagePickerModal visible={languageModalVisible} onClose={() => setLanguageModalVisible(false)} />
+      ) : null}
 
       {/* Filtros */}
       <View style={styles.appFilterSection}>
