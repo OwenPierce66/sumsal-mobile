@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, 
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
-  Animated, PanResponder, Image as RNImage, Modal
+  Animated, PanResponder, Image as RNImage, Modal, Switch
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
@@ -14,12 +14,22 @@ import { Video } from 'expo-av';
 import TouchableUsername from '@components/TouchableUsername';
 import { useMe } from '@hooks/useApi';
 import {
+  LIVE_PREVIEW_IDLE,
+  LIVE_TRANSLATE_DEBOUNCE_MS,
+  LIVE_TRANSLATE_ENDPOINT,
   canTranslateMessage,
-  languageName,
+  liveTranslateStorageKey,
+  livePreviewFromError,
+  livePreviewFromResponse,
+  livePreviewRequest,
+  needsLivePreview,
+  sentTranslationFields,
   translationEndpoint,
   translationErrorMessage,
   translationFromResponse,
+  translationFromSent,
   translationKey,
+  translationLabel,
 } from '../utils/translation';
 
 const STORY_REPLY_PREFIX = '↪ Respuesta a tu historia:';
@@ -108,7 +118,8 @@ const parseSharedContentFromMessage = (content) => {
 const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, onOpenMessageMenu, onNavigateToProfile, onOpenContent, translation, onToggleTranslation, navigation }) => {
   const pan = useRef(new Animated.ValueXY()).current;
   const { contentContext, bodyText } = parseSharedContentFromMessage(item?.content || '');
-  const showTranslated = translation?.status === 'done' && !translation.sameLanguage && !translation.showOriginal;
+  const canToggleTranslation = canTranslateMessage(item);
+  const translationOpen = translation?.status === 'done' && !!translation.open;
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -158,7 +169,12 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, o
             contentContext ? styles.sharedContentMessageBubble : null,
             isMe ? styles.messageBubbleMe : styles.messageBubbleThem,
           ]}
-          onLongPress={() => onOpenMessageMenu(item)}
+          onPress={() => canToggleTranslation && onToggleTranslation && onToggleTranslation(item)}
+          onLongPress={() => {
+            if (isMe) {
+              onOpenMessageMenu(item);
+            }
+          }}
           activeOpacity={0.9}
         >
           {item.replied_to && (
@@ -203,7 +219,7 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, o
 
           {bodyText ? (
             <Text style={[styles.messageText, isMe ? styles.messageTextMe : styles.messageTextThem]}>
-              {showTranslated ? translation.text : bodyText}
+              {bodyText}
             </Text>
           ) : null}
           {translation?.status === 'loading' ? (
@@ -211,16 +227,17 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, o
               Traduciendo…
             </Text>
           ) : null}
-          {translation?.status === 'done' ? (
-            <TouchableOpacity onPress={() => onToggleTranslation && onToggleTranslation(item)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-              <Text style={[styles.translationNote, isMe ? styles.translationNoteMe : styles.translationNoteThem]}>
-                {translation.sameLanguage
-                  ? 'Ya está en tu idioma'
-                  : showTranslated
-                    ? `Traducido${translation.sourceLang && languageName(translation.sourceLang) ? ` del ${languageName(translation.sourceLang)}` : ''} · Ver original`
-                    : 'Mostrando original · Ver traducción'}
+          {translationOpen ? (
+            <View style={[styles.translationPanel, isMe ? styles.translationPanelMe : styles.translationPanelThem]}>
+              <Text style={[styles.translationLabel, isMe ? styles.translationLabelMe : styles.translationLabelThem]}>
+                {translationLabel(translation)}
               </Text>
-            </TouchableOpacity>
+              {!translation.sameLanguage ? (
+                <Text style={[styles.messageText, isMe ? styles.messageTextMe : styles.messageTextThem]}>
+                  {translation.text}
+                </Text>
+              ) : null}
+            </View>
           ) : null}
           
           {item.image && (
@@ -242,9 +259,18 @@ const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, o
             />
           )}
 
-          <Text style={[styles.messageTime, isMe ? styles.messageTimeMe : styles.messageTimeThem]}>
-            {moment(item.timestamp).format('HH:mm')}
-          </Text>
+          <View style={styles.messageFooter}>
+            {canToggleTranslation ? (
+              <Ionicons
+                name={translationOpen ? 'language' : 'language-outline'}
+                size={13}
+                color={isMe ? 'rgba(255,255,255,0.85)' : '#7048e8'}
+              />
+            ) : null}
+            <Text style={[styles.messageTime, styles.messageFooterTime, isMe ? styles.messageTimeMe : styles.messageTimeThem]}>
+              {moment(item.timestamp).format('HH:mm')}
+            </Text>
+          </View>
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -265,8 +291,52 @@ const ChatDetailScreen = ({ route, navigation }) => {
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [selectedMessageForMenu, setSelectedMessageForMenu] = useState(null);
   const [isMessageMenuVisible, setIsMessageMenuVisible] = useState(false);
-  // Traducciones por mensaje: { 'direct:12': { status, text, sourceLang, sameLanguage, showOriginal } }
+  // Traducciones por mensaje: { 'direct:12': { status, text, sourceLang, targetLang, sameLanguage, open } }
   const [translations, setTranslations] = useState({});
+  const translationsRef = useRef({});
+  translationsRef.current = translations;
+  // "Hablar traducido": traducción en vivo (español → inglés) mientras escribes.
+  const [isChatMenuVisible, setIsChatMenuVisible] = useState(false);
+  const [liveTranslateOn, setLiveTranslateOn] = useState(false);
+  const [livePreview, setLivePreview] = useState(LIVE_PREVIEW_IDLE);
+  const livePreviewRef = useRef(LIVE_PREVIEW_IDLE);
+  livePreviewRef.current = livePreview;
+  const previewSeqRef = useRef(0);
+
+  // Recuerda si "Hablar traducido" estaba activo en esta conversación.
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(liveTranslateStorageKey(type, chatId))
+      .then((stored) => { if (active) setLiveTranslateOn(stored === '1'); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [type, chatId]);
+
+  // Vista previa en vivo: espera una pausa al escribir y descarta respuestas viejas.
+  useEffect(() => {
+    if (!liveTranslateOn || editingMessageId) return undefined;
+    const text = newMessage.trim();
+    if (!text) {
+      // Borrador vacío: descarta lo pendiente para que no quede "Traduciendo…" pegado.
+      previewSeqRef.current += 1;
+      if (livePreviewRef.current.status === 'loading') setLivePreview(LIVE_PREVIEW_IDLE);
+      return undefined;
+    }
+    if (!needsLivePreview(text, livePreviewRef.current)) return undefined;
+    const seq = ++previewSeqRef.current;
+    setLivePreview((prev) => ({ ...prev, status: 'loading' }));
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.post(LIVE_TRANSLATE_ENDPOINT, livePreviewRequest(text));
+        if (seq === previewSeqRef.current) setLivePreview(livePreviewFromResponse(text, res.data));
+      } catch (error) {
+        if (seq === previewSeqRef.current) {
+          setLivePreview(livePreviewFromError(text, translationErrorMessage(error)));
+        }
+      }
+    }, LIVE_TRANSLATE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [newMessage, liveTranslateOn, editingMessageId]);
   const [loading,     setLoading]     = useState(true);
   // currentUser ahora viene de React Query en lugar de api.get('users/me/')
   const { data: currentUser } = useMe();
@@ -509,13 +579,9 @@ const ChatDetailScreen = ({ route, navigation }) => {
     handleDeleteMessage(messageId);
   };
 
-  // --- Traductor (bajo demanda, en mensajes directos y de grupo) ---
-  const selectedIsMe = !!currentUser && selectedMessageForMenu?.sender?.id === currentUser.id;
-  const selectedCanTranslate = canTranslateMessage(selectedMessageForMenu);
-  const selectedTranslation = selectedMessageForMenu
-    ? translations[translationKey(type, selectedMessageForMenu.id)]
-    : undefined;
-
+  // --- Traductor ---
+  // Leer: tocar un mensaje muestra u oculta su traducción. Si el autor la envió con
+  // el mensaje se usa esa; si no, se pide al servidor en tu idioma.
   const showTranslationError = (message) => {
     if (Platform.OS === 'web') {
       window.alert(message);
@@ -540,27 +606,62 @@ const ChatDetailScreen = ({ route, navigation }) => {
     }
   };
 
-  // Alterna entre la traducción y el original de un mensaje ya traducido.
-  const handleToggleTranslation = useCallback((message) => {
+  const handleToggleTranslation = (message) => {
+    if (!canTranslateMessage(message)) return;
     const key = translationKey(type, message.id);
-    setTranslations((prev) => {
-      const current = prev[key];
-      if (current?.status !== 'done') return prev;
-      return { ...prev, [key]: { ...current, showOriginal: !current.showOriginal } };
-    });
-  }, [type]);
-
-  const handleMenuTranslate = () => {
-    if (!selectedMessageForMenu) return;
-    const message = selectedMessageForMenu;
-    const current = translations[translationKey(type, message.id)];
-    closeMessageMenu();
+    const current = translationsRef.current[key];
     if (current?.status === 'loading') return;
     if (current?.status === 'done') {
-      handleToggleTranslation(message);
+      setTranslations((prev) => ({ ...prev, [key]: { ...current, open: !current.open } }));
+      return;
+    }
+    if (message.sent_translation?.text) {
+      setTranslations((prev) => ({ ...prev, [key]: translationFromSent(message.sent_translation) }));
       return;
     }
     requestTranslation(message);
+  };
+
+  // Escribir: "Hablar traducido" (español → inglés) con vista previa en vivo.
+  const handleToggleLiveTranslate = (next) => {
+    const value = !!next;
+    setLiveTranslateOn(value);
+    AsyncStorage.setItem(liveTranslateStorageKey(type, chatId), value ? '1' : '0').catch(() => {});
+    if (!value) {
+      previewSeqRef.current += 1;
+      setLivePreview(LIVE_PREVIEW_IDLE);
+    }
+  };
+
+  const confirmSendWithoutTranslation = (reason) => new Promise((resolve) => {
+    if (Platform.OS === 'web') {
+      resolve(window.confirm(`${reason}\n\n¿Enviar el mensaje sin traducción?`));
+      return;
+    }
+    Alert.alert(
+      'No se pudo traducir',
+      `${reason}\n\n¿Enviar el mensaje sin traducción?`,
+      [
+        { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Enviar sin traducción', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+
+  // Devuelve los campos de traducción a enviar, null (enviar sin traducción) o 'cancel'.
+  const resolveSentTranslation = async (text) => {
+    const current = livePreviewRef.current;
+    const ready = sentTranslationFields(text, current);
+    if (ready) return ready;
+    if (current.status === 'done' && current.forText === text && current.sameLanguage) return null;
+    try {
+      const res = await api.post(LIVE_TRANSLATE_ENDPOINT, livePreviewRequest(text));
+      return sentTranslationFields(text, livePreviewFromResponse(text, res.data));
+    } catch (error) {
+      const proceed = await confirmSendWithoutTranslation(translationErrorMessage(error));
+      return proceed ? null : 'cancel';
+    }
   };
 
   const handleEditMessage = (message) => {
@@ -646,6 +747,15 @@ const ChatDetailScreen = ({ route, navigation }) => {
       }
 
       if (replyTo) formData.append('reply_to', replyTo.id);
+
+      // "Hablar traducido": la traducción que viste en vivo viaja con el mensaje.
+      if (liveTranslateOn && plainMessage) {
+        const translationFields = await resolveSentTranslation(plainMessage);
+        if (translationFields === 'cancel') return;
+        if (translationFields) {
+          Object.entries(translationFields).forEach(([name, value]) => formData.append(name, value));
+        }
+      }
 
       if (type === 'direct') {
         formData.append('receiver', chatId);
@@ -761,6 +871,13 @@ const ChatDetailScreen = ({ route, navigation }) => {
             <Ionicons name="information-circle-outline" size={26} color="#333" />
           </TouchableOpacity>
         )}
+        <TouchableOpacity
+          onPress={() => setIsChatMenuVisible(true)}
+          style={styles.chatMenuButton}
+          accessibilityLabel="Opciones del chat"
+        >
+          <Ionicons name="ellipsis-vertical" size={22} color={liveTranslateOn ? '#7048e8' : '#333'} />
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -836,6 +953,32 @@ const ChatDetailScreen = ({ route, navigation }) => {
         </View>
       )}
 
+      {liveTranslateOn && !editingMessageId ? (
+        <View style={styles.liveTranslateBox}>
+          <View style={styles.liveTranslateHeader}>
+            <Ionicons name="language-outline" size={14} color="#7048e8" />
+            <Text style={styles.liveTranslateLabel}>Inglés · se envía con tu mensaje</Text>
+            {livePreview.status === 'loading' ? <ActivityIndicator size="small" color="#7048e8" /> : null}
+            <TouchableOpacity onPress={() => handleToggleLiveTranslate(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.liveTranslateOff}>Desactivar</Text>
+            </TouchableOpacity>
+          </View>
+          {!newMessage.trim() ? (
+            <Text style={styles.liveTranslateHint}>Escribe en español y aquí verás la traducción al inglés.</Text>
+          ) : livePreview.status === 'error' && livePreview.forText === newMessage.trim() ? (
+            <Text style={styles.liveTranslateError}>{livePreview.error}</Text>
+          ) : livePreview.sameLanguage && livePreview.forText === newMessage.trim() ? (
+            <Text style={styles.liveTranslateHint}>Ya parece estar en inglés; se enviará sin traducción.</Text>
+          ) : livePreview.text ? (
+            <Text style={livePreview.forText === newMessage.trim() ? styles.liveTranslateText : styles.liveTranslateTextDim}>
+              {livePreview.text}
+            </Text>
+          ) : (
+            <Text style={styles.liveTranslateHint}>Traduciendo…</Text>
+          )}
+        </View>
+      ) : null}
+
       <View style={styles.inputContainer}>
         <TouchableOpacity style={styles.attachBtn} onPress={pickImage}>
           <Ionicons name="add" size={24} color="#4dabf7" />
@@ -870,28 +1013,16 @@ const ChatDetailScreen = ({ route, navigation }) => {
                 {selectedMessageForMenu.content}
               </Text>
             ) : null}
-            {selectedCanTranslate ? (
-              <TouchableOpacity style={styles.messageMenuOption} onPress={handleMenuTranslate}>
-                <Ionicons name="language-outline" size={21} color="#7048e8" />
-                <Text style={styles.messageMenuOptionText}>
-                  {selectedTranslation?.status === 'done' && !selectedTranslation.showOriginal
-                    ? 'Ver original'
-                    : 'Traducir'}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-            {selectedIsMe && selectedMessageForMenu?.content ? (
+            {selectedMessageForMenu?.content ? (
               <TouchableOpacity style={styles.messageMenuOption} onPress={handleMenuEdit}>
                 <Ionicons name="pencil-outline" size={21} color="#228be6" />
                 <Text style={styles.messageMenuOptionText}>Editar mensaje</Text>
               </TouchableOpacity>
             ) : null}
-            {selectedIsMe ? (
-              <TouchableOpacity style={styles.messageMenuOption} onPress={handleMenuDelete}>
-                <Ionicons name="trash-outline" size={21} color="#e03131" />
-                <Text style={[styles.messageMenuOptionText, styles.messageMenuDeleteText]}>Eliminar mensaje</Text>
-              </TouchableOpacity>
-            ) : null}
+            <TouchableOpacity style={styles.messageMenuOption} onPress={handleMenuDelete}>
+              <Ionicons name="trash-outline" size={21} color="#e03131" />
+              <Text style={[styles.messageMenuOptionText, styles.messageMenuDeleteText]}>Eliminar mensaje</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.messageMenuCancel} onPress={closeMessageMenu}>
               <Text style={styles.messageMenuCancelText}>Cancelar</Text>
             </TouchableOpacity>
@@ -900,6 +1031,39 @@ const ChatDetailScreen = ({ route, navigation }) => {
       </Modal>
         </TouchableOpacity>
       </View>
+
+      {/* MENÚ DEL CHAT (3 puntos): hablar traducido */}
+      <Modal
+        visible={isChatMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsChatMenuVisible(false)}
+      >
+        <TouchableOpacity style={styles.messageMenuOverlay} activeOpacity={1} onPress={() => setIsChatMenuVisible(false)}>
+          <View style={styles.messageMenu} onStartShouldSetResponder={() => true}>
+            <View style={styles.messageMenuHandle} />
+            <Text style={styles.messageMenuTitle}>Opciones del chat</Text>
+            <View style={styles.chatMenuToggleRow}>
+              <Ionicons name="language-outline" size={22} color="#7048e8" />
+              <View style={styles.chatMenuToggleCopy}>
+                <Text style={styles.chatMenuToggleTitle}>Hablar traducido</Text>
+                <Text style={styles.chatMenuToggleDesc}>
+                  Escribes en español, ves la traducción al inglés en vivo y se envía junto con tu mensaje.
+                </Text>
+              </View>
+              <Switch
+                value={liveTranslateOn}
+                onValueChange={handleToggleLiveTranslate}
+                trackColor={{ false: '#ddd', true: '#b197fc' }}
+                thumbColor={liveTranslateOn ? '#7048e8' : '#f4f3f4'}
+              />
+            </View>
+            <TouchableOpacity style={styles.messageMenuCancel} onPress={() => setIsChatMenuVisible(false)}>
+              <Text style={styles.messageMenuCancelText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* MODAL DE INFORMACIÓN DEL GRUPO */}
       <Modal visible={isGroupModalVisible} animationType="slide" transparent={true}>
@@ -1031,7 +1195,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9f9f9' },
   
-  header: { flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee', paddingTop: Platform.OS === 'ios' ? 50 : 16 },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee', paddingTop: Platform.OS === 'ios' ? 50 : 34 },
   backBtn: { marginRight: 12 },
   headerAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#eee', marginRight: 12 },
   headerInfo: { flex: 1 },
@@ -1044,7 +1208,7 @@ const styles = StyleSheet.create({
   messageWrapperMe: { justifyContent: 'flex-end' },
   messageWrapperThem: { justifyContent: 'flex-start' },
   messageAvatar: { width: 28, height: 28, borderRadius: 14, marginRight: 8, marginBottom: 4 },
-  messageBubble: { maxWidth: '75%', padding: 12, borderRadius: 20 },
+  messageBubble: { maxWidth: '75%', minWidth: 88, padding: 12, borderRadius: 20 },
   sharedContentMessageContainer: { width: '50%' },
   sharedContentMessageBubble: { width: '100%', maxWidth: '100%' },
   messageBubbleMe: { backgroundColor: '#4dabf7', borderBottomRightRadius: 4 },
@@ -1083,9 +1247,30 @@ const styles = StyleSheet.create({
   messageTime: { fontSize: 10, alignSelf: 'flex-end', marginTop: 4 },
   messageTimeMe: { color: 'rgba(255,255,255,0.7)' },
   messageTimeThem: { color: '#999' },
+  messageFooter: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', marginTop: 4, gap: 4 },
+  messageFooterTime: { marginTop: 0, alignSelf: 'auto' },
   translationNote: { fontSize: 11, fontStyle: 'italic', marginTop: 4 },
   translationNoteMe: { color: 'rgba(255,255,255,0.85)' },
   translationNoteThem: { color: '#7048e8' },
+  translationPanel: { marginTop: 8, paddingVertical: 6, paddingHorizontal: 10, borderLeftWidth: 3, borderRadius: 8 },
+  translationPanelMe: { backgroundColor: 'rgba(255,255,255,0.18)', borderLeftColor: '#fff' },
+  translationPanelThem: { backgroundColor: '#f3f0ff', borderLeftColor: '#7048e8' },
+  translationLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 2 },
+  translationLabelMe: { color: 'rgba(255,255,255,0.9)' },
+  translationLabelThem: { color: '#7048e8' },
+  liveTranslateBox: { backgroundColor: '#f3f0ff', borderTopWidth: 1, borderTopColor: '#e5dbff', paddingHorizontal: 14, paddingVertical: 8 },
+  liveTranslateHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  liveTranslateLabel: { flex: 1, fontSize: 11, fontWeight: '700', color: '#7048e8', textTransform: 'uppercase', letterSpacing: 0.3 },
+  liveTranslateOff: { fontSize: 12, fontWeight: '600', color: '#7048e8' },
+  liveTranslateText: { fontSize: 15, color: '#333' },
+  liveTranslateTextDim: { fontSize: 15, color: '#999' },
+  liveTranslateHint: { fontSize: 13, color: '#8a7fb5' },
+  liveTranslateError: { fontSize: 13, color: '#e03131' },
+  chatMenuToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 4 },
+  chatMenuButton: { paddingLeft: 12, paddingVertical: 4 },
+  chatMenuToggleCopy: { flex: 1 },
+  chatMenuToggleTitle: { fontSize: 16, fontWeight: '700', color: '#333' },
+  chatMenuToggleDesc: { fontSize: 12, color: '#777', marginTop: 2 },
   messageVideo: { width: 220, height: 150, borderRadius: 10, marginTop: 8, backgroundColor: '#222' },
 
   repliedToContainer: { padding: 8, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3 },

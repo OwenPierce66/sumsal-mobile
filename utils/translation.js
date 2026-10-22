@@ -1,6 +1,12 @@
 /**
  * Traductor de mensajes (directos y de grupo).
  * Lógica pura, sin React ni red, para poder probarla con Jest.
+ *
+ * Dos usos:
+ *  - Leer: tocar un mensaje muestra u oculta su traducción (la que el autor envió
+ *    con el mensaje o, si no hay, una pedida al servidor en tu idioma).
+ *  - Escribir: con "Hablar traducido" activo, ves la traducción en vivo y viaja
+ *    con tu mensaje (como en la web: escribes y debajo aparece la traducción).
  */
 
 const STORY_REPLY_PREFIX = '↪ Respuesta a tu historia:';
@@ -24,6 +30,14 @@ export const languageName = (code) => {
   const key = String(code || '').toLowerCase().split('-')[0];
   return LANGUAGE_NAMES[key] || '';
 };
+
+// "Hablar traducido": de español a inglés (fijo por ahora).
+export const LIVE_TRANSLATE_SOURCE = 'es';
+export const LIVE_TRANSLATE_TARGET = 'en';
+export const LIVE_TRANSLATE_DEBOUNCE_MS = 800;
+export const LIVE_TRANSLATE_ENDPOINT = 'massaging/translation/preview/';
+
+export const liveTranslateStorageKey = (type, chatId) => `chatLiveTranslate:${type === 'group' ? 'group' : 'direct'}:${chatId}`;
 
 /**
  * Texto que realmente escribió la persona: si el mensaje empieza con la línea
@@ -64,11 +78,78 @@ export const translationErrorMessage = (error) => {
   return 'No se pudo traducir el mensaje.';
 };
 
-/** Estado guardado en la pantalla a partir de la respuesta del backend. */
+/** Estado guardado en la pantalla a partir de la respuesta del backend (tocar el mensaje). */
 export const translationFromResponse = (data) => ({
   status: 'done',
   text: String(data?.text ?? ''),
   sourceLang: data?.source_lang || '',
+  targetLang: data?.target_lang || '',
   sameLanguage: !!data?.same_language,
-  showOriginal: false,
+  open: true,
+});
+
+/** Estado a partir de la traducción que el autor envió junto con el mensaje. */
+export const translationFromSent = (sent) => ({
+  status: 'done',
+  text: String(sent?.text ?? ''),
+  sourceLang: sent?.source_lang || '',
+  targetLang: sent?.lang || '',
+  sameLanguage: false,
+  open: true,
+});
+
+/** Etiqueta del recuadro de traducción bajo el mensaje. */
+export const translationLabel = (translation) => {
+  if (translation?.sameLanguage) return 'Ya está en tu idioma';
+  const name = languageName(translation?.targetLang);
+  return name ? `Traducción · ${name}` : 'Traducción';
+};
+
+// --- Traducción en vivo al escribir ---
+
+export const LIVE_PREVIEW_IDLE = { status: 'idle', forText: '', text: '', sameLanguage: false, error: '' };
+
+/** ¿Hay que pedir (o volver a pedir) la vista previa para este borrador? */
+export const needsLivePreview = (draft, preview) => {
+  const text = String(draft || '').trim();
+  if (!text) return false;
+  return !(preview?.forText === text && preview.status === 'done');
+};
+
+/** Estado de la vista previa a partir de la respuesta del backend. */
+export const livePreviewFromResponse = (draft, data) => ({
+  status: 'done',
+  forText: String(draft || '').trim(),
+  text: String(data?.text ?? ''),
+  sameLanguage: !!data?.same_language,
+  error: '',
+});
+
+/** Estado de la vista previa cuando falla la traducción. */
+export const livePreviewFromError = (draft, message) => ({
+  status: 'error',
+  forText: String(draft || '').trim(),
+  text: '',
+  sameLanguage: false,
+  error: message || 'No se pudo traducir.',
+});
+
+/** Campos extra al enviar: solo si la vista previa corresponde exactamente al texto enviado. */
+export const sentTranslationFields = (draft, preview) => {
+  const text = String(draft || '').trim();
+  if (!text || preview?.status !== 'done' || preview.forText !== text || !preview.text || preview.sameLanguage) {
+    return null;
+  }
+  return {
+    translation_text: preview.text,
+    translation_lang: LIVE_TRANSLATE_TARGET,
+    translation_source: LIVE_TRANSLATE_SOURCE,
+  };
+};
+
+/** Cuerpo de la petición de vista previa. */
+export const livePreviewRequest = (draft) => ({
+  text: String(draft || '').trim(),
+  source: LIVE_TRANSLATE_SOURCE,
+  target: LIVE_TRANSLATE_TARGET,
 });
