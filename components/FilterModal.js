@@ -412,6 +412,9 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const sortOptions = [
     { label: 'Más recientes', value: 'recent' },
     { label: 'Más likes', value: 'likes' },
+    { label: 'Top 24 h', value: 'top_day' },
+    { label: 'Top semanal', value: 'top_week' },
+    { label: 'Top mensual', value: 'top_month' },
   ];
 
   const selectMainCategory = (category) => {
@@ -556,10 +559,10 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       sort_by: sortBy,
       favorites_only: favoritesOnly,
       favorite_users_only: favoriteUsersOnly,
+      followed_users_only: followedUsersOnly,
       verified_users_only: verifiedUsersOnly,
       recommended_users_only: recommendedUsersOnly,
       videos_only: videosOnly,
-      followed_users_only: followedUsersOnly,
     });
     onClose();
   };
@@ -573,10 +576,10 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setSortBy('recent');
     setFavoritesOnly(false);
     setFavoriteUsersOnly(false);
+    setFollowedUsersOnly(false);
     setVerifiedUsersOnly(false);
     setRecommendedUsersOnly(false);
     setVideosOnly(showVideoOnlyFilter);
-    setFollowedUsersOnly(false);
     onApply({
       category: '',
       status: '',
@@ -584,10 +587,10 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       sort_by: 'recent',
       favorites_only: false,
       favorite_users_only: false,
+      followed_users_only: false,
       verified_users_only: false,
       recommended_users_only: false,
       videos_only: showVideoOnlyFilter,
-      followed_users_only: false,
     });
     onClose();
   };
@@ -819,7 +822,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                     favoritesOnly && styles.optionTextActive,
                   ]}
                 >
-                  Mis Favoritas
+                  {favoritesOnly ? 'Solo mis favoritas' : 'Modo general (todas)'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -841,9 +844,6 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
               <TouchableOpacity
                 style={[
                   styles.optionBadge,
-              <TouchableOpacity
-                style={[
-                  styles.optionBadge,
                   followedUsersOnly && styles.optionBadgeActive,
                 ]}
                 onPress={() => setFollowedUsersOnly(!followedUsersOnly)}
@@ -857,6 +857,9 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   Personas que sigo
                 </Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.optionBadge,
                   verifiedUsersOnly && styles.optionBadgeActive,
                 ]}
                 onPress={() => setVerifiedUsersOnly(!verifiedUsersOnly)}
@@ -938,7 +941,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                     favoritesOnly && styles.optionTextActive,
                   ]}
                 >
-                  Mis Favoritas
+                  {favoritesOnly ? 'Solo mis favoritas' : 'Modo general (todas)'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -960,9 +963,6 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
               <TouchableOpacity
                 style={[
                   styles.optionBadge,
-              <TouchableOpacity
-                style={[
-                  styles.optionBadge,
                   followedUsersOnly && styles.optionBadgeActive,
                 ]}
                 onPress={() => setFollowedUsersOnly(!followedUsersOnly)}
@@ -976,6 +976,9 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   Personas que sigo
                 </Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.optionBadge,
                   verifiedUsersOnly && styles.optionBadgeActive,
                 ]}
                 onPress={() => setVerifiedUsersOnly(!verifiedUsersOnly)}
