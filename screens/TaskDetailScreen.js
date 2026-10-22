@@ -17,7 +17,8 @@ import TaskActionsModal from '@components/TaskActionsModal';
 import ReportContentButton from '@components/ReportContentButton';
 import useTaskActions from '@hooks/useTaskActions';
 import TouchableUsername from '@components/TouchableUsername';
-import { useTaskDetail, useTaskComments, useMe, useIsAdmin } from '@hooks/useApi';
+import { useTaskDetail, useTaskComments, useMe, useIsAdmin, useFavoritesFeed } from '@hooks/useApi';
+import { buildCommentPayload, getCommentAportacion } from '../utils/commentAportacion';
 
 moment.locale('es');
 
@@ -36,6 +37,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
     return children.reduce((total, child) => total + 1 + countAllReplies(child.children || []), 0);
   };
   const totalReplies = countAllReplies(comment.children);
+  const aportacion = getCommentAportacion(comment);
 
   // âš¡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DEL COMENTARIO
 // âš¡ HELPER PARA EL NOMBRE DEL COMENTARIO (Basado en tu modelo de Django)
@@ -107,6 +109,24 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
 
       <Text style={styles.commentText}>{comment.text || comment.content}</Text>
 
+      {aportacion && (
+        <TouchableOpacity
+          style={styles.commentAportacionChip}
+          activeOpacity={0.7}
+          onPress={() => navigation.push ? navigation.push('TaskDetail', { taskId: aportacion.id }) : navigation.navigate('TaskDetail', { taskId: aportacion.id })}
+        >
+          {aportacion.image ? (
+            <Image source={{ uri: getImageUrl(aportacion.image) }} style={styles.commentAportacionThumb} contentFit="cover" />
+          ) : (
+            <Ionicons name="bookmark" size={18} color="#7048e8" />
+          )}
+          <View style={{ flexShrink: 1 }}>
+            <Text style={styles.commentAportacionLabel}>Ver aportación</Text>
+            <Text style={styles.commentAportacionTitle} numberOfLines={1}>{aportacion.title}</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
       <View style={styles.commentFooter}>
         <TouchableOpacity onPress={() => onReply(comment)}>
           <Text style={styles.replyActionText}>Responder</Text>
@@ -163,6 +183,9 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [podcastInvitationStatus, setPodcastInvitationStatus] = useState(null);
   const [respondingToPodcast,     setRespondingToPodcast]     = useState(false);
   const [expandedCommentIds, setExpandedCommentIds] = useState([]);
+  // Aportación favorita que se adjuntará al próximo comentario principal
+  const [selectedAportacion, setSelectedAportacion] = useState(null);
+  const [aportacionPickerVisible, setAportacionPickerVisible] = useState(false);
 
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
@@ -348,6 +371,11 @@ const TaskDetailScreen = ({ route, navigation }) => {
   } = useTaskComments(taskId);
   const { data: me } = useMe();
   const { data: adminData } = useIsAdmin();
+  // Favoritos: solo se cargan al abrir el selector de aportación del comentario
+  const { data: favoriteTasksData, isLoading: favoritesLoading } = useFavoritesFeed(aportacionPickerVisible);
+  const favoriteTasks = favoriteTasksData || [];
+  // Como en la web antigua, solo los comentarios principales llevan aportación
+  const canAttachAportacion = !replyingTo && !editingCommentId;
 
   // Sincronizar React Query → estado local
   useEffect(() => {
@@ -396,10 +424,11 @@ const TaskDetailScreen = ({ route, navigation }) => {
     try {
       // âš¡ ENVIAMOS UN JSON EN LUGAR DE FORMDATA
       // Esto evita conflictos con el header 'Content-Type: application/json' predeterminado de Axios
-      const payload = {
+      const payload = buildCommentPayload({
         text: commentText,
-        ...(replyingTo && { parent: replyingTo.id })
-      };
+        replyingTo,
+        aportacion: selectedAportacion,
+      });
 
       if (editingCommentId) {
         await api.patch(`comments/${editingCommentId}/`, { text: commentText });
@@ -409,6 +438,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
       setCommentText('');
       setEditingCommentId(null);
+      setSelectedAportacion(null);
       if (replyingTo) {
         setExpandedCommentIds((prev) => [...new Set([...prev, replyingTo.id])]);
       }
@@ -707,8 +737,33 @@ const TaskDetailScreen = ({ route, navigation }) => {
         </View>
       )}
 
+      {/* APORTACIÓN FAVORITA ELEGIDA (solo comentarios principales) */}
+      {canAttachAportacion && selectedAportacion && (
+        <View style={styles.selectedAportacionBar}>
+          {selectedAportacion.image ? (
+            <Image source={{ uri: getImageUrl(selectedAportacion.image) }} style={styles.aportacionThumb} contentFit="cover" />
+          ) : null}
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => setAportacionPickerVisible(true)}>
+            <Text style={styles.aportacionBarLabel}>Aportación seleccionada</Text>
+            <Text style={styles.aportacionBarTitle} numberOfLines={1}>{selectedAportacion.title}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setSelectedAportacion(null)}>
+            <Ionicons name="close-circle" size={20} color="#7048e8" />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* INPUT DE COMENTARIO FIJO ABAJO */}
       <View style={styles.commentInputContainer}>
+        {canAttachAportacion && (
+          <TouchableOpacity
+            style={[styles.attachBtn, selectedAportacion && styles.attachBtnActive]}
+            onPress={() => setAportacionPickerVisible(true)}
+            accessibilityLabel="Adjuntar una aportación favorita"
+          >
+            <Ionicons name="bookmark" size={20} color={selectedAportacion ? '#fff' : '#7048e8'} />
+          </TouchableOpacity>
+        )}
         <TextInput
           style={styles.input}
           placeholder={editingCommentId ? "Edita tu comentario..." : replyingTo ? "Escribe tu respuesta..." : "Escribe un comentario..."}
@@ -782,6 +837,66 @@ const TaskDetailScreen = ({ route, navigation }) => {
         messageTaskId={task?.id}
         messageTaskType="task"
       />
+
+      {/* SELECTOR DE APORTACIÓN FAVORITA PARA EL COMENTARIO */}
+      <Modal
+        visible={aportacionPickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAportacionPickerVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setAportacionPickerVisible(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.pickerSheet}>
+            <View style={styles.modalDragHandle} />
+            <Text style={styles.pickerTitle}>Elige una aportación favorita</Text>
+            <Text style={styles.pickerSubtitle}>Se mostrará junto a tu comentario.</Text>
+            {favoritesLoading ? (
+              <ActivityIndicator size="small" color="#7048e8" style={{ marginVertical: 28 }} />
+            ) : favoriteTasks.length === 0 ? (
+              <Text style={styles.pickerEmpty}>No tienes aportaciones favoritas aún.</Text>
+            ) : (
+              <FlatList
+                data={favoriteTasks}
+                keyExtractor={(item) => String(item.id)}
+                renderItem={({ item }) => {
+                  const selected = selectedAportacion?.id === item.id;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.pickerRow, selected && styles.pickerRowSelected]}
+                      onPress={() => {
+                        setSelectedAportacion({ id: item.id, title: item.title || 'Aportación', image: item.image || null });
+                        setAportacionPickerVisible(false);
+                      }}
+                    >
+                      {item.image ? (
+                        <Image source={{ uri: getImageUrl(item.image) }} style={styles.pickerThumb} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.pickerThumb, { alignItems: 'center', justifyContent: 'center' }]}>
+                          <Ionicons name="bookmark-outline" size={20} color="#aaa" />
+                        </View>
+                      )}
+                      <Text style={styles.pickerRowTitle} numberOfLines={2}>{item.title || 'Sin título'}</Text>
+                      {selected && <Ionicons name="checkmark-circle" size={20} color="#7048e8" />}
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            )}
+            {selectedAportacion && (
+              <TouchableOpacity
+                style={styles.pickerClearBtn}
+                onPress={() => { setSelectedAportacion(null); setAportacionPickerVisible(false); }}
+              >
+                <Text style={styles.pickerClearText}>Quitar aportación seleccionada</Text>
+              </TouchableOpacity>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -862,7 +977,30 @@ const styles = StyleSheet.create({
   replyBannerText: { fontSize: 13, color: '#333' },
   commentInputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', alignItems: 'flex-end', gap: 8 },
   input: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, minHeight: 45, maxHeight: 100 },
-  sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' }
+  sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
+
+  // Aportación favorita adjunta al comentario
+  attachBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#f3f0ff', justifyContent: 'center', alignItems: 'center' },
+  attachBtnActive: { backgroundColor: '#7048e8' },
+  selectedAportacionBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f3f0ff', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderColor: '#e5dbff' },
+  aportacionThumb: { width: 36, height: 36, borderRadius: 8, backgroundColor: '#e5dbff' },
+  aportacionBarLabel: { fontSize: 10, color: '#7048e8', fontWeight: '800', textTransform: 'uppercase' },
+  aportacionBarTitle: { fontSize: 13, color: '#333', fontWeight: '600' },
+  commentAportacionChip: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', maxWidth: '100%', backgroundColor: '#f3f0ff', borderRadius: 12, paddingVertical: 6, paddingLeft: 6, paddingRight: 10, marginBottom: 8, borderWidth: 1, borderColor: '#e5dbff' },
+  commentAportacionThumb: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#e5dbff' },
+  commentAportacionLabel: { fontSize: 10, color: '#7048e8', fontWeight: '800', textTransform: 'uppercase' },
+  commentAportacionTitle: { fontSize: 13, color: '#333', fontWeight: '600', maxWidth: 220 },
+  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  pickerSheet: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 12, paddingBottom: Platform.OS === 'ios' ? 34 : 20, maxHeight: '70%' },
+  pickerTitle: { fontSize: 17, fontWeight: 'bold', color: '#333', marginBottom: 4 },
+  pickerSubtitle: { fontSize: 12, color: '#888', marginBottom: 12 },
+  pickerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderColor: '#f0f0f0' },
+  pickerRowSelected: { backgroundColor: '#f3f0ff', borderRadius: 12, paddingHorizontal: 8 },
+  pickerThumb: { width: 48, height: 48, borderRadius: 10, backgroundColor: '#eef0f2' },
+  pickerRowTitle: { flex: 1, fontSize: 14, color: '#333', fontWeight: '600' },
+  pickerEmpty: { textAlign: 'center', color: '#999', paddingVertical: 28 },
+  pickerClearBtn: { alignSelf: 'center', marginTop: 12, paddingVertical: 8, paddingHorizontal: 16 },
+  pickerClearText: { color: '#e03131', fontWeight: '700', fontSize: 13 }
 });
 
 export default TaskDetailScreen;
