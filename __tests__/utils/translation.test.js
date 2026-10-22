@@ -9,6 +9,8 @@ import {
   translationLabel,
   languageName,
   liveTranslateStorageKey,
+  liveTranslateLangStorageKey,
+  normalizeLiveTarget,
   needsLivePreview,
   sentTranslationFields,
   livePreviewRequest,
@@ -124,57 +126,85 @@ describe('languageName', () => {
 });
 
 describe('traducción en vivo al escribir', () => {
-  const done = (forText, text, extra = {}) => ({ status: 'done', forText, text, sameLanguage: false, error: '', ...extra });
+  const done = (forText, text, extra = {}) => ({
+    status: 'done', forText, target: 'en', text, sourceLang: 'es', sameLanguage: false, error: '', ...extra,
+  });
 
-  it('pide la vista previa solo cuando hay texto nuevo', () => {
-    expect(needsLivePreview('', LIVE_PREVIEW_IDLE)).toBe(false);
-    expect(needsLivePreview('   ', LIVE_PREVIEW_IDLE)).toBe(false);
-    expect(needsLivePreview('Hola', LIVE_PREVIEW_IDLE)).toBe(true);
-    expect(needsLivePreview('Hola', done('Hola', 'Hello'))).toBe(false);
-    expect(needsLivePreview('Hola ', done('Hola', 'Hello'))).toBe(false);
-    expect(needsLivePreview('Hola amigo', done('Hola', 'Hello'))).toBe(true);
-    expect(needsLivePreview('Hola', { status: 'loading', forText: 'Hola', text: '' })).toBe(true);
+  it('pide la vista previa solo cuando hay texto o idioma nuevo', () => {
+    expect(needsLivePreview('', LIVE_PREVIEW_IDLE, 'en')).toBe(false);
+    expect(needsLivePreview('   ', LIVE_PREVIEW_IDLE, 'en')).toBe(false);
+    expect(needsLivePreview('Hola', LIVE_PREVIEW_IDLE, 'en')).toBe(true);
+    expect(needsLivePreview('Hola', done('Hola', 'Hello'), 'en')).toBe(false);
+    expect(needsLivePreview('Hola ', done('Hola', 'Hello'), 'en')).toBe(false);
+    expect(needsLivePreview('Hola amigo', done('Hola', 'Hello'), 'en')).toBe(true);
+    expect(needsLivePreview('Hola', { status: 'loading', forText: 'Hola', target: 'en', text: '' }, 'en')).toBe(true);
+  });
+
+  it('vuelve a pedir la vista previa al cambiar de idioma destino', () => {
+    expect(needsLivePreview('Hola', done('Hola', 'Hello'), 'fr')).toBe(true);
+    expect(needsLivePreview('Hola', done('Hola', 'Bonjour', { target: 'fr' }), 'fr')).toBe(false);
   });
 
   it('reintenta tras un error con el mismo texto', () => {
-    expect(needsLivePreview('Hola', { status: 'error', forText: 'Hola', text: '', error: 'x' })).toBe(true);
+    expect(needsLivePreview('Hola', { status: 'error', forText: 'Hola', target: 'en', text: '', error: 'x' }, 'en')).toBe(true);
   });
 
   it('construye el estado de la vista previa desde la respuesta o el error', () => {
-    expect(livePreviewFromResponse(' Hola ', { text: 'Hello', same_language: false })).toEqual({
+    expect(livePreviewFromResponse(' Hola ', { text: 'Hello', source_lang: 'es', same_language: false }, 'en')).toEqual({
       status: 'done',
       forText: 'Hola',
+      target: 'en',
       text: 'Hello',
+      sourceLang: 'es',
       sameLanguage: false,
       error: '',
     });
-    expect(livePreviewFromResponse('Hello', { text: 'Hello', same_language: true }).sameLanguage).toBe(true);
-    expect(livePreviewFromError('Hola', 'Sin conexión.')).toEqual({
+    expect(livePreviewFromResponse('Hello', { text: 'Hello', same_language: true }, 'en').sameLanguage).toBe(true);
+    expect(livePreviewFromError('Hola', 'Sin conexión.', 'en')).toEqual({
       status: 'error',
       forText: 'Hola',
+      target: 'en',
       text: '',
+      sourceLang: '',
       sameLanguage: false,
       error: 'Sin conexión.',
     });
     expect(livePreviewFromError('Hola').error).toBe('No se pudo traducir.');
   });
 
-  it('envía la traducción solo si corresponde exactamente al texto enviado', () => {
-    expect(sentTranslationFields('Hola amigo', done('Hola amigo', 'Hello friend'))).toEqual({
+  it('envía la traducción solo si corresponde al texto y al idioma enviados', () => {
+    expect(sentTranslationFields('Hola amigo', done('Hola amigo', 'Hello friend'), 'en')).toEqual({
       translation_text: 'Hello friend',
       translation_lang: 'en',
       translation_source: 'es',
     });
-    expect(sentTranslationFields('Hola amigo!', done('Hola amigo', 'Hello friend'))).toBeNull();
-    expect(sentTranslationFields('Hola', { status: 'loading', forText: 'Hola', text: '' })).toBeNull();
-    expect(sentTranslationFields('', LIVE_PREVIEW_IDLE)).toBeNull();
+    expect(sentTranslationFields('Hola amigo!', done('Hola amigo', 'Hello friend'), 'en')).toBeNull();
+    expect(sentTranslationFields('Hola amigo', done('Hola amigo', 'Hello friend'), 'fr')).toBeNull();
+    expect(sentTranslationFields('Hola', { status: 'loading', forText: 'Hola', target: 'en', text: '' }, 'en')).toBeNull();
+    expect(sentTranslationFields('', LIVE_PREVIEW_IDLE, 'en')).toBeNull();
   });
 
-  it('no envía traducción si el texto ya estaba en inglés', () => {
-    expect(sentTranslationFields('Hello', done('Hello', 'Hello', { sameLanguage: true }))).toBeNull();
+  it('manda el origen vacío si el servidor no lo detectó', () => {
+    expect(sentTranslationFields('Hola', done('Hola', 'Hello', { sourceLang: '' }), 'en').translation_source).toBe('');
   });
 
-  it('arma la petición de vista previa de español a inglés', () => {
-    expect(livePreviewRequest('  Hola  ')).toEqual({ text: 'Hola', source: 'es', target: 'en' });
+  it('no envía traducción si el texto ya estaba en el idioma destino', () => {
+    expect(sentTranslationFields('Hello', done('Hello', 'Hello', { sameLanguage: true }), 'en')).toBeNull();
+  });
+
+  it('arma la petición de vista previa sin idioma de origen', () => {
+    expect(livePreviewRequest('  Hola  ', 'fr')).toEqual({ text: 'Hola', target: 'fr' });
+  });
+
+  it('valida el idioma destino guardado y usa inglés por defecto', () => {
+    expect(normalizeLiveTarget('fr')).toBe('fr');
+    expect(normalizeLiveTarget('PT-br')).toBe('pt');
+    expect(normalizeLiveTarget('xx')).toBe('en');
+    expect(normalizeLiveTarget(null)).toBe('en');
+  });
+
+  it('guarda el idioma destino por chat', () => {
+    expect(liveTranslateLangStorageKey('direct', 7)).toBe('chatLiveTranslateLang:direct:7');
+    expect(liveTranslateLangStorageKey('group', 7)).toBe('chatLiveTranslateLang:group:7');
   });
 });

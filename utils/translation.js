@@ -31,13 +31,13 @@ export const languageName = (code) => {
   return LANGUAGE_NAMES[key] || '';
 };
 
-// "Hablar traducido": de español a inglés (fijo por ahora).
-export const LIVE_TRANSLATE_SOURCE = 'es';
-export const LIVE_TRANSLATE_TARGET = 'en';
+// "Hablar traducido": idioma destino por defecto (se puede cambiar por chat); el origen se detecta solo.
+export const LIVE_TRANSLATE_DEFAULT_TARGET = 'en';
 export const LIVE_TRANSLATE_DEBOUNCE_MS = 800;
 export const LIVE_TRANSLATE_ENDPOINT = 'massaging/translation/preview/';
 
 export const liveTranslateStorageKey = (type, chatId) => `chatLiveTranslate:${type === 'group' ? 'group' : 'direct'}:${chatId}`;
+export const liveTranslateLangStorageKey = (type, chatId) => `chatLiveTranslateLang:${type === 'group' ? 'group' : 'direct'}:${chatId}`;
 
 /**
  * Texto que realmente escribió la persona: si el mensaje empieza con la línea
@@ -107,49 +107,62 @@ export const translationLabel = (translation) => {
 
 // --- Traducción en vivo al escribir ---
 
-export const LIVE_PREVIEW_IDLE = { status: 'idle', forText: '', text: '', sameLanguage: false, error: '' };
+export const LIVE_PREVIEW_IDLE = { status: 'idle', forText: '', target: '', text: '', sourceLang: '', sameLanguage: false, error: '' };
 
-/** ¿Hay que pedir (o volver a pedir) la vista previa para este borrador? */
-export const needsLivePreview = (draft, preview) => {
+/** Idioma destino válido (de los que ofrece la app) o el inglés por defecto. */
+export const normalizeLiveTarget = (code) => {
+  const key = String(code || '').toLowerCase().split('-')[0];
+  return LANGUAGE_NAMES[key] ? key : LIVE_TRANSLATE_DEFAULT_TARGET;
+};
+
+/** ¿Hay que pedir (o volver a pedir) la vista previa para este borrador y este idioma? */
+export const needsLivePreview = (draft, preview, target) => {
   const text = String(draft || '').trim();
   if (!text) return false;
-  return !(preview?.forText === text && preview.status === 'done');
+  return !(preview?.forText === text && preview.target === target && preview.status === 'done');
 };
 
 /** Estado de la vista previa a partir de la respuesta del backend. */
-export const livePreviewFromResponse = (draft, data) => ({
+export const livePreviewFromResponse = (draft, data, target) => ({
   status: 'done',
   forText: String(draft || '').trim(),
+  target: target || '',
   text: String(data?.text ?? ''),
+  sourceLang: data?.source_lang || '',
   sameLanguage: !!data?.same_language,
   error: '',
 });
 
 /** Estado de la vista previa cuando falla la traducción. */
-export const livePreviewFromError = (draft, message) => ({
+export const livePreviewFromError = (draft, message, target) => ({
   status: 'error',
   forText: String(draft || '').trim(),
+  target: target || '',
   text: '',
+  sourceLang: '',
   sameLanguage: false,
   error: message || 'No se pudo traducir.',
 });
 
-/** Campos extra al enviar: solo si la vista previa corresponde exactamente al texto enviado. */
-export const sentTranslationFields = (draft, preview) => {
+/** Campos extra al enviar: solo si la vista previa corresponde exactamente al texto y al idioma enviados. */
+export const sentTranslationFields = (draft, preview, target) => {
   const text = String(draft || '').trim();
-  if (!text || preview?.status !== 'done' || preview.forText !== text || !preview.text || preview.sameLanguage) {
+  if (
+    !text || preview?.status !== 'done' || preview.forText !== text || preview.target !== target
+    || !preview.text || preview.sameLanguage
+  ) {
     return null;
   }
   return {
     translation_text: preview.text,
-    translation_lang: LIVE_TRANSLATE_TARGET,
-    translation_source: LIVE_TRANSLATE_SOURCE,
+    translation_lang: target,
+    translation_source: preview.sourceLang || '',
   };
 };
 
-/** Cuerpo de la petición de vista previa. */
-export const livePreviewRequest = (draft) => ({
+/** Cuerpo de la petición de vista previa (el idioma de origen lo detecta el servidor). */
+export const livePreviewRequest = (draft, target) => ({
   text: String(draft || '').trim(),
-  source: LIVE_TRANSLATE_SOURCE,
-  target: LIVE_TRANSLATE_TARGET,
+  target,
 });
+
