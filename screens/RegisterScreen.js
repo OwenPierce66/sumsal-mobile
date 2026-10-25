@@ -9,6 +9,7 @@ import {
   validateEmail, validateUsername, validatePassword,
   validatePasswordConfirm, runValidations,
 } from '../utils/validation';
+import { isNetworkError } from '../utils/network';
 
 const RegisterScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');
@@ -92,7 +93,28 @@ const RegisterScreen = ({ navigation }) => {
       if (error.name === 'CanceledError' || error.name === 'AbortError') return;
 
       const backendData = error.response?.data;
-      let message = 'No se pudo registrar. Verifica los datos.';
+      if (!error.response) {
+        console.error('[Register] No response from API', {
+          code: error.code,
+          baseURL: error.config?.baseURL,
+          url: error.config?.url,
+        });
+        const message = error.code === 'ECONNABORTED'
+          ? 'El servidor tardó demasiado en responder. Inténtalo de nuevo.'
+          : isNetworkError(error)
+            ? 'No se pudo conectar con el servidor. Verifica que el backend esté encendido y que el emulador pueda acceder a la IP configurada.'
+            : 'No se pudo completar el registro por un problema de conexión.';
+        setServerError(message);
+        return;
+      }
+
+      const status = error.response.status;
+      let message = `El servidor respondió con un error (HTTP ${status}).`;
+
+      console.error('[Register] Server response error', {
+        status,
+        code: error.code,
+      });
 
       if (backendData) {
         if (backendData.detail) {

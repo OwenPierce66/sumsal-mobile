@@ -11,14 +11,14 @@
  */
 
 // Expo ya carga .env automáticamente en SDK 49+ cuando existe app.config.js
-const LOCAL_IP  = process.env.LOCAL_IP   || '192.168.0.108';
+const LOCAL_IP  = process.env.LOCAL_IP   || '192.168.1.115';
 const API_PORT  = process.env.API_PORT   || '8001';
 const SENTRY_DSN = process.env.SENTRY_DSN || '';
 
 module.exports = {
   expo: {
-    name:        'Sumsal Mobile',
-    slug:        'sumsal-mobile',
+    name:        'Aportaciones',
+    slug:        'aportaciones-mobile',
     version:     '1.0.0',
     orientation: 'portrait',
     userInterfaceStyle: 'light',

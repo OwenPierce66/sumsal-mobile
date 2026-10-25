@@ -9,7 +9,9 @@ import { emitOfflineWrite } from './utils/offlineEvents';
 // CONFIGURACIÓN DE URL — leída desde .env via app.config.js → expo-constants
 // ─────────────────────────────────────────────────────────────────────────────
 const extra    = Constants.expoConfig?.extra ?? {};
-const LOCAL_IP = extra.apiLocalIp ?? '192.168.0.108';
+const LOCAL_IP = Platform.OS === 'android' && __DEV__
+  ? '10.0.2.2'
+  : extra.apiLocalIp ?? '192.168.1.115';
 const API_PORT = extra.apiPort    ?? '8001';
 
 const API_URL =

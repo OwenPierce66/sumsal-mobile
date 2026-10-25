@@ -19,7 +19,7 @@ import {
   StatusBar,
   Platform,
 } from 'react-native';
-import { GlobalErrorContext } from '../App';
+import { GlobalErrorContext } from '../contexts/GlobalErrorContext';
 
 // Altura del banner (ajusta si cambias el padding)
 const BANNER_HEIGHT = 48;

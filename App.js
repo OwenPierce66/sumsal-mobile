@@ -16,6 +16,7 @@ import api, { clearAuthData, authInterceptorController } from './api';
 import GlobalError from '@components/GlobalError';
 import ErrorBoundary from '@components/ErrorBoundary';
 import { ToastProvider } from '@contexts/ToastContext';
+import { GlobalErrorContext } from './contexts/GlobalErrorContext';
 import * as SentryService from './sentry';
 import { usePushNotifications, registerForPush, unregisterForPush } from './hooks/usePushNotifications';
 
@@ -92,7 +93,6 @@ const Tab = createBottomTabNavigator();
 
 // Contextos globales
 export const AuthContext = createContext();
-export const GlobalErrorContext = createContext();
 
 /**
  * HOC que envuelve un componente cargado con React.lazy en Suspense.
