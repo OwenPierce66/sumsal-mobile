@@ -120,11 +120,7 @@ const parseSharedContentFromMessage = (content) => {
   };
 };
 
-<<<<<<< HEAD
 const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, onOpenMessageMenu, onNavigateToProfile, onOpenContent, translation, onToggleTranslation, navigation }) => {
-=======
-const MessageItem = ({ item, isMe, type, msgAvatar, onReply, onDelete, onEdit, onOpenMessageMenu, onNavigateToProfile, onOpenContent, navigation }) => {
->>>>>>> mis-cambios-hoy
   const pan = useRef(new Animated.ValueXY()).current;
   const { contentContext, bodyText } = parseSharedContentFromMessage(item?.content || '');
   const canToggleTranslation = canTranslateMessage(item);
@@ -794,7 +790,6 @@ const ChatDetailScreen = ({ route, navigation }) => {
       }
 
       if (replyTo) formData.append('reply_to', replyTo.id);
-<<<<<<< HEAD
 
       // "Hablar traducido": la traducción que viste en vivo viaja con el mensaje.
       if (liveTranslateOn && plainMessage) {
@@ -804,8 +799,6 @@ const ChatDetailScreen = ({ route, navigation }) => {
           Object.entries(translationFields).forEach(([name, value]) => formData.append(name, value));
         }
       }
-=======
->>>>>>> mis-cambios-hoy
 
       if (type === 'direct') {
         formData.append('receiver', chatId);

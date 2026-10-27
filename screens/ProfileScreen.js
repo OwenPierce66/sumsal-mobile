@@ -12,18 +12,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import api, { getImageUrl } from '@api';
-<<<<<<< HEAD
 import { setAccountActive, setAccountStaff } from '../utils/adminActions';
 import { AuthContext } from '@app';
 import SideMenu from '@components/SideMenu';
 import ReportContentButton from '@components/ReportContentButton';
 import ProfileRecommendations from '@components/ProfileRecommendations';
 import RecommendButton from '@components/RecommendButton';
-=======
-import { AuthContext } from '@app';
-import SideMenu from '@components/SideMenu';
-import ReportContentButton from '@components/ReportContentButton';
->>>>>>> mis-cambios-hoy
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import CategoryHierarchy from '@components/CategoryHierarchy';
 import LanguagePickerModal from '@components/LanguagePickerModal';
@@ -183,16 +177,12 @@ const ProfileScreen = ({ route, navigation }) => {
     if (socialUserId) refetchSocial();
   }, [isCurrentUser, refetchMe, refetchTasks, refetchCategories, refetchSocial, socialUserId]);
 
-<<<<<<< HEAD
   // "Seguir" es una relación propia. Jerarquía: Seguir → Favorito → Anclado
   // (favoritar sigue; dejar de seguir quita el favorito).
-=======
->>>>>>> mis-cambios-hoy
   const toggleFollow = async () => {
     if (!socialUserId || !socialStats || followUpdating) return;
     setFollowUpdating(true);
     try {
-<<<<<<< HEAD
       const wasFollowing = !!socialStats.is_following;
       const response = wasFollowing
         ? await api.delete(`users/${socialUserId}/follow/`)
@@ -207,13 +197,6 @@ const ProfileScreen = ({ route, navigation }) => {
           ? Math.max(0, (prev.favorited_by_count || 0) - 1)
           : prev.favorited_by_count,
       } : prev);
-=======
-      const endpoint = `users/${socialUserId}/follow/`;
-      const response = socialStats.is_following
-        ? await api.delete(endpoint)
-        : await api.post(endpoint);
-      queryClient.setQueryData(['profileSocial', socialUserId], response.data);
->>>>>>> mis-cambios-hoy
       queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
     } catch {
       Alert.alert('Error', 'No se pudo actualizar el seguimiento. Inténtalo de nuevo.');
@@ -221,7 +204,6 @@ const ProfileScreen = ({ route, navigation }) => {
       setFollowUpdating(false);
     }
   };
-<<<<<<< HEAD
 
   const openFollowList = (mode) => {
     if (!socialUserId) return;
@@ -339,8 +321,6 @@ const ProfileScreen = ({ route, navigation }) => {
     if (typeof navigation.push === 'function') navigation.push('UserProfile', params);
     else navigation.navigate('UserProfile', params);
   }, [me?.id, navigation]);
-=======
->>>>>>> mis-cambios-hoy
 
   const loadMoreTasks = () => {
     if (hasNextPage && !isFetchingNextPage) fetchNextPage();
@@ -626,7 +606,6 @@ const ProfileScreen = ({ route, navigation }) => {
         </TouchableOpacity>
       ) : (
         <View style={styles.socialStatsRow}>
-<<<<<<< HEAD
           <TouchableOpacity
             style={styles.socialStat}
             onPress={() => openFollowList('followers')}
@@ -634,14 +613,10 @@ const ProfileScreen = ({ route, navigation }) => {
             accessibilityRole="button"
             accessibilityLabel="Ver seguidores"
           >
-=======
-          <View style={styles.socialStat}>
->>>>>>> mis-cambios-hoy
             <Text style={styles.socialStatCount}>
               {socialLoading ? '…' : socialStats?.followers_count ?? '—'}
             </Text>
             <Text style={styles.socialStatLabel}>Seguidores</Text>
-<<<<<<< HEAD
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.socialStat}
@@ -650,15 +625,10 @@ const ProfileScreen = ({ route, navigation }) => {
             accessibilityRole="button"
             accessibilityLabel="Ver a quién sigue"
           >
-=======
-          </View>
-          <View style={styles.socialStat}>
->>>>>>> mis-cambios-hoy
             <Text style={styles.socialStatCount}>
               {socialLoading ? '…' : socialStats?.following_count ?? '—'}
             </Text>
             <Text style={styles.socialStatLabel}>Siguiendo</Text>
-<<<<<<< HEAD
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.socialStat}
@@ -684,9 +654,6 @@ const ProfileScreen = ({ route, navigation }) => {
             </Text>
             <Text style={styles.socialStatLabel}>Perfiles favoritos</Text>
           </TouchableOpacity>
-=======
-          </View>
->>>>>>> mis-cambios-hoy
         </View>
       )}
 
@@ -715,7 +682,6 @@ const ProfileScreen = ({ route, navigation }) => {
               </Text>
             )}
           </TouchableOpacity>
-<<<<<<< HEAD
           {showFollowButton ? (
           <TouchableOpacity
             style={[
@@ -737,13 +703,10 @@ const ProfileScreen = ({ route, navigation }) => {
             </Text>
           </TouchableOpacity>
           ) : null}
-=======
->>>>>>> mis-cambios-hoy
           <ReportContentButton targetType="user" targetId={socialUserId} />
         </View>
       ) : null}
 
-<<<<<<< HEAD
       {showRecommendations ? (
         <>
           <View style={styles.divider} />
@@ -756,8 +719,6 @@ const ProfileScreen = ({ route, navigation }) => {
         </>
       ) : null}
 
-=======
->>>>>>> mis-cambios-hoy
       <View style={styles.divider} />
       <View style={styles.sectionTitleRow}>
         <Text style={styles.sectionTitle}>
@@ -1084,15 +1045,9 @@ const styles = StyleSheet.create({
   topBar: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', paddingTop: Platform.OS === 'ios' ? 50 : 34 },
   backBtn: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 34, zIndex: 10 },
   topBarTitle: { fontSize: 20, fontWeight: '800', color: '#333' },
-<<<<<<< HEAD
   profileMenuButton: { position: 'absolute', right: 16, top: Platform.OS === 'ios' ? 50 : 34, padding: 4 },
   sideMenuButton: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 34, zIndex: 10 },
   profileMenuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: Platform.OS === 'ios' ? 92 : 76, paddingRight: 12 },
-=======
-  profileMenuButton: { position: 'absolute', right: 16, top: Platform.OS === 'ios' ? 50 : 16, padding: 4 },
-  sideMenuButton: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 16, zIndex: 10 },
-  profileMenuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: Platform.OS === 'ios' ? 92 : 58, paddingRight: 12 },
->>>>>>> mis-cambios-hoy
   profileMenuCard: { backgroundColor: '#fff', borderRadius: 12, padding: 6, minWidth: 220, elevation: 6 },
   profileMenuOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12, gap: 8 },
   profileMenuText: { color: '#333', fontSize: 14, fontWeight: '600' },
@@ -1123,11 +1078,7 @@ const styles = StyleSheet.create({
   clearFilterText: { color: '#4dabf7', fontSize: 12, fontWeight: '700' },
   profileHeader: { padding: 20, backgroundColor: '#fff', marginBottom: 10 },
   profileInfoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-<<<<<<< HEAD
   socialStatsRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 22, rowGap: 8, marginBottom: 16 },
-=======
-  socialStatsRow: { flexDirection: 'row', gap: 28, marginBottom: 16 },
->>>>>>> mis-cambios-hoy
   socialStat: { alignItems: 'flex-start' },
   socialStatCount: { color: '#333', fontSize: 16, fontWeight: '800' },
   socialStatLabel: { color: '#777', fontSize: 12, marginTop: 2 },
@@ -1138,16 +1089,12 @@ const styles = StyleSheet.create({
   followingButton: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#4dabf7' },
   followButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   followingButtonText: { color: '#4dabf7' },
-<<<<<<< HEAD
   profileAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#eee' },
   profileAvatarWrap: { width: 70, height: 70, marginRight: 15 },
   profileStoryRing: {
     position: 'absolute', top: -5, left: -5, width: 80, height: 80, borderRadius: 40,
     borderWidth: 3, borderColor: '#4dabf7',
   },
-=======
-  profileAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#eee', marginRight: 15 },
->>>>>>> mis-cambios-hoy
   profileTextContainer: { flex: 1 },
   profileName: { fontSize: 22, fontWeight: 'bold', color: '#333' },
   profileEmail: { fontSize: 14, color: '#666', marginTop: 4 },

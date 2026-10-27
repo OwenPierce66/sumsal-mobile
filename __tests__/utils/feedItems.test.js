@@ -27,7 +27,6 @@ describe('dedupeFeedItems', () => {
     expect(dedupeFeedItems(items).map((i) => i.id)).toEqual(['t1', 's1']);
   });
 
-<<<<<<< HEAD
   it('conserva todas las veces que el mismo usuario comparte la misma tarea', () => {
     const items = [
       shared('s1', 'u1', 't1', '2026-10-11T10:00:00Z', { description: 'a' }),
@@ -35,15 +34,6 @@ describe('dedupeFeedItems', () => {
       shared('s3', 'u1', 't1', '2026-10-09T10:00:00Z', { description: 'c' }),
     ];
     expect(dedupeFeedItems(items).map((i) => i.id)).toEqual(['s1', 's2', 's3']);
-=======
-  it('deja un solo repost cuando el mismo usuario comparte la misma tarea varias veces', () => {
-    const items = [
-      shared('s1', 'u1', 't1', '2026-10-11T10:00:00Z'),
-      shared('s2', 'u1', 't1', '2026-10-12T10:00:00Z'),
-      shared('s3', 'u1', 't1', '2026-10-09T10:00:00Z'),
-    ];
-    expect(dedupeFeedItems(items).map((i) => i.id)).toEqual(['s2']);
->>>>>>> mis-cambios-hoy
   });
 
   it('conserva reposts de la misma tarea hechos por usuarios distintos', () => {
@@ -54,17 +44,6 @@ describe('dedupeFeedItems', () => {
     expect(dedupeFeedItems(items).map((i) => i.id)).toEqual(['s1', 's2']);
   });
 
-<<<<<<< HEAD
-=======
-  it('conserva reposts del mismo usuario sobre tareas distintas', () => {
-    const items = [
-      shared('s1', 'u1', 't1', '2026-10-11T10:00:00Z'),
-      shared('s2', 'u1', 't2', '2026-10-12T10:00:00Z'),
-    ];
-    expect(dedupeFeedItems(items)).toHaveLength(2);
-  });
-
->>>>>>> mis-cambios-hoy
   it('quita elementos repetidos por id (paginación desplazada)', () => {
     const items = [task('t1'), task('t2'), task('t1'), shared('s1', 'u1', 't9', '2026-10-11T10:00:00Z'), shared('s1', 'u1', 't9', '2026-10-11T10:00:00Z')];
     expect(dedupeFeedItems(items).map((i) => i.id)).toEqual(['t1', 't2', 's1']);
@@ -75,25 +54,6 @@ describe('dedupeFeedItems', () => {
     expect(dedupeFeedItems(items)).toHaveLength(2);
   });
 
-<<<<<<< HEAD
-=======
-  it('acepta shared_by como id simple', () => {
-    const items = [
-      { id: 's1', feedType: 'shared', shared_by: 'u1', task: { id: 't1' }, created_at: '2026-10-10T10:00:00Z' },
-      { id: 's2', feedType: 'shared', shared_by: 'u1', task: { id: 't1' }, created_at: '2026-10-11T10:00:00Z' },
-    ];
-    expect(dedupeFeedItems(items).map((i) => i.id)).toEqual(['s2']);
-  });
-
-  it('no deduplica por usuario si falta la información del usuario o la tarea', () => {
-    const items = [
-      { id: 's1', feedType: 'shared', created_at: '2026-10-10T10:00:00Z' },
-      { id: 's2', feedType: 'shared', created_at: '2026-10-11T10:00:00Z' },
-    ];
-    expect(dedupeFeedItems(items)).toHaveLength(2);
-  });
-
->>>>>>> mis-cambios-hoy
   it('no muta la lista original', () => {
     const items = [shared('s1', 'u1', 't1', '2026-10-10T10:00:00Z'), shared('s2', 'u1', 't1', '2026-10-11T10:00:00Z')];
     const copy = [...items];

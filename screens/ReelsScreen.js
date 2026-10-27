@@ -159,11 +159,7 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isFocused, isMuted,
   return (
     // ✅ FIX: Se elimina el GestureDetector duplicado que causaba el error de sintaxis.
     <GestureDetector gesture={composedGesture}>
-<<<<<<< HEAD
       <View style={{ width: windowWidth, height: pageHeight }}>
-=======
-      <View style={{ width: windowWidth, height: windowHeight }}>
->>>>>>> mis-cambios-hoy
       <ReelItem
         item={item}
         enrichedItem={enrichedItem}
@@ -238,21 +234,13 @@ const ReelsScreen = ({ route }) => {
   const [selectedFollowedUsersOnly, setSelectedFollowedUsersOnly] = useState(false);
   const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
-<<<<<<< HEAD
   const [selectedVideosOnly, setSelectedVideosOnly] = useState(true);
-=======
-  const [selectedVideosOnly, setSelectedVideosOnly] = useState(false);
->>>>>>> mis-cambios-hoy
 
   useEffect(() => {
     let mounted = true;
     AsyncStorage.getItem(REELS_VIDEOS_ONLY_KEY)
       .then((value) => {
-<<<<<<< HEAD
         if (mounted) setSelectedVideosOnly(value === null ? true : value === 'true');
-=======
-        if (mounted) setSelectedVideosOnly(value === 'true');
->>>>>>> mis-cambios-hoy
       })
       .catch((error) => {
         console.error('[ReelsScreen] No se pudo cargar la preferencia de solo videos:', error);
@@ -837,30 +825,18 @@ const ReelsScreen = ({ route }) => {
             <View style={styles.topBarRight} />
           </View>
         )}
-<<<<<<< HEAD
         {isUIVisible && paused && (
-=======
-        {isUIVisible && (
->>>>>>> mis-cambios-hoy
           <TouchableOpacity
             style={styles.pausedFilterButton}
             onPress={() => {
               setPaused(true);
               setFilterModalVisible(true);
             }}
-<<<<<<< HEAD
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityRole="button"
             accessibilityLabel="Abrir filtros de Reels"
           >
             <Ionicons name="options-outline" size={28} color="#fff" style={styles.filterButtonIcon} />
-=======
-            accessibilityRole="button"
-            accessibilityLabel="Abrir filtros de Reels"
-          >
-            <Ionicons name="options-outline" size={26} color="#fff" />
-            <Text style={styles.filterButtonText}>Filtros</Text>
->>>>>>> mis-cambios-hoy
           </TouchableOpacity>
         )}
         {loading && reels.length === 0 ? (
@@ -985,25 +961,15 @@ const ReelsScreen = ({ route }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-<<<<<<< HEAD
   topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 42, width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10, paddingHorizontal: 15, pointerEvents: 'box-none' },
   topBarLeft: { flex: 1, minHeight: 36, justifyContent: 'center', alignItems: 'flex-start' },
-=======
-  topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10, paddingHorizontal: 15, pointerEvents: 'box-none' },
-  topBarLeft: { flex: 1 },
->>>>>>> mis-cambios-hoy
   reelsMenuButton: { padding: 4 },
   topBarCenter: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flex: 3 },
   topBarRight: { flex: 1, alignItems: 'flex-end' },
   topTab: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700', marginHorizontal: 12, textShadow: '1px 1px 3px rgba(0, 0, 0, 0.5)' },
   activeTab: { color: '#fff', fontSize: 17 },
-<<<<<<< HEAD
   pausedFilterButton: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 42, right: 15, zIndex: 11, padding: 4 },
   filterButtonIcon: { textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
-=======
-  pausedFilterButton: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, right: 15, zIndex: 11, flexDirection: 'row', alignItems: 'center', gap: 5, padding: 7, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.45)' },
-  filterButtonText: { color: '#fff', fontSize: 12, fontWeight: '700' },
->>>>>>> mis-cambios-hoy
   emptyReels: { minHeight: 240, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
   emptyReelsText: { color: '#fff', fontSize: 14, textAlign: 'center' },
   loadMoreVideosButton: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 20, backgroundColor: '#4dabf7' },

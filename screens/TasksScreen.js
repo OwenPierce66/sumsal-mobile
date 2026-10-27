@@ -15,7 +15,6 @@ import SavedFiltersModal from '@components/SavedFiltersModal';
 import { Video } from 'expo-av';
 import ShareModal from '@components/ShareModal';
 import { AuthContext } from '@app';
-import SideMenu from '@components/SideMenu';
 import ShareActionMenu from './ShareActionMenu';
 import TouchableUsername from '@components/TouchableUsername';
 import CategoryHierarchy from '@components/CategoryHierarchy';
@@ -29,10 +28,7 @@ import TaskPostCard, { FeedVideoVisibilityContext, TaskSections } from '@compone
 import TaskActionsModal from '@components/TaskActionsModal';
 import TaskSharesModal from '@components/TaskSharesModal';
 import { getActionTaskInfo } from '@hooks/useTaskActions';
-<<<<<<< HEAD
 import useTaskSharesFeed from '@hooks/useTaskSharesFeed';
-=======
->>>>>>> mis-cambios-hoy
 import StoriesBar from '@components/StoriesBar';
 import TopicTopSections from '@components/TopicTopSections';
 import { dedupeFeedItems } from '../utils/feedItems';
@@ -50,7 +46,6 @@ const TasksScreen = ({ navigation, route }) => {
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
 
   const [tasks, setTasks] = useState([]);
-<<<<<<< HEAD
   const [sharedTasks, setRawSharedTasks] = useState([]);
   // Modal "Ver compartidas": id de la publicación original cuyas compartidas se muestran.
   const [sharesModalTaskId, setSharesModalTaskId] = useState(null);
@@ -69,9 +64,6 @@ const TasksScreen = ({ navigation, route }) => {
   );
   // Al salir de esta pantalla (por ejemplo, a un detalle) el modal se cierra.
   useFocusEffect(useCallback(() => () => setSharesModalTaskId(null), []));
-=======
-  const [sharedTasks, setSharedTasks] = useState([]);
->>>>>>> mis-cambios-hoy
   const repostInFlightRef = useRef(new Set());
   const [searchText, setSearchText] = useState('');
   const [searchExpanded, setSearchExpanded] = useState(false);
@@ -115,7 +107,6 @@ const TasksScreen = ({ navigation, route }) => {
   const stickyShiftY = useRef(new Animated.Value(0)).current;
   const lastScrollYRef = useRef(0);
   const collapseRef = useRef(0);
-<<<<<<< HEAD
   const [titleH, setTitleH] = useState(0);
   const [collapsibleH, setCollapsibleH] = useState(0);
   const [stickyH, setStickyH] = useState(0);
@@ -130,17 +121,11 @@ const TasksScreen = ({ navigation, route }) => {
     headerTranslateY.setValue(-(collapse + extra));
     stickyShiftY.setValue(max > 0 ? (collapse / max) * STICKY_TOP_GAP : 0);
   }, [collapsibleH, headerTranslateY, stickyShiftY]);
-=======
-  const [collapsibleH, setCollapsibleH] = useState(0);
-  const [stickyH, setStickyH] = useState(0);
-  const STICKY_TOP_GAP = 24;
->>>>>>> mis-cambios-hoy
   const updateHeaderCollapse = useCallback((offset) => {
     const y = Math.max(0, offset);
     const delta = y - lastScrollYRef.current;
     lastScrollYRef.current = y;
     const max = searchExpanded ? 0 : collapsibleH;
-<<<<<<< HEAD
     if (max <= 0) {
       if (collapseRef.current !== 0 || extraRef.current !== 0) applyHeaderState(0, 0);
       return;
@@ -168,22 +153,6 @@ const TasksScreen = ({ navigation, route }) => {
     // Al cambiar la altura o entrar/salir de la busqueda, se muestra el encabezado completo
     applyHeaderState(0, 0);
   }, [searchExpanded, collapsibleH, applyHeaderState]);
-=======
-    // Al deslizar hacia abajo se oculta; al deslizar hacia arriba NO reaparece (solo si se arrastra el filtro).
-    // Nunca se oculta mas de lo que se ha desplazado, asi que arriba del todo se ve completo.
-    const next = max > 0 ? Math.min(Math.max(collapseRef.current + Math.max(delta, 0), 0), Math.min(max, y)) : 0;
-    if (next === collapseRef.current) return;
-    collapseRef.current = next;
-    headerTranslateY.setValue(-next);
-    stickyShiftY.setValue(max > 0 ? (next / max) * STICKY_TOP_GAP : 0);
-  }, [searchExpanded, collapsibleH, headerTranslateY, stickyShiftY]);
-  useEffect(() => {
-    // Al cambiar la altura o entrar/salir de la busqueda, se muestra el encabezado completo
-    collapseRef.current = 0;
-    headerTranslateY.setValue(0);
-    stickyShiftY.setValue(0);
-  }, [searchExpanded, collapsibleH, headerTranslateY, stickyShiftY]);
->>>>>>> mis-cambios-hoy
 
   // Arrastrar el filtro hacia abajo muestra la zona superior; hacia arriba la oculta (con ajuste al soltar).
   const collapsibleHRef = useRef(0);
@@ -194,10 +163,7 @@ const TasksScreen = ({ navigation, route }) => {
   const applyCollapse = useCallback((value) => {
     const max = collapsibleHRef.current;
     collapseRef.current = value;
-<<<<<<< HEAD
     extraRef.current = 0;
-=======
->>>>>>> mis-cambios-hoy
     headerTranslateY.setValue(-value);
     stickyShiftY.setValue(max > 0 ? (value / max) * STICKY_TOP_GAP : 0);
   }, [headerTranslateY, stickyShiftY]);
@@ -248,7 +214,6 @@ const TasksScreen = ({ navigation, route }) => {
   // Modal de acciones (3 puntos)
   const [actionModalVisible, setActionModalVisible] = useState(false);
   const [selectedActionTask, setSelectedActionTask] = useState(null);
-  const [sharesModalTaskId, setSharesModalTaskId] = useState(null);
 
   // Estados para el flujo de compartir
   const [isActionMenuVisible, setActionMenuVisible] = useState(false);
@@ -1290,13 +1255,8 @@ const TasksScreen = ({ navigation, route }) => {
     && !selectedCategory
     && !selectedStatus
     && !selectedDateFilter
-<<<<<<< HEAD
     && !selectedFavoriteUsersOnly
     && !selectedFollowedUsersOnly
-=======
-    && !selectedFavoritesOnly
-    && !selectedFavoriteUsersOnly
->>>>>>> mis-cambios-hoy
     && !selectedVerifiedUsersOnly
     && !selectedRecommendedUsersOnly
     && ['all', 'recent'].includes(selectedSortBy);
@@ -1593,15 +1553,9 @@ const TasksScreen = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.feedRoot}>
-<<<<<<< HEAD
       <View style={styles.collapsingHeader} pointerEvents="box-none">
       {/* Titulo fijo: siempre visible (Inicio/Tareas, buscar, filtrar, crear) */}
       <View style={styles.fixedTitle} onLayout={(e) => setTitleH(e.nativeEvent.layout.height)}>
-=======
-      <Animated.View style={[styles.collapsingHeader, { transform: [{ translateY: headerTranslateY }] }]}>
-      {/* Zona colapsable: titulo/botones, historias, pestañas y 'todas las categorias' */}
-      <View onLayout={(e) => setCollapsibleH(e.nativeEvent.layout.height)}>
->>>>>>> mis-cambios-hoy
       {searchExpanded ? (
         <View style={styles.searchHeader}>
           <View style={styles.searchHeaderRow}>
@@ -1687,15 +1641,6 @@ const TasksScreen = ({ navigation, route }) => {
       ) : (
         <View style={styles.header}>
           <View style={styles.headerIdentity}>
-<<<<<<< HEAD
-=======
-            <SideMenu
-              navigation={navigation}
-              signOut={signOut}
-              user={user}
-              buttonStyle={styles.headerMenuButton}
-            />
->>>>>>> mis-cambios-hoy
             <Text style={styles.headerTitle}>
               {isTasksTab ? 'Tareas' : 'Inicio'}
             </Text>
@@ -1720,8 +1665,6 @@ const TasksScreen = ({ navigation, route }) => {
       <View onLayout={(e) => setCollapsibleH(e.nativeEvent.layout.height)}>
       {!searchExpanded ? <StoriesBar navigation={navigation} /> : null}
 
-      {!searchExpanded ? <StoriesBar navigation={navigation} /> : null}
-
       <View style={styles.temaSelector}>
         {[
           { value: 'consejos', label: 'CONSEJOS' },
@@ -1743,11 +1686,7 @@ const TasksScreen = ({ navigation, route }) => {
 
       </View>
 
-<<<<<<< HEAD
       {/* Categorias: al deslizar hacia arriba reaparecen solas; arrastrandolas hacia abajo vuelve la zona superior */}
-=======
-      {/* Zona fija: el filtro de categorias es lo unico que queda visible al deslizar hacia abajo */}
->>>>>>> mis-cambios-hoy
       <Animated.View onLayout={(e) => setStickyH(e.nativeEvent.layout.height)} style={[styles.stickyFilterZone, { transform: [{ translateY: stickyShiftY }] }]} {...filterPanResponder.panHandlers}>
       <CategoryHierarchy
         containerStyle={styles.stickyCategories}
@@ -1843,12 +1782,8 @@ const TasksScreen = ({ navigation, route }) => {
         />
       )}
         </Animated.View>
-<<<<<<< HEAD
         </Animated.View>
       </View>
-=======
-      </Animated.View>
->>>>>>> mis-cambios-hoy
 
       <FeedVideoVisibilityContext.Provider value={feedVideoVisibility}>
       <FlatList
@@ -1870,11 +1805,7 @@ const TasksScreen = ({ navigation, route }) => {
         ) : null}
         onViewableItemsChanged={onFeedViewableItemsChanged}
         viewabilityConfig={feedViewabilityConfig}
-<<<<<<< HEAD
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={titleH + collapsibleH + stickyH} />}
-=======
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} progressViewOffset={collapsibleH + stickyH} />}
->>>>>>> mis-cambios-hoy
         onScroll={event => {
           const offset = event.nativeEvent.contentOffset.y;
           feedScrollOffsetRef.current = offset;
@@ -1884,11 +1815,7 @@ const TasksScreen = ({ navigation, route }) => {
           }
         }}
         scrollEventThrottle={16}
-<<<<<<< HEAD
         contentContainerStyle={[styles.listContent, { paddingTop: titleH + collapsibleH + stickyH }]}
-=======
-        contentContainerStyle={[styles.listContent, { paddingTop: collapsibleH + stickyH }]}
->>>>>>> mis-cambios-hoy
         
         // ⚡ LAS PROPS MÁGICAS DE RENDIMIENTO Y SCROLL INFINITO
         onEndReached={handleLoadMore}
@@ -1924,10 +1851,7 @@ const TasksScreen = ({ navigation, route }) => {
         currentSortBy={selectedSortBy}
         currentFavorites={selectedFavoritesOnly}
         currentFavoriteUsers={selectedFavoriteUsersOnly}
-<<<<<<< HEAD
         currentFollowedUsers={selectedFollowedUsersOnly}
-=======
->>>>>>> mis-cambios-hoy
         currentVerifiedUsers={selectedVerifiedUsersOnly}
         currentRecommendedUsers={selectedRecommendedUsersOnly}
         // ✅ PASAMOS EL ESTADO DE ADMIN DIRECTAMENTE
@@ -2030,10 +1954,7 @@ const TasksScreen = ({ navigation, route }) => {
           viewShares: handleViewShares,
           directMessage: handleDirectMessage,
           goToForum: handleGoToForum,
-<<<<<<< HEAD
           toggleFollow: handleToggleFollow,
-=======
->>>>>>> mis-cambios-hoy
           toggleProfileFavorite: handleToggleProfileFavorite,
           edit: handleEditTask,
           delete: handleDeleteTask,
@@ -2046,7 +1967,6 @@ const TasksScreen = ({ navigation, route }) => {
       {/* MODAL: todas las veces que se compartió la publicación seleccionada */}
       <TaskSharesModal
         visible={Boolean(sharesModalTaskId)}
-<<<<<<< HEAD
         onClose={() => setSharesModalTaskId(null)}
         items={sharesModalItems}
         loading={sharesFeed.loading}
@@ -2054,14 +1974,6 @@ const TasksScreen = ({ navigation, route }) => {
         onLoadMore={sharesFeed.loadMore}
         onRetry={sharesFeed.retry}
         renderItem={({ item }) => renderSharedItemCard(item)}
-=======
-        taskId={sharesModalTaskId}
-        onClose={() => setSharesModalTaskId(null)}
-        onOpenShared={(sharedTaskId) => {
-          setSharesModalTaskId(null);
-          navigation.navigate('SharedTaskDetail', { sharedTaskId });
-        }}
->>>>>>> mis-cambios-hoy
       />
 
       {/* Nuevo Menú Modal de Acciones para Compartir */}
@@ -2093,16 +2005,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5' },
   feedRoot: { flex: 1, overflow: 'hidden' },
   stickyFilterZone: { backgroundColor: '#FEF6F5', paddingTop: 6, paddingBottom: 4 },
-<<<<<<< HEAD
   stickyCategories: { marginTop: 0, marginBottom: 0 },
   collapsingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20 },
   fixedTitle: { zIndex: 2, backgroundColor: '#fff' },
   movingHeader: { zIndex: 1, backgroundColor: '#FEF6F5' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 34, paddingBottom: 8, backgroundColor: '#fff' },
-=======
-  collapsingHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20, backgroundColor: '#FEF6F5' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 34, paddingBottom: 16, backgroundColor: '#fff' },
->>>>>>> mis-cambios-hoy
   headerIdentity: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerMenuButton: { padding: 2 },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#333' },
@@ -2141,11 +2048,7 @@ const styles = StyleSheet.create({
     outlineStyle: 'none',
     borderWidth: 0,
   },
-<<<<<<< HEAD
   temaSelector: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18, gap: 10 },
-=======
-  temaSelector: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12, gap: 10 },
->>>>>>> mis-cambios-hoy
   temaBadge: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, paddingVertical: 12, borderRadius: 22, backgroundColor: '#eee' },
   temaBadgeActive: { backgroundColor: '#333' },
   temaBadgeText: { fontSize: 13, fontWeight: 'bold', color: '#666' },

@@ -2,21 +2,14 @@ import React from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getActionTaskInfo } from '@hooks/useTaskActions';
-<<<<<<< HEAD
 import { useMe } from '@hooks/useApi';
 import { setAccountActive } from '../utils/adminActions';
-=======
->>>>>>> mis-cambios-hoy
 
 /**
  * Menú de 3 puntos COMPLETO. Es el mismo para el feed, el detalle de tarea y el de tarea compartida.
  *
  * actionTask: tarea normal, o compartida marcada con `isSharedTask: true`.
-<<<<<<< HEAD
  * handlers: { toggleFavorite, pinFavorite(kind), viewShares (opcional), directMessage, goToForum, toggleFollow, toggleProfileFavorite,
-=======
- * handlers: { toggleFavorite, pinFavorite(kind), share, viewShares (opcional), directMessage, goToForum, toggleProfileFavorite,
->>>>>>> mis-cambios-hoy
  *             edit, delete, approvePodcast, toggleVerified, toggleRecommended }
  * extraOptions: nodo opcional con opciones adicionales propias de la pantalla (p. ej. invitación a podcast).
  */
@@ -33,16 +26,11 @@ const TaskActionsModal = ({
   const { height: windowHeight } = useWindowDimensions();
   const { isShared, sourceTask, targetUser, isOwner } = getActionTaskInfo(actionTask, currentUserId);
   const isOtherUser = Boolean(targetUser) && String(currentUserId) !== String(targetUser?.id || targetUser);
-<<<<<<< HEAD
   const { data: me } = useMe();
   const canSuspendAuthor = Boolean(me?.is_superuser) && isOtherUser && Boolean(targetUser?.id) && !targetUser?.is_superuser;
   const isFavorited = Boolean(sourceTask?.is_favorited);
   const isProfileFavorited = Boolean(targetUser?.is_favorited);
   const isFollowing = Boolean(targetUser?.is_following);
-=======
-  const isFavorited = Boolean(sourceTask?.is_favorited);
-  const isProfileFavorited = Boolean(targetUser?.is_favorited);
->>>>>>> mis-cambios-hoy
   const categories = String(sourceTask?.categories || '')
     .split(',')
     .map((category) => category.trim().toLowerCase());
@@ -75,13 +63,6 @@ const TaskActionsModal = ({
                 <Ionicons name="pin-outline" size={20} color="#845ef7" />
                 <Text style={styles.actionText}>Anclar tarea en top 5</Text>
               </TouchableOpacity>
-<<<<<<< HEAD
-=======
-              <TouchableOpacity style={styles.actionOption} onPress={handlers.share}>
-                <Ionicons name="share-social-outline" size={20} color="#555" />
-                <Text style={styles.actionText}>Compartir</Text>
-              </TouchableOpacity>
->>>>>>> mis-cambios-hoy
               {handlers.viewShares ? (
                 <TouchableOpacity style={styles.actionOption} onPress={handlers.viewShares}>
                   <Ionicons name="people-outline" size={20} color="#555" />
@@ -99,13 +80,10 @@ const TaskActionsModal = ({
                     <Ionicons name="newspaper-outline" size={20} color="#4dabf7" />
                     <Text style={styles.actionText}>Ir al foro</Text>
                   </TouchableOpacity>
-<<<<<<< HEAD
                   <TouchableOpacity style={styles.actionOption} onPress={handlers.toggleFollow}>
                     <Ionicons name={isFollowing ? 'person-remove-outline' : 'person-add-outline'} size={20} color={isFollowing ? '#4dabf7' : '#555'} />
                     <Text style={styles.actionText}>{isFollowing ? 'Dejar de seguir' : 'Seguir'}</Text>
                   </TouchableOpacity>
-=======
->>>>>>> mis-cambios-hoy
                   <TouchableOpacity style={styles.actionOption} onPress={handlers.toggleProfileFavorite}>
                     <Ionicons name={isProfileFavorited ? 'heart' : 'heart-outline'} size={20} color={isProfileFavorited ? '#ff0b5a' : '#555'} />
                     <Text style={styles.actionText}>{isProfileFavorited ? 'Eliminar perfil de favoritos' : 'Agregar perfil a favoritos'}</Text>
@@ -161,7 +139,6 @@ const TaskActionsModal = ({
                     />
                     <Text style={styles.actionText}>{targetUser?.profile?.is_recommended ? 'Quitar Recomendación' : 'Recomendar Perfil'}</Text>
                   </TouchableOpacity>
-<<<<<<< HEAD
                   {canSuspendAuthor ? (
                     <TouchableOpacity
                       style={styles.actionOption}
@@ -178,8 +155,6 @@ const TaskActionsModal = ({
                       <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: '700' }]}>Suspender cuenta del autor</Text>
                     </TouchableOpacity>
                   ) : null}
-=======
->>>>>>> mis-cambios-hoy
                 </>
               )}
 

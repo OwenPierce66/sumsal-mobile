@@ -177,11 +177,7 @@ const DraggableSubtheme = ({ name, index, subthemes, selected, onSelect, onReord
   );
 };
 
-<<<<<<< HEAD
 const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentFollowedUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, showVideoOnlyFilter = false, isSuperAdmin, currentPch }) => {
-=======
-const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, showVideoOnlyFilter = false, isSuperAdmin, currentPch }) => {
->>>>>>> mis-cambios-hoy
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
@@ -352,11 +348,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setVerifiedUsersOnly(currentVerifiedUsers || false);
     setRecommendedUsersOnly(currentRecommendedUsers || false);
     setVideosOnly(currentVideosOnly || false);
-<<<<<<< HEAD
   }, [currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentFollowedUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, visible, subthemesTree]);
-=======
-  }, [currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, visible, subthemesTree]);
->>>>>>> mis-cambios-hoy
 
   const fetchCategories = async () => {
     try {
@@ -587,11 +579,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setFollowedUsersOnly(false);
     setVerifiedUsersOnly(false);
     setRecommendedUsersOnly(false);
-<<<<<<< HEAD
     setVideosOnly(showVideoOnlyFilter);
-=======
-    setVideosOnly(false);
->>>>>>> mis-cambios-hoy
     onApply({
       category: '',
       status: '',
@@ -602,11 +590,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       followed_users_only: false,
       verified_users_only: false,
       recommended_users_only: false,
-<<<<<<< HEAD
       videos_only: showVideoOnlyFilter,
-=======
-      videos_only: false,
->>>>>>> mis-cambios-hoy
     });
     onClose();
   };
@@ -913,11 +897,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   accessibilityState={{ checked: videosOnly }}
                 >
                   <Text style={[styles.optionText, videosOnly && styles.optionTextActive]}>
-<<<<<<< HEAD
                     {videosOnly ? 'Solo videos' : 'Videos e imágenes'}
-=======
-                    Solo videos
->>>>>>> mis-cambios-hoy
                   </Text>
                 </TouchableOpacity>
               )}

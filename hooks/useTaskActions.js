@@ -63,11 +63,8 @@ export default function useTaskActions({
     if (!targetId) return;
     try {
       await api.post('favorites/pin/', { type: kind, target_id: targetId, is_pinned: true });
-<<<<<<< HEAD
       // Anclar agrega a favoritos si faltaba: recarga para actualizar los botones.
       await refresh?.();
-=======
->>>>>>> mis-cambios-hoy
       Alert.alert('Favorito anclado', 'Se colocó dentro de tus primeros 5 favoritos.');
     } catch (error) {
       const message = error.response?.data?.is_pinned?.[0] || 'No se pudo anclar este favorito.';
@@ -75,11 +72,7 @@ export default function useTaskActions({
     } finally {
       close?.();
     }
-<<<<<<< HEAD
   }, [targetUser, sourceTask, close, refresh]);
-=======
-  }, [targetUser, sourceTask, close]);
->>>>>>> mis-cambios-hoy
 
   const share = useCallback(() => {
     close?.();
@@ -120,7 +113,6 @@ export default function useTaskActions({
     }
   }, [targetUser?.id, refresh, close]);
 
-<<<<<<< HEAD
   // Seguir -> Favorito -> Anclado: dejar de seguir quita también el favorito (lo hace el servidor).
   const toggleFollow = useCallback(async () => {
     if (!targetUser?.id) return;
@@ -138,8 +130,6 @@ export default function useTaskActions({
     }
   }, [targetUser?.id, targetUser?.is_following, refresh, close]);
 
-=======
->>>>>>> mis-cambios-hoy
   const toggleVerified = useCallback(async () => {
     if (!targetUser?.id) return;
     try {
@@ -229,10 +219,7 @@ export default function useTaskActions({
     share,
     directMessage,
     goToForum,
-<<<<<<< HEAD
     toggleFollow,
-=======
->>>>>>> mis-cambios-hoy
     toggleProfileFavorite,
     toggleVerified,
     toggleRecommended,
