@@ -80,7 +80,10 @@ import ChatDetailScreen from './screens/ChatDetailScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import EditProfileScreen from './screens/EditProfileScreen';
 import FavoritesScreen from './screens/FavoritesScreen';
+<<<<<<< HEAD
 import FollowListScreen from './screens/FollowListScreen';
+=======
+>>>>>>> mis-cambios-hoy
 import AdminScreen from './screens/AdminScreen';
 
 import { NotificationsProvider } from './contexts/NotificationsContext';
@@ -120,8 +123,11 @@ const HomeStackNavigator = () => {
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
+<<<<<<< HEAD
       <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
+=======
+>>>>>>> mis-cambios-hoy
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
@@ -134,8 +140,11 @@ const MessagesStackNavigator = () => {
       <Stack.Screen name="ChatList" component={ChatListScreen} />
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
+<<<<<<< HEAD
       <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
+=======
+>>>>>>> mis-cambios-hoy
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
@@ -148,8 +157,11 @@ const NotificationsStackNavigator = () => {
       <Stack.Screen name="NotificationsMain" component={NotificationsScreen} />
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
+<<<<<<< HEAD
       <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
+=======
+>>>>>>> mis-cambios-hoy
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
     </Stack.Navigator>
@@ -178,8 +190,11 @@ const ProfileStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
+<<<<<<< HEAD
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
       <Stack.Screen name="FollowList" component={FollowListScreen} />
+=======
+>>>>>>> mis-cambios-hoy
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />

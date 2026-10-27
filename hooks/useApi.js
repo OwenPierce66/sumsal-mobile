@@ -288,7 +288,11 @@ export function useMe() {
 }
 
 /**
+<<<<<<< HEAD
  * Estadísticas de perfiles favoritos de un perfil: favorited_by_count, favorites_count (puede ser null si es privado) e is_favorited.
+=======
+ * Estadísticas sociales y estado de seguimiento de un perfil.
+>>>>>>> mis-cambios-hoy
  */
 export function useProfileSocial(userId) {
   return useQuery({
@@ -304,6 +308,7 @@ export function useProfileSocial(userId) {
 }
 
 /**
+<<<<<<< HEAD
  * Recomendaciones entre usuarios de un perfil: received/given (con comentario),
  * conteos (null si el dueño las ocultó), `hidden`, `public` (solo importa al dueño),
  * `is_recommended_by_me` y `my_comment`.
@@ -322,6 +327,8 @@ export function useUserRecommendations(userId) {
 }
 
 /**
+=======
+>>>>>>> mis-cambios-hoy
  * Categorías del perfil: propias del usuario + categorías de la app presentes
  * en sus tareas + visibilidad del filtro personal (solo para usuario actual).
  *

@@ -17,8 +17,12 @@ import TaskActionsModal from '@components/TaskActionsModal';
 import ReportContentButton from '@components/ReportContentButton';
 import useTaskActions from '@hooks/useTaskActions';
 import TouchableUsername from '@components/TouchableUsername';
+<<<<<<< HEAD
 import { useTaskDetail, useTaskComments, useMe, useIsAdmin, useFavoritesFeed } from '@hooks/useApi';
 import { buildCommentPayload, getCommentAportacion } from '../utils/commentAportacion';
+=======
+import { useTaskDetail, useTaskComments, useMe, useIsAdmin } from '@hooks/useApi';
+>>>>>>> mis-cambios-hoy
 
 moment.locale('es');
 
