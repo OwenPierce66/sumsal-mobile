@@ -21,7 +21,7 @@ const keyFor = value => normalize(value).toLowerCase();
 // infinito de renders ("Maximum update depth exceeded").
 const EMPTY_PATH = [];
 
-const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemoveCategory, selectedStatus = '', onStatusSelect, showDescendants = false, selectedCategoryPath = EMPTY_PATH }) => {
+const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemoveCategory, selectedStatus = '', onStatusSelect, showDescendants = false, selectedCategoryPath = EMPTY_PATH, deselectable = false, containerStyle }) => {
   const [tree, setTree] = useState(DEFAULT_SUBTHEMES);
   const [selectedPath, setSelectedPath] = useState([]);
   const [collapsedLevels, setCollapsedLevels] = useState(new Set());
@@ -126,6 +126,17 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemove
     const label = labelOf(value);
     const valueKey = keyFor(label);
     const isSameSelection = keyFor(selectedPath[level]) === valueKey;
+    if (isSameSelection && deselectable) {
+      // Tocar de nuevo la categoria seleccionada la deselecciona (y a sus subniveles).
+      // Si era la de primer nivel no queda ninguna seleccionada y se muestran todas.
+      const nextPath = selectedPath.slice(0, level);
+      setCollapsedLevels(previousCollapsed => new Set(
+        [...previousCollapsed].filter(collapsedLevel => collapsedLevel < level)
+      ));
+      onSelect?.(nextPath.join(','));
+      setSelectedPath(nextPath);
+      return;
+    }
     if (isSameSelection) {
       setCollapsedLevels(previousCollapsed => {
         const nextCollapsed = new Set(previousCollapsed);
@@ -181,7 +192,7 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemove
                     }
                     handleSelect(value, level);
                   }}
-                  style={[styles.badge, level === 0 ? styles.rootBadge : styles.childBadge, (isSelected || isStatusSelected) && styles.selectedBadge, isRemovable && styles.removableBadge]}
+                  style={[styles.badge, level === 0 ? styles.rootBadge : styles.childBadge, (isSelected || isStatusSelected) && styles.selectedBadge, (isSelected || isStatusSelected) && deselectable && styles.selectedBadgeDark, isRemovable && styles.removableBadge]}
                 >
                   <Text style={[styles.badgeText, level === 0 ? styles.rootText : styles.childText, (isSelected || isStatusSelected) && styles.selectedText]}>
                     {label}
@@ -211,7 +222,7 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemove
   if (!topLevel.length) return null;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       {renderLevel(topLevel, 0, 'root')}
     </View>
   );
@@ -220,7 +231,7 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemove
 const styles = StyleSheet.create({
   container: { marginTop: 10, marginBottom: 8 },
   level: { marginBottom: 8 },
-  row: { flexDirection: 'row', gap: 10, paddingHorizontal: 12, paddingVertical: 2 },
+  row: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 2 },
   badgeGroup: { position: 'relative' },
   badge: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, borderWidth: 1, minHeight: 36, justifyContent: 'center' },
   removableBadge: { paddingRight: 27 },
@@ -229,6 +240,7 @@ const styles = StyleSheet.create({
   rootBadge: { backgroundColor: '#f0f0f0', borderColor: '#e0e0e0' },
   childBadge: { backgroundColor: '#f0f0f0', borderColor: '#e0e0e0' },
   selectedBadge: { backgroundColor: '#4dabf7', borderColor: '#4dabf7' },
+  selectedBadgeDark: { backgroundColor: '#333', borderColor: '#333' },
   badgeText: { fontSize: 14 },
   rootText: { color: '#666' },
   childText: { color: '#666' },

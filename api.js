@@ -13,11 +13,18 @@ const LOCAL_IP = Platform.OS === 'android' && __DEV__
   ? '10.0.2.2'
   : extra.apiLocalIp ?? '192.168.1.115';
 const API_PORT = extra.apiPort    ?? '8001';
-
-const API_URL =
+const REMOTE_API_URL = 'https://sumsal-backend.onrender.com/api/';
+const LOCAL_API_URL =
   Platform.OS === 'web'
     ? `http://localhost:${API_PORT}/api/`
     : `http://${LOCAL_IP}:${API_PORT}/api/`;
+
+const API_URL = (
+  extra.apiUrl || (__DEV__ ? LOCAL_API_URL : REMOTE_API_URL)
+).replace(/\/?$/, '/');
+const API_ORIGIN = API_URL.replace(/\/api\/?$/, '');
+export const API_TIMEOUT_MS = 30000;
+export const UPLOAD_TIMEOUT_MS = 120000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: Construye la URL de medios correctamente sin importar el entorno
@@ -32,12 +39,11 @@ export const getImageUrl = (path) => {
   ) {
     return path;
   }
-  const IP = Platform.OS === 'web' ? 'localhost' : LOCAL_IP;
   let cleanPath = path;
   if (cleanPath.startsWith('http')) {
     cleanPath = cleanPath.replace(/^https?:\/\/[^\/]+/, '');
   }
-  return `http://${IP}:${API_PORT}${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
+  return `${API_ORIGIN}${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,26 +79,51 @@ export const authInterceptorController = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CAMBIOS DE RELACIONES (seguir / favorito / anclado / bloquear)
+// Cualquier escritura exitosa sobre estas rutas avisa a los suscriptores
+// (hooks/useMyRelations) para refrescar los corazones junto a cada nombre.
+// ─────────────────────────────────────────────────────────────────────────────
+const RELATION_WRITE_PATH = /(\/|^)(follow|pfavoritos\/agregar|favorites\/pin|block)\/?(\?|$)/;
+const relationsListeners = new Set();
+
+export const subscribeRelationsChange = (listener) => {
+  relationsListeners.add(listener);
+  return () => relationsListeners.delete(listener);
+};
+
+const emitRelationsChangeIfNeeded = (config) => {
+  const method = String(config?.method || 'get').toLowerCase();
+  if (method === 'get') return;
+  if (!RELATION_WRITE_PATH.test(String(config?.url || ''))) return;
+  relationsListeners.forEach((listener) => {
+    try { listener(); } catch (e) { /* un suscriptor no debe romper la respuesta */ }
+  });
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CLIENTE HTTP PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
+// Axios infers JSON for objects; React Native's XHR must set the multipart boundary.
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  timeout: API_TIMEOUT_MS,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INTERCEPTOR DE PETICIÓN
 // Inyecta el token de acceso cifrado en cada petición saliente.
-// Detecta FormData y elimina Content-Type para que Axios ponga
-// el boundary correcto de multipart automáticamente.
+// React Native's native networking module requires the multipart media type
+// to construct FormData bodies and supplies the boundary itself.
 // ─────────────────────────────────────────────────────────────────────────────
 api.interceptors.request.use(
   async (config) => {
-    if (config.data instanceof FormData) {
-      delete config.headers['Content-Type'];
+    const isReactNativeFormData =
+      config.data && typeof config.data.getParts === 'function';
+    const isBrowserFormData =
+      typeof FormData !== 'undefined' && config.data instanceof FormData;
+    if (isReactNativeFormData || isBrowserFormData) {
+      config.headers.set('Content-Type', 'multipart/form-data');
     }
 
     const token = await SecureStorage.getItem('accessToken');
@@ -112,7 +143,10 @@ api.interceptors.request.use(
 // sesión y llama a signOut() para redirigir al login sin un error crudo.
 // ─────────────────────────────────────────────────────────────────────────────
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    emitRelationsChangeIfNeeded(response?.config);
+    return response;
+  },
 
   async (error) => {
     const originalRequest = error.config;
@@ -132,6 +166,7 @@ api.interceptors.response.use(
         const refreshResponse = await axios.post(
           `${API_URL}auth/refresh/`,
           { refresh: refreshToken },
+          { timeout: API_TIMEOUT_MS },
         );
 
         const newAccessToken = refreshResponse.data.access;

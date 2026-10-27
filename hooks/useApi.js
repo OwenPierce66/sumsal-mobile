@@ -258,12 +258,13 @@ export function useCategories(pch, extraParams = {}) {
   return useQuery({
     queryKey: ['categories', pch, extraParams],
     queryFn: async () => {
+      const params = { include_approval: true, ...extraParams };
+      if (pch) params.pch = pch;
       const res = await api.get('new-categories/', {
-        params: { pch, include_approval: true, ...extraParams },
+        params,
       });
       return res.data.results ?? res.data ?? [];
     },
-    enabled: Boolean(pch),
     staleTime: 10 * 60 * 1000, // 10 min — las categorías cambian poco
     gcTime: GC_TIME,
   });
@@ -282,6 +283,40 @@ export function useMe() {
       return res.data;
     },
     staleTime: 5 * 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
+ * Estadísticas de perfiles favoritos de un perfil: favorited_by_count, favorites_count (puede ser null si es privado) e is_favorited.
+ */
+export function useProfileSocial(userId) {
+  return useQuery({
+    queryKey: ['profileSocial', userId],
+    queryFn: async () => {
+      const res = await api.get(`users/${userId}/social/`);
+      return res.data;
+    },
+    enabled: Boolean(userId),
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
+ * Recomendaciones entre usuarios de un perfil: received/given (con comentario),
+ * conteos (null si el dueño las ocultó), `hidden`, `public` (solo importa al dueño),
+ * `is_recommended_by_me` y `my_comment`.
+ */
+export function useUserRecommendations(userId) {
+  return useQuery({
+    queryKey: ['userRecommendations', userId],
+    queryFn: async () => {
+      const res = await api.get(`users/${userId}/recommendations/`);
+      return res.data;
+    },
+    enabled: Boolean(userId),
+    staleTime: 60 * 1000,
     gcTime: GC_TIME,
   });
 }
@@ -335,7 +370,9 @@ export function useFavoritesFeed(enabled = false) {
       return tasks;
     },
     enabled,
-    staleTime: 2 * 60 * 1000,
+    // Siempre recargar al abrir: lo que acabas de guardar debe aparecer de inmediato
+    staleTime: 0,
+    refetchOnMount: 'always',
     gcTime: GC_TIME,
   });
 }
@@ -413,11 +450,13 @@ export function useReorderFavorites(userId) {
  * El backend devuelve 10 por página (StandardPagination); antes solo se leía
  * la primera, por lo que los posts más antiguos nunca eran visibles.
  */
-export function usePostsInfinite() {
+export function usePostsInfinite(userId = null) {
   return useInfiniteQuery({
-    queryKey: ['posts'],
+    queryKey: userId ? ['posts', { user: userId }] : ['posts'],
     queryFn: async ({ pageParam = 1 }) => {
-      const res = await api.get('posts/', { params: { page: pageParam } });
+      const params = { page: pageParam };
+      if (userId) params.user = userId;
+      const res = await api.get('posts/', { params });
       return res.data;
     },
     initialPageParam: 1,
@@ -613,10 +652,11 @@ export function useCreateTaskCategories(tema, isAdminUser) {
   const appCats = useQuery({
     queryKey: ['newCategories', tema],
     queryFn: async () => {
-      const res = await api.get('new-categories/', { params: { pch: tema } });
+      const params = {};
+      if (tema) params.pch = tema;
+      const res = await api.get('new-categories/', { params });
       return res.data?.results ?? res.data ?? [];
     },
-    enabled: !!tema,
     staleTime: STALE_TIME,
     gcTime:    GC_TIME,
   });

@@ -9,6 +9,11 @@ import TestRenderer, { act } from 'react-test-renderer';
 import api from '@api';
 import TaskDetailScreen from '../../screens/TaskDetailScreen';
 
+// El corazón de seguir junto a cada nombre (useMyRelations) necesita React Query; aquí no aplica.
+jest.mock('../../hooks/useMyRelations', () => ({
+  useMyRelations: () => ({ ready: false, getState: () => null, setStateLocally: () => {}, refresh: () => {} }),
+}));
+
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
 

@@ -21,16 +21,19 @@ import { Image } from 'expo-image';
 import { Video } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api, { getImageUrl } from '../api';
+import api, { getImageUrl, UPLOAD_TIMEOUT_MS } from '../api';
 import TieredLikesModal from './TieredLikesModal';
 import TouchableUsername from '../components/TouchableUsername';
 import OfflineEmptyState from '../components/OfflineEmptyState';
 import { useIsOnline } from '../hooks/useIsOnline';
-import { useStories, useMe } from '../hooks/useApi';
+import { useStories, useMe, useIsAdmin } from '../hooks/useApi';
+import TaskActionsModal from '../components/TaskActionsModal';
+import useTaskActions from '../hooks/useTaskActions';
+import StoryUploadModal from '../components/StoryUploadModal';
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 const IMAGE_DURATION_MS = 6500;
-const STORY_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const STORY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const cleanVal = (value) => {
   if (value === null || value === undefined) return null;
@@ -38,14 +41,14 @@ const cleanVal = (value) => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const parseCreatedAtMs = (story) => {
+export const parseCreatedAtMs = (story) => {
   const raw = story?.created_at || story?.createdAt || null;
   if (!raw) return null;
   const ms = Date.parse(String(raw));
   return Number.isFinite(ms) ? ms : null;
 };
 
-const getStoryMedia = (story) => {
+export const getStoryMedia = (story) => {
   const videoPath =
     cleanVal(story?.video) ||
     cleanVal(story?.primary_video) ||
@@ -149,12 +152,6 @@ const Stories24hScreen = ({ route }) => {
   const [favorites, setFavorites] = useState([]);
 
   const [uploadVisible, setUploadVisible] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadUri, setUploadUri] = useState(null);
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploadType, setUploadType] = useState(null);
-  const [uploadCaption, setUploadCaption] = useState('');
-  const [uploadError, setUploadError] = useState('');
 
   const imageTimerRef = useRef(null);
   const progressTimerRef = useRef(null);
@@ -165,28 +162,6 @@ const Stories24hScreen = ({ route }) => {
   const pausedBeforeReplyRef = useRef(false);
   const storyReplyInputRef = useRef(null);
 
-  const resetUploadState = useCallback(() => {
-    if (Platform.OS === 'web' && uploadUri && uploadUri.startsWith('blob:')) {
-      try {
-        URL.revokeObjectURL(uploadUri);
-      } catch (error) {}
-    }
-    setUploadUri(null);
-    setUploadFile(null);
-    setUploadType(null);
-    setUploadCaption('');
-    setUploadError('');
-  }, [uploadUri]);
-
-  useEffect(() => {
-    return () => {
-      if (Platform.OS === 'web' && uploadUri && uploadUri.startsWith('blob:')) {
-        try {
-          URL.revokeObjectURL(uploadUri);
-        } catch (error) {}
-      }
-    };
-  }, [uploadUri]);
 
   useEffect(() => {
     const intervalId = setInterval(() => setNowMs(Date.now()), 60000);
@@ -375,10 +350,6 @@ const Stories24hScreen = ({ route }) => {
     )
   );
   const isOwnActiveStory = !!(currentUserId && activeStoryOwnerId && String(currentUserId) === String(activeStoryOwnerId));
-  const isUploadVideo = useMemo(
-    () => isLikelyVideoFile(uploadFile, uploadType, uploadUri),
-    [uploadFile, uploadType, uploadUri]
-  );
 
   const clearStoryTimers = useCallback(() => {
     if (imageTimerRef.current) {
@@ -703,6 +674,41 @@ const Stories24hScreen = ({ route }) => {
     setPaused(false);
   }, []);
 
+  // ─── Menu de 3 puntos (igual que el feed) ───────────────────────────────────
+  const [storyActionsVisible, setStoryActionsVisible] = useState(false);
+  const { data: adminData } = useIsAdmin();
+  const isAdmin = Boolean(adminData?.isAdmin || adminData?.isStaff);
+
+  const openStoryActions = useCallback(() => {
+    setPaused(true);
+    setStoryActionsVisible(true);
+  }, []);
+
+  const closeStoryActions = useCallback(() => {
+    setStoryActionsVisible(false);
+    setPaused(false);
+  }, []);
+
+  const storyTaskActions = useTaskActions({
+    navigation,
+    actionTask: activeStory,
+    currentUserId,
+    close: closeStoryActions,
+    refresh: () => storiesQueryRef.current?.refetch?.(),
+    onShare: (a) => openShareModal(a?.id),
+    onDeleted: () => {
+      closeViewer();
+      storiesQueryRef.current?.refetch?.();
+    },
+  });
+
+  // Las acciones que navegan fuera de la pantalla cierran primero el visor de historias
+  const storyActionHandlers = useMemo(() => ({
+    ...storyTaskActions,
+    goToForum: () => { closeViewer(); storyTaskActions.goToForum(); },
+    directMessage: () => { closeViewer(); storyTaskActions.directMessage(); },
+  }), [storyTaskActions, closeViewer]);
+
   const handleShareStoryIntoMyStory = useCallback(async () => {
    if (!shareSourceTaskId) return;
    setSharingToStory(true);
@@ -759,102 +765,6 @@ const Stories24hScreen = ({ route }) => {
     }
   }, [shareSourceTaskId, shareToStoryCaption, fetchStories]);
 
-  const pickStoryMedia = useCallback(async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsEditing: Platform.OS !== 'web',
-      quality: 0.8,
-      videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
-    });
-    if (result.canceled) return;
-    const asset = result.assets?.[0];
-    if (!asset?.uri) return;
-    if (Platform.OS === 'web' && uploadUri && uploadUri.startsWith('blob:')) {
-      try {
-        URL.revokeObjectURL(uploadUri);
-      } catch (error) {}
-    }
-
-    const pickedFile = asset.file || null;
-    const pickedMimeType = pickedFile?.type || '';
-    const assetMimeType = asset.mimeType || '';
-    const filenameHint = `${asset.fileName || pickedFile?.name || ''}`.toLowerCase();
-    const mediaType = (
-      asset.type === 'video'
-      || assetMimeType.startsWith('video/')
-      || pickedMimeType.startsWith('video/')
-      || /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(filenameHint)
-      || (typeof asset.duration === 'number' && asset.duration > 0)
-      || String(asset.uri || '').toLowerCase().startsWith('data:video/')
-    ) ? 'video' : 'image';
-
-    const previewUri = (Platform.OS === 'web' && pickedFile)
-      ? URL.createObjectURL(pickedFile)
-      : asset.uri;
-
-    setUploadUri(previewUri);
-    setUploadFile(pickedFile);
-    setUploadType(mediaType);
-  }, [uploadUri]);
-
-  const submitStory = useCallback(async () => {
-    if (!uploadUri || !uploadType) {
-      setUploadError('Selecciona una imagen o video.');
-      return;
-    }
-
-    setUploading(true);
-    setUploadError('');
-    const formData = new FormData();
-    formData.append('caption', uploadCaption.trim());
-
-    try {
-      if (Platform.OS === 'web') {
-        const blob = uploadFile || (await (await fetch(uploadUri)).blob());
-        const blobMimeType = blob?.type || '';
-        const originalName = uploadFile?.name || '';
-        const isVideoBlob = isLikelyVideoFile(
-          { type: blobMimeType, name: originalName },
-          uploadType,
-          uploadUri
-        );
-
-        const fieldName = isVideoBlob ? 'video' : 'image';
-        const fallbackExtension = isVideoBlob ? 'mp4' : 'jpg';
-        const extension = getExtensionFromMime(blobMimeType, fallbackExtension);
-        const filename = uploadFile?.name || `story.${extension}`;
-        formData.append(fieldName, blob, filename);
-      } else {
-        const extension = uploadType === 'video' ? 'mp4' : 'jpg';
-        const mimeType = uploadType === 'video' ? 'video/mp4' : 'image/jpeg';
-        const fieldName = uploadType === 'video' ? 'video' : 'image';
-        formData.append(fieldName, {
-          uri: uploadUri,
-          name: `story.${extension}`,
-          type: mimeType,
-        });
-      }
-
-      await api.post('stories/', formData);
-      setUploadVisible(false);
-      resetUploadState();
-      fetchStories();
-    } catch (error) {
-      const backendError =
-        error?.response?.data?.caption
-        || error?.response?.data?.image
-        || error?.response?.data?.video
-        || error?.response?.data?.detail
-        || error?.response?.data?.error;
-      setUploadError(
-        Array.isArray(backendError)
-          ? backendError.join(', ')
-          : (backendError || 'No se pudo subir la historia.')
-      );
-    } finally {
-      setUploading(false);
-    }
-  }, [uploadUri, uploadFile, uploadType, uploadCaption, fetchStories, resetUploadState]);
 
 
   const onVideoStatusUpdate = useCallback((status) => {
@@ -894,11 +804,7 @@ const Stories24hScreen = ({ route }) => {
       
       // Enviar el mensaje directo al favorito seleccionado
       
-      const response = await api.post('massaging/messages/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await api.post('massaging/messages/', formData);
       
       
       // Cerrar el modal y limpiar
@@ -938,9 +844,7 @@ const Stories24hScreen = ({ route }) => {
       );
       formData.append('receiver', receiverId);
 
-      await api.post('massaging/messages/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      await api.post('massaging/messages/', formData);
 
       setStoryReplyText('');
       storyReplyInputRef.current?.blur?.();
@@ -1062,6 +966,9 @@ const Stories24hScreen = ({ route }) => {
                 </View>
                 <TouchableOpacity style={styles.headerBtn} onPress={() => setMuted((prev) => !prev)}>
                   <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={22} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.headerBtn} onPress={openStoryActions}>
+                  <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
                 </TouchableOpacity>
               </View>
 
@@ -1257,63 +1164,24 @@ const Stories24hScreen = ({ route }) => {
               <ActivityIndicator size="large" color="#4dabf7" />
             </View>
           )}
+          {/* Menu de 3 puntos: mismo menu completo que el feed (la historia es una tarea) */}
+          <TaskActionsModal
+            visible={storyActionsVisible}
+            onClose={closeStoryActions}
+            actionTask={activeStory}
+            currentUserId={currentUserId}
+            isAdmin={isAdmin}
+            canEdit={false}
+            handlers={storyActionHandlers}
+          />
         </View>
       </Modal>
 
-      <Modal visible={uploadVisible} transparent animationType="slide" onRequestClose={() => !uploading && setUploadVisible(false)}>
-        <View style={styles.uploadOverlay}>
-          <View style={styles.uploadModal}>
-            <View style={styles.uploadHeader}>
-              <Text style={styles.uploadTitle}>Subir historia (24h)</Text>
-              <TouchableOpacity disabled={uploading} onPress={() => { setUploadVisible(false); setPaused(false); resetUploadState(); }}>
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity style={styles.uploadPicker} onPress={pickStoryMedia} disabled={uploading}>
-              {uploadUri ? (
-                isUploadVideo ? (
-                  Platform.OS === 'web' ? (
-                    <video
-                      src={uploadUri}
-                      controls
-                      playsInline
-                      style={{ width: '100%', height: '100%', objectFit: 'contain', backgroundColor: '#000' }}
-                    />
-                  ) : (
-                    <Video source={{ uri: uploadUri }} style={styles.uploadPreview} useNativeControls resizeMode="contain" />
-                  )
-                ) : (
-                  <RNImage source={{ uri: uploadUri }} style={styles.uploadPreview} resizeMode="cover" />
-                )
-              ) : (
-                <Text style={styles.uploadPlaceholder}>Selecciona una imagen o video</Text>
-              )}
-            </TouchableOpacity>
-
-            <TextInput
-              value={uploadCaption}
-              onChangeText={setUploadCaption}
-              placeholder="Texto (opcional)"
-              placeholderTextColor="#999"
-              multiline
-              editable={!uploading}
-              style={styles.uploadInput}
-            />
-
-            {!!uploadError && <Text style={styles.uploadError}>{uploadError}</Text>}
-
-            <View style={styles.uploadActions}>
-              <TouchableOpacity disabled={uploading} style={styles.uploadCancel} onPress={() => { setUploadVisible(false); setPaused(false); resetUploadState(); }}>
-                <Text style={styles.uploadCancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity disabled={uploading} style={styles.uploadSubmit} onPress={submitStory}>
-                <Text style={styles.uploadSubmitText}>{uploading ? 'Subiendo…' : 'Publicar'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <StoryUploadModal
+        visible={uploadVisible}
+        onClose={() => { setUploadVisible(false); setPaused(false); }}
+        onUploaded={fetchStories}
+      />
 
       <Modal
         visible={shareActionModalVisible}

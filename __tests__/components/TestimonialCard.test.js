@@ -8,6 +8,11 @@ import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import TestimonialCard from '../../components/TestimonialCard';
 
+// El corazón de seguir junto a cada nombre (useMyRelations) necesita React Query; aquí no aplica.
+jest.mock('../../hooks/useMyRelations', () => ({
+  useMyRelations: () => ({ ready: false, getState: () => null, setStateLocally: () => {}, refresh: () => {} }),
+}));
+
 jest.mock('@api', () => ({
   __esModule: true,
   default: { get: jest.fn(() => Promise.resolve({ data: {} })) },

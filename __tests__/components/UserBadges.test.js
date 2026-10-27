@@ -12,6 +12,11 @@ import TouchableUsername from '../../components/TouchableUsername';
 import UserBadges, { NameWithBadges } from '../../components/UserBadges';
 import { invalidateUserBadges } from '../../hooks/useUserBadges';
 
+// El corazón de seguir junto a cada nombre (useMyRelations) necesita React Query; aquí no aplica.
+jest.mock('../../hooks/useMyRelations', () => ({
+  useMyRelations: () => ({ ready: false, getState: () => null, setStateLocally: () => {}, refresh: () => {} }),
+}));
+
 jest.mock('@api', () => ({
   __esModule: true,
   default: { get: jest.fn(), post: jest.fn(), patch: jest.fn(), delete: jest.fn() },
@@ -90,7 +95,7 @@ it('si falla la petición, el nombre se muestra igual sin insignias', async () =
   api.get.mockRejectedValueOnce(new Error('offline'));
   const renderer = await render(<TouchableUsername username="ana" userId="ana" />);
   expect(iconsOf(renderer)).toEqual([]);
-  expect(renderer.root.findAll((node) => node.props.children === 'ana').length).toBeGreaterThan(0);
+  expect(renderer.root.findAll((node) => [].concat(node.props.children).includes('ana')).length).toBeGreaterThan(0);
 });
 
 it('se puede apagar donde no hace falta', async () => {

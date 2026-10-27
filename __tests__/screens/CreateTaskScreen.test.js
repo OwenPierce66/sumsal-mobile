@@ -58,7 +58,10 @@ let mounted;
 async function renderScreen(params = {}) {
   const navigation = { goBack: jest.fn(), canGoBack: () => true, navigate: jest.fn() };
   await act(async () => {
-    mounted = TestRenderer.create(<CreateTaskScreen navigation={navigation} route={{ params }} />);
+    // Desde el feed se abre con el tipo (PCH) activo: ahora es obligatorio elegirlo.
+    mounted = TestRenderer.create(
+      <CreateTaskScreen navigation={navigation} route={{ params: { initialPch: 'consejos', ...params } }} />,
+    );
   });
   return mounted;
 }

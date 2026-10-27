@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useCallback } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  Dimensions,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import moment from 'moment';
@@ -16,9 +17,14 @@ import { Image } from 'expo-image';
 import TouchableUsername from '@components/TouchableUsername';
 import LikesListModal from '@components/LikesListModal';
 import ShareModal from '@components/ShareModal';
-import { useSharedTasksInfinite, useLikeSharedTask } from '@hooks/useApi';
+import TaskActionsModal from '@components/TaskActionsModal';
+import { FeedVideoVisibilityContext, TaskSections } from '@components/TaskPostCard';
+import useTaskActions from '@hooks/useTaskActions';
+import { useSharedTasksInfinite, useLikeSharedTask, useMe, useIsAdmin } from '@hooks/useApi';
 
 moment.locale('es');
+
+const carouselWidth = Math.max(280, Dimensions.get('window').width - 56);
 
 const SharedTasksScreen = ({ navigation }) => {
   // ─── Modal state ─────────────────────────────────────────────────────────────
@@ -26,6 +32,31 @@ const SharedTasksScreen = ({ navigation }) => {
   const [likesModalUrl,     setLikesModalUrl]     = useState('');
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [taskToShare,       setTaskToShare]       = useState(null);
+  const [actionTask,        setActionTask]        = useState(null);
+  const [visibleSections,   setVisibleSections]   = useState({});
+
+  // ─── Autoplay de videos por visibilidad (igual que el feed) ──────────────────
+  const listRef = useRef(null);
+  const [visibleIds, setVisibleIds] = useState(() => new Set());
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    setVisibleIds(new Set((viewableItems || []).map((entry) => String(entry?.item?.id ?? entry?.key))));
+  }).current;
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 20, minimumViewTime: 0 }).current;
+  const getListBounds = useCallback((callback) => {
+    const list = listRef.current;
+    const node = list?.getNativeScrollRef ? list.getNativeScrollRef() : list?.getScrollableNode?.();
+    if (node && typeof node.measureInWindow === 'function') {
+      node.measureInWindow((x, y, width, height) => callback({ x, y, width, height }));
+    } else {
+      callback(null);
+    }
+  }, []);
+  const videoVisibility = useMemo(() => ({ visibleIds, getListBounds }), [visibleIds, getListBounds]);
+
+  const { data: me } = useMe();
+  const currentUserId = me?.id ?? null;
+  const { data: adminData } = useIsAdmin();
+  const isAdmin = Boolean(adminData?.isAdmin || adminData?.isStaff);
 
   // ─── React Query ─────────────────────────────────────────────────────────────
   const {
@@ -69,6 +100,21 @@ const SharedTasksScreen = ({ navigation }) => {
     setShareModalVisible(true);
   };
 
+  const closeActions = useCallback(() => setActionTask(null), []);
+  const taskActions = useTaskActions({
+    navigation,
+    actionTask,
+    currentUserId,
+    close: closeActions,
+    refresh: refetch,
+    onShare: (a) => openShareModal(a?.isSharedTask ? a.task?.id : a?.id),
+    onEdit: (a) => {
+      if (a?.isSharedTask) navigation.navigate('SharedTaskDetail', { sharedTaskId: a.id });
+      else if (a?.id) navigation.navigate('CreateTask', { task: a });
+    },
+    onDeleted: () => refetch(),
+  });
+
   const handleShareSuccess = () => {
     setTaskToShare(null);
     refetch();
@@ -109,6 +155,9 @@ const SharedTasksScreen = ({ navigation }) => {
             <Text style={styles.sharedBySubtext}>compartió una tarea</Text>
           </View>
           <Text style={styles.sharedDate}>{moment(item.created_at).fromNow()}</Text>
+          <TouchableOpacity onPress={() => setActionTask({ ...item, isSharedTask: true })}>
+            <Ionicons name="ellipsis-vertical" size={20} color="#999" />
+          </TouchableOpacity>
         </View>
 
         {item.description && (
@@ -133,6 +182,9 @@ const SharedTasksScreen = ({ navigation }) => {
                 numberOfLines={1}
               />
             </View>
+            <TouchableOpacity onPress={() => setActionTask({ ...task, isSharedTask: false })}>
+              <Ionicons name="ellipsis-vertical" size={20} color="#999" />
+            </TouchableOpacity>
           </View>
 
           <Text style={styles.taskDescription} numberOfLines={2}>{task.description}</Text>
@@ -145,12 +197,15 @@ const SharedTasksScreen = ({ navigation }) => {
             </View>
           ) : null}
 
-          {(task.image || task.subtasks?.[0]?.image) && (
-            <Image
-              source={{ uri: getImageUrl(task.image || task.subtasks?.[0]?.image) }}
-              style={styles.taskImage}
-            />
-          )}
+          {/* Mismo contenido que una publicación del feed (pestañas + carrusel con imágenes y videos) */}
+          <TaskSections
+            task={task}
+            tema=""
+            carouselWidth={carouselWidth - 28}
+            section={visibleSections[item.id] || 'subtasks'}
+            onChangeSection={(next) => setVisibleSections((prev) => ({ ...prev, [item.id]: next }))}
+            feedItemId={item.id}
+          />
 
           {/* ACCIONES */}
           <View style={styles.actions}>
@@ -202,7 +257,11 @@ const SharedTasksScreen = ({ navigation }) => {
         <Text style={styles.headerTitle}>Compartidas</Text>
       </View>
 
+      <FeedVideoVisibilityContext.Provider value={videoVisibility}>
       <FlatList
+        ref={listRef}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
         data={sharedTasks}
         renderItem={renderSharedTaskCard}
         keyExtractor={(item) => item.id.toString()}
@@ -220,6 +279,16 @@ const SharedTasksScreen = ({ navigation }) => {
           ) : null
         }
         contentContainerStyle={styles.listContent}
+      />
+      </FeedVideoVisibilityContext.Provider>
+
+      <TaskActionsModal
+        visible={Boolean(actionTask)}
+        onClose={closeActions}
+        actionTask={actionTask}
+        currentUserId={currentUserId}
+        isAdmin={isAdmin}
+        handlers={taskActions}
       />
 
       <LikesListModal

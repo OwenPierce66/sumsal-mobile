@@ -7,7 +7,7 @@ import CategoryHierarchy from './CategoryHierarchy';
 // ⚡ Filtro personal por perfil: categorías propias guardadas aparte (CRUD),
 // no recalculadas al renderizar tareas. Se muestra igual que CategoryHierarchy
 // en TasksScreen; en modo dueño permite agregar, quitar y reordenar.
-const PersonalCategoryFilter = ({ userId, isOwner = false, title, onSelect, onCategoriesChanged, excludeNames = [] }) => {
+const PersonalCategoryFilter = ({ userId, isOwner = false, canEdit = true, title, onSelect, onCategoriesChanged, excludeNames = [] }) => {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
@@ -155,7 +155,7 @@ const PersonalCategoryFilter = ({ userId, isOwner = false, title, onSelect, onCa
         />
       )}
 
-      {isOwner && !reorderMode && selectedNode && (
+      {isOwner && canEdit && !reorderMode && selectedNode && (
         <View style={styles.addRow}>
           <TextInput
             style={styles.addInput}
@@ -171,7 +171,7 @@ const PersonalCategoryFilter = ({ userId, isOwner = false, title, onSelect, onCa
         </View>
       )}
 
-      {isOwner && !reorderMode && (
+      {isOwner && canEdit && !reorderMode && (
         <View style={styles.addRow}>
           <TextInput
             style={styles.addInput}

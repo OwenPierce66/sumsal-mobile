@@ -25,7 +25,10 @@ export function usePushNotifications(navigationRef) {
       (response) => {
         const data = response?.notification?.request?.content?.data ?? {};
         if (navigationRef?.isReady?.() && data.notification_id) {
-          navigationRef.navigate('Notifications');
+          navigationRef.navigate('Home', {
+            screen: 'Notifications',
+            params: { screen: 'NotificationsMain' },
+          });
         }
       }
     );

@@ -1,8 +1,10 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
 import { View, Text, FlatList, StyleSheet, Dimensions, Platform, TouchableOpacity, ActivityIndicator, Modal, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../App'; // ✅ IMPORTAMOS EL CONTEXTO
+import SideMenu from '../components/SideMenu';
 import api, { getImageUrl } from '../api';
 import { Gesture, GestureDetector, Directions } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, runOnJS } from 'react-native-reanimated';
@@ -10,13 +12,15 @@ import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
 import OfflineEmptyState from '../components/OfflineEmptyState';
 import { useIsOnline } from '../hooks/useIsOnline';
-import { useDownloadTask } from '../hooks/useDownloadTask';
 import { useReelsInfinite } from '../hooks/useApi';
 import { buildReelsFromPages } from '../utils/reelsPages';
 import TieredLikesModal from './TieredLikesModal';
 import ReelItem from './ReelItem'; 
+import TaskActionsModal from '../components/TaskActionsModal';
+import useTaskActions from '../hooks/useTaskActions';
 
 const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'regular'];
+const REELS_VIDEOS_ONLY_KEY = 'reels.videosOnly';
 
 // ✅ FIX: Se mueven las funciones de vuelta aquí para evitar el error de "Module not found".
 const cleanVal = (v) => (v ? String(v).trim() : null);
@@ -106,7 +110,7 @@ const getSharedByInfo = (t) => {
   };
 };
 
-const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, setPaused, selectedReelId, handleReelTap, isUIVisible, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, getSharedByInfo, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, toggleProfileLike, likeAnimation, navigation, toggleFavorite, openShareModal, handleRepost, handleShowShares, handleShowLikes, handleShowProfileLikes, openActionModal, tema, taskLikesById, taskSharesById, profileLikesById, pageHeight }) => {
+const ReelRenderer = React.memo(({ item, index, activeIndex, isFocused, isMuted, paused, setPaused, selectedReelId, handleReelTap, isUIVisible, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, getSharedByInfo, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, toggleProfileLike, likeAnimation, navigation, toggleFavorite, openShareModal, handleRepost, handleShowShares, handleShowLikes, handleShowProfileLikes, openActionModal, tema, taskLikesById, taskSharesById, profileLikesById, pageHeight }) => {
   const tapToPause = Gesture.Tap()
     .maxDuration(250)
     .onEnd((event, success) => {
@@ -154,12 +158,13 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, se
 
   return (
     // ✅ FIX: Se elimina el GestureDetector duplicado que causaba el error de sintaxis.
-    <View style={{ width: windowWidth, height: pageHeight }}>
+    <GestureDetector gesture={composedGesture}>
+      <View style={{ width: windowWidth, height: pageHeight }}>
       <ReelItem
         item={item}
         enrichedItem={enrichedItem}
         index={index}
-        isActive={index === activeIndex}
+        isActive={isFocused && index === activeIndex}
         isMuted={isMuted}
         paused={paused}
         setPaused={setPaused}
@@ -189,19 +194,21 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isMuted, paused, se
         taskSharesById={taskSharesById}
         profileLikesById={profileLikesById}
         tema={tema}
-        mediaGesture={composedGesture}
       />
-    </View>
+      </View>
+    </GestureDetector>
   );
 });
 
 const ReelsScreen = ({ route }) => {
-  const { user, isAdmin: isAdminFromContext } = useContext(AuthContext);
+  const { user, signOut, isAdmin: isAdminFromContext } = useContext(AuthContext);
   const [isAdmin, setIsAdmin] = useState(isAdminFromContext);
   const currentUserId = user?.id;
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
   const isOnline = useIsOnline();
   const [reels, setReels] = useState([]);
+  const repostInFlightRef = useRef(new Set());
   const [tema, setTema] = useState('consejos');
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted] = useState(false);
@@ -215,7 +222,6 @@ const ReelsScreen = ({ route }) => {
   const [expandedDescriptions, setExpandedDescriptions] = useState({});
   const [viewStateById, setViewStateById] = useState({});
   const [actionModalVisible, setActionModalVisible] = useState(false);
-  const { downloadTask, isDownloading } = useDownloadTask();
   const [selectedActionTask, setSelectedActionTask] = useState(null);
   const [paused, setPaused] = useState(false);
   const [selectedReelId, setSelectedReelId] = useState(null);
@@ -225,8 +231,24 @@ const ReelsScreen = ({ route }) => {
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [selectedFavoritesOnly, setSelectedFavoritesOnly] = useState(false);
   const [selectedFavoriteUsersOnly, setSelectedFavoriteUsersOnly] = useState(false);
+  const [selectedFollowedUsersOnly, setSelectedFollowedUsersOnly] = useState(false);
   const [selectedVerifiedUsersOnly, setSelectedVerifiedUsersOnly] = useState(false);
   const [selectedRecommendedUsersOnly, setSelectedRecommendedUsersOnly] = useState(false);
+  const [selectedVideosOnly, setSelectedVideosOnly] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    AsyncStorage.getItem(REELS_VIDEOS_ONLY_KEY)
+      .then((value) => {
+        if (mounted) setSelectedVideosOnly(value === null ? true : value === 'true');
+      })
+      .catch((error) => {
+        console.error('[ReelsScreen] No se pudo cargar la preferencia de solo videos:', error);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (isAdminFromContext !== undefined && isAdminFromContext !== null) {
@@ -301,9 +323,10 @@ const ReelsScreen = ({ route }) => {
     sort_by: selectedSortBy,
     favorites_only: selectedFavoritesOnly,
     favorite_users_only: selectedFavoriteUsersOnly,
+    followed_users_only: selectedFollowedUsersOnly,
     verified_users_only: selectedVerifiedUsersOnly,
     recommended_users_only: selectedRecommendedUsersOnly,
-  }), [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }), [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedFollowedUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
 
   const reelsQuery = useReelsInfinite(reelsParams);
   const {
@@ -317,8 +340,14 @@ const ReelsScreen = ({ route }) => {
 
   // ✅ Solo publicaciones (originales o compartidas) con algún medio.
   const serverReels = useMemo(
-    () => buildReelsFromPages(reelsQuery.data, getFirstMediaAnywhere),
-    [reelsQuery.data]
+    () => buildReelsFromPages(
+      reelsQuery.data,
+      getFirstMediaAnywhere,
+      selectedVideosOnly
+        ? (content) => buildPlaylists(content).main.some((entry) => entry.type === 'video')
+        : undefined
+    ),
+    [reelsQuery.data, selectedVideosOnly]
   );
   useEffect(() => {
     setReels(serverReels);
@@ -501,38 +530,51 @@ const ReelsScreen = ({ route }) => {
     const contentItem = item.is_original ? item : item.task;
 
     if (!taskId) return; // Salimos si no hay ID
-    
-    // Optimistic update
-    setReels(prevReels => prevReels.map(r => {
-      const currentContent = r.is_original ? r : r.task;
-      if (currentContent && currentContent.id === taskId) {
-        return r.is_original ? { ...r, interaction_score: (r.interaction_score || 0) + 1 } : { ...r, task: { ...r.task, interaction_score: (r.task.interaction_score || 0) + 1 } };
-      }
-      return r;
-    }));
+    if (repostInFlightRef.current.has(taskId)) return;
+    repostInFlightRef.current.add(taskId);
+    const original = {
+      user_has_reposted: Boolean(contentItem.user_has_reposted),
+      user_has_liked: Boolean(contentItem.user_has_liked),
+      likes_count: contentItem.likes_count || 0,
+      interaction_score: contentItem.interaction_score || 0,
+    };
+    const nextReposted = !original.user_has_reposted;
+    const updateTask = (userHasReposted, userHasLiked, likesCount, interactionScore) => {
+      setReels(prevReels => prevReels.map(reel => {
+        const current = reel.is_original ? reel : reel.task;
+        if (!current || current.id !== taskId) return reel;
+        const updated = {
+          ...current,
+          user_has_reposted: userHasReposted,
+          user_has_liked: userHasLiked,
+          likes_count: likesCount,
+          interaction_score: interactionScore,
+        };
+        return reel.is_original ? updated : { ...reel, task: updated };
+      }));
+    };
+    const optimisticLiked = original.user_has_liked || nextReposted;
+    const optimisticLikesCount = original.likes_count + (!original.user_has_liked && nextReposted ? 1 : 0);
+    updateTask(nextReposted, optimisticLiked, optimisticLikesCount,
+      Math.max(0, original.interaction_score + (nextReposted ? 1 : -1)));
 
     try {
-      // Llamada al endpoint de "repost" que solo afecta el score interno.
       const response = await api.post(`tasks/${taskId}/repost/`);
-      // Damos feedback al usuario de que la acción fue exitosa.
-      Alert.alert('Éxito', '¡Publicación impulsada!');
-
-      // Sync with actual response
-      const finalScore = response.data.interaction_score;
-      setReels(prevReels => prevReels.map(r => {
-        const currentContent = r.is_original ? r : r.task;
-        if (currentContent && currentContent.id === taskId) {
-          return r.is_original ? { ...r, interaction_score: finalScore } : { ...r, task: { ...r.task, interaction_score: finalScore } };
-        }
-        return r;
-      }));
+      updateTask(
+        response.data.user_has_reposted,
+        response.data.user_has_liked,
+        response.data.likes_count,
+        response.data.interaction_score,
+      );
+      Alert.alert('Éxito', response.data.reposted ? '¡Publicación impulsada!' : 'Se quitó el impulso; el like se conserva.');
     } catch (error) {
       console.error('Error reposting task:', error.response?.data || error.message);
       Alert.alert('Error', 'No se pudo impulsar la publicación.');
-      // En caso de error, podrías recargar para revertir el cambio optimista.
-      // fetchReels(1); 
+      updateTask(original.user_has_reposted, original.user_has_liked, original.likes_count, original.interaction_score);
+    } finally {
+      repostInFlightRef.current.delete(taskId);
     }
-  }, [reels]);
+  }, []);
 
   const toggleDescription = useCallback((id) => {
     setExpandedDescriptions(prev => ({...prev, [id]: !prev[id]}));
@@ -628,99 +670,24 @@ const ReelsScreen = ({ route }) => {
   }, []);
 
   const openActionModal = useCallback((task) => {
-    setSelectedActionTask(task);
+    // Un reel compartido trae el contenido en `task`: se marca como compartido para el menu completo
+    setSelectedActionTask(task && !task.is_original && task.task ? { ...task, isSharedTask: true } : task);
     setActionModalVisible(true);
   }, [setSelectedActionTask, setActionModalVisible]);
 
-  const handleToggleTaskFavorite = async () => {
-    if (!selectedActionTask) return;
-    const isFav = !selectedActionTask.is_favorited;
-    setReels(prev => prev.map(r => r.id === selectedActionTask.id ? { ...r, is_favorited: isFav } : r));
-    try {
-      await api.post("favoritos/agregar/", { task_id: selectedActionTask.id });
-    } catch (error) {}
-    setActionModalVisible(false);
-  };
-
-  const handleDirectMessage = () => {
-    if (!selectedActionTask || !selectedActionTask.user) return;
-    setActionModalVisible(false);
-    navigation.navigate('ChatDetail', { 
-      chatId: selectedActionTask.user.id, type: 'direct', title: selectedActionTask.user.username, avatar: getImageUrl(selectedActionTask.user.user_image)
-    });
-  };
-
-  const handleGoToForum = () => {
-    if (!selectedActionTask || !selectedActionTask.user) return;
-    setActionModalVisible(false);
-    navigation.navigate('UserProfile', { 
-      userId: selectedActionTask.user.id, userName: selectedActionTask.user.username, userAvatar: getImageUrl(selectedActionTask.user.user_image) 
-    });
-  };
-
-  const updateReelUserProfile = (userId, profileChanges) => {
-    setReels(prev => prev.map(reel => (
-      reel.user?.id === userId
-        ? { ...reel, user: { ...reel.user, profile: { ...reel.user.profile, ...profileChanges } } }
-        : reel
-    )));
-  };
-
-  const handleToggleVerified = async () => {
-    const userObj = selectedActionTask?.user;
-    if (!userObj) return;
-
-    const is_verified = !userObj.profile?.is_verified;
-    try {
-      await api.post(`admin/users/${userObj.id}/verify/`, { is_verified });
-      updateReelUserProfile(userObj.id, { is_verified });
-      setActionModalVisible(false);
-    } catch (error) {
-      console.error('[ReelsScreen] Error actualizando verificación:', error.response?.data || error);
-    }
-  };
-
-  const handleToggleRecommended = async () => {
-    const userObj = selectedActionTask?.user;
-    if (!userObj) return;
-
-    const is_recommended = !userObj.profile?.is_recommended;
-    try {
-      await api.post(`admin/users/${userObj.id}/recommend/`, { is_recommended });
-      updateReelUserProfile(userObj.id, { is_recommended });
-      setActionModalVisible(false);
-    } catch (error) {
-      console.error('[ReelsScreen] Error actualizando recomendación:', error.response?.data || error);
-    }
-  };
-
-  const handleToggleProfileFavoriteDirect = useCallback(async (task) => {
-    if (!task || !task.user) return;
-    try {
-      const perfilId = task.user.id;
-      const isFav = !task.user.is_favorited;
-      const increment = isFav ? 1 : -1;
-      setReels(prev => prev.map(t => (t.user && t.user.id === perfilId) ? { ...t, user: { ...t.user, is_favorited: isFav, followers_count: (t.user.followers_count || 0) + increment } } : t));
-      await api.post("pfavoritos/agregar/", { perfil_id: perfilId });
-    } catch (error) {}
-  }, []);
-
-  const handleDeleteTask = async () => {
-    if (!selectedActionTask) return;
-    const taskId = selectedActionTask.id;
-    const executeDelete = async () => {
-      try {
-        await api.delete(`tasks/${taskId}/`);
-        setReels(prev => prev.filter(t => t.id !== taskId));
-        setActionModalVisible(false);
-      } catch (error) {}
-    };
-      if (window.confirm('¿Deseas eliminar esta tarea?')) executeDelete();
-    if (Platform.OS === 'web') {
-    } else {
-      Alert.alert('Eliminar Tarea', '¿Deseas eliminar esta tarea?', [{ text: 'Cancelar', style: 'cancel' }, { text: 'Eliminar', style: 'destructive', onPress: executeDelete }]);
-    }
-  };
+  // Menu de 3 puntos: mismo menu completo que el feed (componente + handlers compartidos)
+  const taskActions = useTaskActions({
+    navigation,
+    actionTask: selectedActionTask,
+    currentUserId,
+    close: () => setActionModalVisible(false),
+    refresh: () => refetchReels(),
+    onShare: (a) => openShareModal(a),
+    onDeleted: (a) => {
+      setReels(prev => prev.filter(t => t.id !== a?.id));
+      refetchReels();
+    },
+  });
 
   const toggleFavorite = useCallback(async (item) => {
     if (!item) return;
@@ -834,7 +801,16 @@ const ReelsScreen = ({ route }) => {
       <View style={{ flex: 1, position: 'relative' }}>
         {isUIVisible && (
           <View style={styles.topBar}>
-            <View style={styles.topBarLeft} />
+            <View style={styles.topBarLeft}>
+              {paused ? (
+                <SideMenu
+                  navigation={navigation}
+                  signOut={signOut}
+                  user={user}
+                  buttonStyle={styles.reelsMenuButton}
+                />
+              ) : null}
+            </View>
             <View style={styles.topBarCenter}>
               <TouchableOpacity onPress={() => handleTemaChange('consejos')}>
                   <Text style={[styles.topTab, tema === 'consejos' && styles.activeTab]}>Consejos</Text>
@@ -849,9 +825,18 @@ const ReelsScreen = ({ route }) => {
             <View style={styles.topBarRight} />
           </View>
         )}
-        {paused && (
-          <TouchableOpacity style={styles.pausedFilterButton} onPress={() => setFilterModalVisible(true)}>
-            <Ionicons name="options-outline" size={28} color="#fff" />
+        {isUIVisible && paused && (
+          <TouchableOpacity
+            style={styles.pausedFilterButton}
+            onPress={() => {
+              setPaused(true);
+              setFilterModalVisible(true);
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir filtros de Reels"
+          >
+            <Ionicons name="options-outline" size={28} color="#fff" style={styles.filterButtonIcon} />
           </TouchableOpacity>
         )}
         {loading && reels.length === 0 ? (
@@ -873,7 +858,7 @@ const ReelsScreen = ({ route }) => {
             <FlatList
               data={reels}
               ref={flatListRef}
-              renderItem={({ item, index }) => ( <ReelRenderer item={item} index={index} activeIndex={activeIndex} isMuted={isMuted} paused={paused} setPaused={setPaused} selectedReelId={selectedReelId} handleReelTap={handleReelTap} isUIVisible={isUIVisible} expandedDescriptions={expandedDescriptions} toggleDescription={toggleDescription} viewStateById={viewStateById} sharedOpenById={sharedOpenById} toggleSharedBy={toggleSharedBy} getSharedByInfo={stableGetSharedByInfo} cycleViewOnly={cycleViewOnly} cycleClipWithinView={cycleClipWithinView} navigateClip={navigateClip} toggleLike={toggleLike} toggleProfileLike={toggleProfileLike} likeAnimation={likeAnimation} navigation={navigation} toggleFavorite={toggleFavorite} handleRepost={handleRepost} openShareModal={openShareModal} handleShowShares={handleShowShares} handleShowLikes={handleShowLikes} handleShowProfileLikes={handleShowProfileLikes} openActionModal={openActionModal} tema={tema} taskLikesById={taskLikesById} taskSharesById={taskSharesById} profileLikesById={profileLikesById} pageHeight={pageHeight} /> )}
+              renderItem={({ item, index }) => ( <ReelRenderer item={item} index={index} activeIndex={activeIndex} isFocused={isFocused} isMuted={isMuted} paused={paused} setPaused={setPaused} selectedReelId={selectedReelId} handleReelTap={handleReelTap} isUIVisible={isUIVisible} expandedDescriptions={expandedDescriptions} toggleDescription={toggleDescription} viewStateById={viewStateById} sharedOpenById={sharedOpenById} toggleSharedBy={toggleSharedBy} getSharedByInfo={stableGetSharedByInfo} cycleViewOnly={cycleViewOnly} cycleClipWithinView={cycleClipWithinView} navigateClip={navigateClip} toggleLike={toggleLike} toggleProfileLike={toggleProfileLike} likeAnimation={likeAnimation} navigation={navigation} toggleFavorite={toggleFavorite} handleRepost={handleRepost} openShareModal={openShareModal} handleShowShares={handleShowShares} handleShowLikes={handleShowLikes} handleShowProfileLikes={handleShowProfileLikes} openActionModal={openActionModal} tema={tema} taskLikesById={taskLikesById} taskSharesById={taskSharesById} profileLikesById={profileLikesById} pageHeight={pageHeight} /> )}
               keyExtractor={(item) => item.id.toString()}
               pagingEnabled
               snapToInterval={pageHeight}
@@ -902,8 +887,11 @@ const ReelsScreen = ({ route }) => {
           currentSortBy={selectedSortBy}
           currentFavorites={selectedFavoritesOnly}
           currentFavoriteUsers={selectedFavoriteUsersOnly}
+          currentFollowedUsers={selectedFollowedUsersOnly}
           currentVerifiedUsers={selectedVerifiedUsersOnly}
           currentRecommendedUsers={selectedRecommendedUsersOnly}
+          currentVideosOnly={selectedVideosOnly}
+          showVideoOnlyFilter
           isSuperAdmin={isAdmin}
           onApply={(newFilters) => {
             setSelectedCategory(newFilters.category);
@@ -911,8 +899,20 @@ const ReelsScreen = ({ route }) => {
             setSelectedSortBy(newFilters.sort_by);
             setSelectedFavoritesOnly(newFilters.favorites_only);
             setSelectedFavoriteUsersOnly(newFilters.favorite_users_only);
+            setSelectedFollowedUsersOnly(newFilters.followed_users_only ?? false);
             setSelectedVerifiedUsersOnly(newFilters.verified_users_only);
             setSelectedRecommendedUsersOnly(newFilters.recommended_users_only);
+            if (newFilters.videos_only !== selectedVideosOnly) {
+              const previousVideosOnly = selectedVideosOnly;
+              const nextVideosOnly = Boolean(newFilters.videos_only);
+              setSelectedVideosOnly(nextVideosOnly);
+              AsyncStorage.setItem(REELS_VIDEOS_ONLY_KEY, String(newFilters.videos_only))
+                .catch((error) => {
+                  setSelectedVideosOnly(previousVideosOnly);
+                  console.error('[ReelsScreen] No se pudo guardar la preferencia de solo videos:', error);
+                  Alert.alert('No se guardó la preferencia', 'Inténtalo de nuevo.');
+                });
+            }
             // ✅ FIX: Si la lista se reordena, nos aseguramos de que el scroll vuelva al inicio
             // y el reel activo sea el primero. La carga la dispara el cambio de clave de la query.
             if (flatListRef.current) {
@@ -940,84 +940,20 @@ const ReelsScreen = ({ route }) => {
           taskDescription={taskShareDetails?.description || ''}
         />
         
-        <Modal visible={actionModalVisible} transparent animationType='fade' onRequestClose={() => setActionModalVisible(false)}>
-          <TouchableOpacity style={styles.overlayModal} activeOpacity={1} onPress={() => setActionModalVisible(false)}>
-            <View style={styles.actionModalContainer}>
-              <View style={styles.modalDragHandle} />
-              {selectedActionTask && (
-                <>
-                  <TouchableOpacity style={styles.actionOption} onPress={() => { setIsUIVisible(v => !v); setActionModalVisible(false); }}>
-                    <Ionicons name={isUIVisible ? 'eye-off-outline' : 'eye-outline'} size={20} color='#555' />
-                    <Text style={styles.actionText}>{isUIVisible ? 'Ocultar Interfaz' : 'Mostrar Interfaz'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionOption} onPress={handleToggleTaskFavorite}>
-                    <Ionicons name={selectedActionTask.is_favorited ? "bookmark" : "bookmark-outline"} size={20} color={selectedActionTask.is_favorited ? "#f1c40f" : "#555"} />
-                    <Text style={styles.actionText}>{selectedActionTask.is_favorited ? "Quitar de guardados" : "Guardar"}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); openShareModal(selectedActionTask); }}>
-                    <Ionicons name='paper-plane-outline' size={20} color='#555' />
-                    <Text style={styles.actionText}>Enviar o compartir</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.actionOption}
-                    onPress={() => { const target = selectedActionTask; setActionModalVisible(false); downloadTask(target); }}
-                    disabled={isDownloading}
-                    accessibilityLabel="Descargar imágenes y videos"
-                  >
-                    <Ionicons name="download-outline" size={20} color="#555" />
-                    <Text style={styles.actionText}>{isDownloading ? 'Descargando…' : 'Descargar'}</Text>
-                  </TouchableOpacity>
-                  {selectedActionTask.user && currentUserId !== selectedActionTask.user.id && (
-                    <>
-                      <TouchableOpacity style={styles.actionOption} onPress={handleDirectMessage}>
-                        <Ionicons name='chatbubbles-outline' size={20} color='#4dabf7' />
-                        <Text style={styles.actionText}>Mensaje Directo</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionOption} onPress={handleGoToForum}>
-                        <Ionicons name='person-outline' size={20} color='#4dabf7' />
-                        <Text style={styles.actionText}>Ir a su perfil/foro</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionOption} onPress={() => { handleToggleProfileFavoriteDirect(selectedActionTask); setActionModalVisible(false); }}>
-                        <Ionicons name={selectedActionTask.user.is_favorited ? "heart" : "heart-outline"} size={20} color={selectedActionTask.user.is_favorited ? "#ff0b5a" : "#555"} />
-                        <Text style={styles.actionText}>{selectedActionTask.user.is_favorited ? "Eliminar perfil de favoritos" : "Agregar perfil a favoritos"}</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                  {currentUserId === selectedActionTask.user?.id && (
-                    <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
-                      <Ionicons name='trash-outline' size={20} color='#ff6b6b' />
-                      <Text style={[styles.actionText, { color: '#ff6b6b', fontWeight: 'bold' }]}>Eliminar</Text>
-                    </TouchableOpacity>
-                  )}
-                  {isAdmin && selectedActionTask.user && (
-                    <>
-                      <TouchableOpacity style={styles.actionOption} onPress={handleToggleVerified}>
-                        <Ionicons
-                          name={selectedActionTask.user.profile?.is_verified ? 'checkmark-circle' : 'checkmark-circle-outline'}
-                          size={20}
-                          color={selectedActionTask.user.profile?.is_verified ? '#4dabf7' : '#555'}
-                        />
-                        <Text style={styles.actionText}>
-                          {selectedActionTask.user.profile?.is_verified ? 'Quitar Verificación' : 'Verificar Perfil'}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionOption} onPress={handleToggleRecommended}>
-                        <Ionicons
-                          name={selectedActionTask.user.profile?.is_recommended ? 'ribbon' : 'ribbon-outline'}
-                          size={20}
-                          color={selectedActionTask.user.profile?.is_recommended ? '#f59f00' : '#555'}
-                        />
-                        <Text style={styles.actionText}>
-                          {selectedActionTask.user.profile?.is_recommended ? 'Quitar Recomendación' : 'Recomendar Perfil'}
-                        </Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                </>
-              )}
-            </View>
-          </TouchableOpacity>
-        </Modal>
+        <TaskActionsModal
+          visible={actionModalVisible}
+          onClose={() => setActionModalVisible(false)}
+          actionTask={selectedActionTask}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          handlers={taskActions}
+          extraOptions={(
+            <TouchableOpacity style={styles.actionOption} onPress={() => { setIsUIVisible(v => !v); setActionModalVisible(false); }}>
+              <Ionicons name={isUIVisible ? 'eye-off-outline' : 'eye-outline'} size={20} color='#555' />
+              <Text style={styles.actionText}>{isUIVisible ? 'Ocultar Interfaz' : 'Mostrar Interfaz'}</Text>
+            </TouchableOpacity>
+          )}
+        />
       </View>
     </View>
   );
@@ -1025,13 +961,19 @@ const ReelsScreen = ({ route }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10, paddingHorizontal: 15, pointerEvents: 'box-none' },
-  topBarLeft: { flex: 1 },
+  topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 42, width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10, paddingHorizontal: 15, pointerEvents: 'box-none' },
+  topBarLeft: { flex: 1, minHeight: 36, justifyContent: 'center', alignItems: 'flex-start' },
+  reelsMenuButton: { padding: 4 },
   topBarCenter: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flex: 3 },
   topBarRight: { flex: 1, alignItems: 'flex-end' },
-  topTab: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700', marginHorizontal: 12, textShadowColor: 'rgba(0, 0, 0, 0.5)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },
+  topTab: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700', marginHorizontal: 12, textShadow: '1px 1px 3px rgba(0, 0, 0, 0.5)' },
   activeTab: { color: '#fff', fontSize: 17 },
-  pausedFilterButton: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 20, right: 15, zIndex: 11, padding: 5 },
+  pausedFilterButton: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 42, right: 15, zIndex: 11, padding: 4 },
+  filterButtonIcon: { textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  emptyReels: { minHeight: 240, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
+  emptyReelsText: { color: '#fff', fontSize: 14, textAlign: 'center' },
+  loadMoreVideosButton: { marginTop: 16, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 20, backgroundColor: '#4dabf7' },
+  loadMoreVideosText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   overlayModal: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   actionModalContainer: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 12, paddingBottom: Platform.OS === "ios" ? 40 : 24, shadowColor: "#000", shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
   modalDragHandle: { width: 40, height: 4, backgroundColor: "#e0e0e0", borderRadius: 2, alignSelf: "center", marginBottom: 20 },

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useContext, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useContext, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList,
   ActivityIndicator, RefreshControl, Platform, Modal, Alert,
@@ -9,22 +9,36 @@ import moment from 'moment';
 import { Image } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { getImageUrl } from '@api';
+import api, { getImageUrl } from '@api';
+import { setAccountActive, setAccountStaff } from '../utils/adminActions';
 import { AuthContext } from '@app';
+import SideMenu from '@components/SideMenu';
+import ReportContentButton from '@components/ReportContentButton';
+import ProfileRecommendations from '@components/ProfileRecommendations';
+import RecommendButton from '@components/RecommendButton';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import CategoryHierarchy from '@components/CategoryHierarchy';
 import ProfileSubscription from '@components/ProfileSubscription';
 import HiddenTaskBanner from '@components/HiddenTaskBanner';
 import TestimonialCard from '@components/TestimonialCard';
 import { NameWithBadges } from '@components/UserBadges';
+import LanguagePickerModal from '@components/LanguagePickerModal';
 import {
   useMe,
+  useProfileSocial,
   useProfileTasksInfinite,
   useProfileCategories,
   useFavoritesFeed,
   useUserTestimonials,
+  useStories,
 } from '@hooks/useApi';
+import { STORY_WINDOW_MS, getStoryMedia, parseCreatedAtMs } from './Stories24hScreen';
+
+// Controles opcionales del perfil (se guardan en el dispositivo; ocultos por defecto).
+const PROFILE_CONTROLS_KEY = 'profileControls';
+const DEFAULT_PROFILE_CONTROLS = { showFollowButton: false, showFilterAdd: false, showRecommendations: false };
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
 
@@ -35,21 +49,41 @@ const flattenPages = (data) =>
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 const ProfileScreen = ({ route, navigation }) => {
-  const { signOut } = useContext(AuthContext);
+  const { signOut, user: sessionUser } = useContext(AuthContext);
   const queryClient = useQueryClient();
   const { width: screenWidth } = useWindowDimensions();
   const detailItemWidth = Math.max(240, screenWidth - 80);
 
   const userId = route?.params?.userId || 'me';
   const isCurrentUser = userId === 'me';
+  const hasBackNavigation = (navigation.getState()?.index ?? 0) > 0 || !isCurrentUser;
 
   // ── Estado local (solo UI, no datos remotos) ──────────────────────────────
   const [selectedCategory, setSelectedCategory] = useState('');
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
+  const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [showFavoriteFeed, setShowFavoriteFeed] = useState(false);
   const [favoriteFeedEnabled, setFavoriteFeedEnabled] = useState(false);
   const [viewMode, setViewMode] = useState('compact');
   const [visibleSections, setVisibleSections] = useState({});
+  const [profileControls, setProfileControls] = useState(DEFAULT_PROFILE_CONTROLS);
+  const { showFollowButton, showFilterAdd, showRecommendations } = profileControls;
+
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(PROFILE_CONTROLS_KEY)
+      .then((raw) => {
+        if (!active || !raw) return;
+        const saved = JSON.parse(raw);
+        setProfileControls({
+          showFollowButton: saved?.showFollowButton === true,
+          showFilterAdd: saved?.showFilterAdd === true,
+          showRecommendations: saved?.showRecommendations === true,
+        });
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   // ── Datos del usuario ─────────────────────────────────────────────────────
   const {
@@ -63,8 +97,34 @@ const ProfileScreen = ({ route, navigation }) => {
     ? me
     : { username: route?.params?.userName || '', user_image: route?.params?.userAvatar || null };
 
+  const socialUserId = isCurrentUser ? me?.id : userId;
+  const {
+    data: socialStats,
+    isLoading: socialLoading,
+    isError: socialStatsError,
+    refetch: refetchSocial,
+  } = useProfileSocial(socialUserId);
+  const [followUpdating, setFollowUpdating] = useState(false);
+
   // ownerId: el ID real del usuario para pasarlo a las categorías
   const ownerId = isCurrentUser ? me?.id : userId;
+
+  // ── Historia activa (aro en el avatar, como en otras redes) ───────────────
+  // Misma consulta y filtros que StoriesBar: comparten caché con Inicio.
+  const { data: storiesData } = useStories();
+  const activeStoryId = useMemo(() => {
+    if (!ownerId) return null;
+    const now = Date.now();
+    let first = null;
+    (Array.isArray(storiesData) ? storiesData : []).forEach((story) => {
+      const storyUserId = story?.user?.id || story?.user_id;
+      if (!storyUserId || String(storyUserId) !== String(ownerId) || !getStoryMedia(story)) return;
+      const createdMs = parseCreatedAtMs(story) || 0;
+      if (createdMs && now - createdMs > STORY_WINDOW_MS) return;
+      if (!first || createdMs < first.createdMs) first = { id: story.id, createdMs };
+    });
+    return first?.id ?? null;
+  }, [storiesData, ownerId]);
 
   // ── Tareas ────────────────────────────────────────────────────────────────
   const tasksParams = useMemo(
@@ -129,7 +189,8 @@ const ProfileScreen = ({ route, navigation }) => {
     useCallback(() => {
       if (isCurrentUser) refetchMe();
       refetchTasks();
-    }, [isCurrentUser])
+      if (socialUserId) refetchSocial();
+    }, [isCurrentUser, refetchMe, refetchTasks, refetchSocial, socialUserId])
   );
 
   // ── Acciones ──────────────────────────────────────────────────────────────
@@ -139,7 +200,153 @@ const ProfileScreen = ({ route, navigation }) => {
     refetchTasks();
     refetchCategories();
     refetchTestimonials();
-  }, [isCurrentUser]);
+    if (socialUserId) refetchSocial();
+  }, [isCurrentUser, refetchMe, refetchTasks, refetchCategories, refetchSocial, refetchTestimonials, socialUserId]);
+
+  // "Seguir" es una relación propia. Jerarquía: Seguir → Favorito → Anclado
+  // (favoritar sigue; dejar de seguir quita el favorito).
+  const toggleFollow = async () => {
+    if (!socialUserId || !socialStats || followUpdating) return;
+    setFollowUpdating(true);
+    try {
+      const wasFollowing = !!socialStats.is_following;
+      const response = wasFollowing
+        ? await api.delete(`users/${socialUserId}/follow/`)
+        : await api.post(`users/${socialUserId}/follow/`);
+      const data = response.data || {};
+      queryClient.setQueryData(['profileSocial', socialUserId], (prev) => prev ? {
+        ...prev,
+        is_following: !!data.is_following,
+        is_favorited: !!data.is_favorited,
+        followers_count: data.followers_count ?? prev.followers_count,
+        favorited_by_count: wasFollowing && prev.is_favorited
+          ? Math.max(0, (prev.favorited_by_count || 0) - 1)
+          : prev.favorited_by_count,
+      } : prev);
+      queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
+    } catch {
+      Alert.alert('Error', 'No se pudo actualizar el seguimiento. Inténtalo de nuevo.');
+    } finally {
+      setFollowUpdating(false);
+    }
+  };
+
+  const openFollowList = (mode) => {
+    if (!socialUserId) return;
+    navigation.navigate('FollowList', {
+      userId: socialUserId,
+      mode,
+      userName: user?.username || route?.params?.userName || '',
+    });
+  };
+
+  // FavoritesScreen: sin userId muestra los propios; con userId, los públicos de esa persona.
+  const openFavoriteProfiles = () => {
+    if (!socialUserId) return;
+    navigation.navigate('Favorites', isCurrentUser ? undefined : { userId: socialUserId });
+  };
+
+  // Perfil favorito: el endpoint alterna (201 agregado / 204 quitado) y no devuelve contadores.
+  const toggleFavoriteProfile = async () => {
+    if (!socialUserId || !socialStats || followUpdating) return;
+    setFollowUpdating(true);
+    try {
+      const response = await api.post('pfavoritos/agregar/', { perfil_id: socialUserId });
+      const isFavorited = response.status === 201;
+      queryClient.setQueryData(['profileSocial', socialUserId], (prev) => prev ? {
+        ...prev,
+        is_favorited: isFavorited,
+        // Favoritar sigue automáticamente (quitar el favorito no deja de seguir).
+        is_following: isFavorited ? true : prev.is_following,
+        followers_count: isFavorited && !prev.is_following
+          ? (prev.followers_count || 0) + 1
+          : prev.followers_count,
+        favorited_by_count: Math.max(0, (prev.favorited_by_count || 0) + (isFavorited ? 1 : -1)),
+      } : prev);
+      queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
+    } catch {
+      Alert.alert('Error', 'No se pudo actualizar el perfil favorito. Inténtalo de nuevo.');
+    } finally {
+      setFollowUpdating(false);
+    }
+  };
+
+  // Controles opcionales del perfil: ocultos hasta que se habilitan desde el menú de 3 puntos.
+  const updateProfileControls = useCallback((patch) => {
+    setProfileControls((prev) => {
+      const next = { ...prev, ...patch };
+      AsyncStorage.setItem(PROFILE_CONTROLS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const toggleFollowButton = () => {
+    setProfileMenuVisible(false);
+    updateProfileControls({ showFollowButton: !profileControls.showFollowButton });
+  };
+
+  const toggleRecommendations = () => {
+    setProfileMenuVisible(false);
+    updateProfileControls({ showRecommendations: !profileControls.showRecommendations });
+  };
+
+  const toggleFilterAdd = () => {
+    setProfileMenuVisible(false);
+    updateProfileControls({ showFilterAdd: !profileControls.showFilterAdd });
+  };
+
+  // ── Moderación (solo superadmin, sobre perfiles ajenos) ───────────────────
+  const isSuperAdmin = Boolean(sessionUser?.is_superuser);
+  const adminState = socialStats?.admin_state;
+  const adminTargetName = user?.username || route?.params?.userName || '';
+
+  const afterAdminChange = useCallback(() => {
+    refetchSocial();
+    queryClient.invalidateQueries({ queryKey: ['userRecommendations', socialUserId] });
+  }, [refetchSocial, queryClient, socialUserId]);
+
+  const adminToggleVerified = async () => {
+    setProfileMenuVisible(false);
+    try {
+      await api.post(`admin/users/${socialUserId}/verify/`, { is_verified: !adminState?.is_verified });
+      afterAdminChange();
+    } catch (error) {
+      Alert.alert('No se pudo actualizar', error.response?.data?.detail || 'Inténtalo de nuevo.');
+    }
+  };
+
+  const adminToggleRecommended = async () => {
+    setProfileMenuVisible(false);
+    try {
+      await api.post(`admin/users/${socialUserId}/recommend/`, { is_recommended: !adminState?.is_recommended });
+      afterAdminChange();
+    } catch (error) {
+      Alert.alert('No se pudo actualizar', error.response?.data?.detail || 'Inténtalo de nuevo.');
+    }
+  };
+
+  const adminToggleActive = () => {
+    setProfileMenuVisible(false);
+    setAccountActive(socialUserId, adminTargetName, !adminState?.is_active, afterAdminChange);
+  };
+
+  const adminToggleStaff = () => {
+    setProfileMenuVisible(false);
+    setAccountStaff(socialUserId, adminTargetName, !adminState?.is_staff, afterAdminChange);
+  };
+
+  const openRecommendedProfile = useCallback((person) => {
+    if (!person?.id) return;
+    const params = person.id === me?.id
+      ? { userId: 'me' }
+      : {
+          userId: person.id,
+          userName: person.username || person.name,
+          userAvatar: getImageUrl(person.user_image || person.profile?.user_image),
+        };
+    if (typeof navigation.push === 'function') navigation.push('UserProfile', params);
+    else navigation.navigate('UserProfile', params);
+  }, [me?.id, navigation]);
 
   const loadMoreTasks = () => {
     if (hasNextPage && !isFetchingNextPage) fetchNextPage();
@@ -165,7 +372,6 @@ const ProfileScreen = ({ route, navigation }) => {
   const togglePersonalFilterVisibility = async () => {
     const nextValue = !personalFilterPublic;
     try {
-      const api = (await import('@api')).default;
       const response = await api.patch('categories/visibility/', {
         personal_filter_public: nextValue,
       });
@@ -385,10 +591,20 @@ const ProfileScreen = ({ route, navigation }) => {
   const renderHeader = () => (
     <View style={styles.profileHeader}>
       <View style={styles.profileInfoContainer}>
-        <Image
-          source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }}
-          style={styles.profileAvatar}
-        />
+        <TouchableOpacity
+          style={styles.profileAvatarWrap}
+          activeOpacity={activeStoryId ? 0.8 : 1}
+          disabled={!activeStoryId}
+          onPress={() => navigation.navigate('Stories', { openStoryId: activeStoryId })}
+          accessibilityRole={activeStoryId ? 'button' : undefined}
+          accessibilityLabel={activeStoryId ? 'Ver historia' : undefined}
+        >
+          <Image
+            source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }}
+            style={styles.profileAvatar}
+          />
+          {activeStoryId ? <View pointerEvents="none" style={styles.profileStoryRing} /> : null}
+        </TouchableOpacity>
         <View style={styles.profileTextContainer}>
           <NameWithBadges userId={ownerId} style={styles.profileName} badgeSize={20} numberOfLines={2}>
             {user?.first_name
@@ -405,7 +621,131 @@ const ProfileScreen = ({ route, navigation }) => {
             </View>
           ) : null}
         </View>
+        <RecommendButton userId={socialUserId} isCurrentUser={isCurrentUser} />
       </View>
+
+      {socialStatsError ? (
+        <TouchableOpacity
+          style={styles.socialStatsError}
+          onPress={() => refetchSocial()}
+          accessibilityRole="button"
+        >
+          <Text style={styles.socialStatsErrorText}>No se pudieron cargar las estadísticas. Toca para reintentar.</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.socialStatsRow}>
+          <TouchableOpacity
+            style={styles.socialStat}
+            onPress={() => openFollowList('followers')}
+            disabled={!socialUserId}
+            accessibilityRole="button"
+            accessibilityLabel="Ver seguidores"
+          >
+            <Text style={styles.socialStatCount}>
+              {socialLoading ? '…' : socialStats?.followers_count ?? '—'}
+            </Text>
+            <Text style={styles.socialStatLabel}>Seguidores</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.socialStat}
+            onPress={() => openFollowList('following')}
+            disabled={!socialUserId}
+            accessibilityRole="button"
+            accessibilityLabel="Ver a quién sigue"
+          >
+            <Text style={styles.socialStatCount}>
+              {socialLoading ? '…' : socialStats?.following_count ?? '—'}
+            </Text>
+            <Text style={styles.socialStatLabel}>Siguiendo</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.socialStat}
+            onPress={() => openFollowList('favoritedBy')}
+            disabled={!socialUserId}
+            accessibilityRole="button"
+            accessibilityLabel="Ver quién lo tiene en favoritos"
+          >
+            <Text style={styles.socialStatCount}>
+              {socialLoading ? '…' : socialStats?.favorited_by_count ?? '—'}
+            </Text>
+            <Text style={styles.socialStatLabel}>Lo tienen en favoritos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.socialStat}
+            onPress={openFavoriteProfiles}
+            disabled={!socialUserId || socialStats?.favorites_count == null}
+            accessibilityRole="button"
+            accessibilityLabel="Ver perfiles favoritos"
+          >
+            <Text style={styles.socialStatCount}>
+              {socialLoading ? '…' : socialStats?.favorites_count ?? '—'}
+            </Text>
+            <Text style={styles.socialStatLabel}>Perfiles favoritos</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {!isCurrentUser ? (
+        <View style={styles.profileActions}>
+          <TouchableOpacity
+            style={[
+              styles.followButton,
+              socialStats?.is_following && styles.followingButton,
+            ]}
+            onPress={toggleFollow}
+            disabled={!socialStats || socialLoading || followUpdating}
+            accessibilityRole="button"
+            accessibilityLabel={socialStats?.is_following ? 'Dejar de seguir' : 'Seguir'}
+          >
+            {followUpdating ? (
+              <ActivityIndicator size="small" color={socialStats?.is_following ? '#4dabf7' : '#fff'} />
+            ) : (
+              <Text
+                style={[
+                  styles.followButtonText,
+                  socialStats?.is_following && styles.followingButtonText,
+                ]}
+              >
+                {socialStats?.is_following ? 'Siguiendo' : 'Seguir'}
+              </Text>
+            )}
+          </TouchableOpacity>
+          {showFollowButton ? (
+          <TouchableOpacity
+            style={[
+              styles.followButton,
+              socialStats?.is_favorited && styles.followingButton,
+            ]}
+            onPress={toggleFavoriteProfile}
+            disabled={!socialStats || socialLoading || followUpdating}
+            accessibilityRole="button"
+            accessibilityLabel={socialStats?.is_favorited ? 'Quitar de perfiles favoritos' : 'Agregar a perfiles favoritos'}
+          >
+            <Text
+              style={[
+                styles.followButtonText,
+                socialStats?.is_favorited && styles.followingButtonText,
+              ]}
+            >
+              {socialStats?.is_favorited ? 'En favoritos' : 'Agregar a favoritos'}
+            </Text>
+          </TouchableOpacity>
+          ) : null}
+          <ReportContentButton targetType="user" targetId={socialUserId} />
+        </View>
+      ) : null}
+
+      {showRecommendations ? (
+        <>
+          <View style={styles.divider} />
+          <ProfileRecommendations
+            userId={socialUserId}
+            isCurrentUser={isCurrentUser}
+            currentUserId={me?.id}
+            onOpenProfile={openRecommendedProfile}
+          />
+        </>
+      ) : null}
 
       {ownerId ? (
         <ProfileSubscription
@@ -445,7 +785,7 @@ const ProfileScreen = ({ route, navigation }) => {
     <View style={styles.container}>
       {/* Barra superior */}
       <View style={styles.topBar}>
-        {(navigation.canGoBack() || !isCurrentUser) && (
+        {hasBackNavigation ? (
           <TouchableOpacity
             onPress={() =>
               navigation.canGoBack() ? navigation.goBack() : navigation.navigate('HomeMain')
@@ -454,17 +794,22 @@ const ProfileScreen = ({ route, navigation }) => {
           >
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
+        ) : (
+          <SideMenu
+            navigation={navigation}
+            signOut={signOut}
+            user={sessionUser}
+            buttonStyle={styles.sideMenuButton}
+          />
         )}
         <Text style={styles.topBarTitle}>Perfil</Text>
-        {isCurrentUser ? (
-          <TouchableOpacity
-            onPress={() => setProfileMenuVisible(true)}
-            style={styles.profileMenuButton}
-            accessibilityLabel="Opciones del perfil"
-          >
-            <Ionicons name="ellipsis-vertical" size={24} color="#333" />
-          </TouchableOpacity>
-        ) : null}
+        <TouchableOpacity
+          onPress={() => setProfileMenuVisible(true)}
+          style={styles.profileMenuButton}
+          accessibilityLabel="Opciones del perfil"
+        >
+          <Ionicons name="ellipsis-vertical" size={24} color="#333" />
+        </TouchableOpacity>
       </View>
 
       {/* Menú de opciones */}
@@ -480,6 +825,8 @@ const ProfileScreen = ({ route, navigation }) => {
           onPress={() => setProfileMenuVisible(false)}
         >
           <View style={styles.profileMenuCard}>
+            {isCurrentUser ? (
+              <>
             <TouchableOpacity style={styles.profileMenuOption} onPress={openFavoriteFeed}>
               <Ionicons name="star-outline" size={20} color="#f59f00" />
               <Text style={styles.profileMenuText}>Favoritos</Text>
@@ -514,6 +861,16 @@ const ProfileScreen = ({ route, navigation }) => {
               <Ionicons name="card-outline" size={20} color="#2f9e44" />
               <Text style={styles.profileMenuText}>Mis suscripciones</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileMenuOption}
+              onPress={() => {
+                setProfileMenuVisible(false);
+                setLanguageModalVisible(true);
+              }}
+            >
+              <Ionicons name="language-outline" size={20} color="#7048e8" />
+              <Text style={styles.profileMenuText}>Mi idioma (traductor)</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.profileMenuOption} onPress={handleLogout}>
               <Ionicons name="log-out-outline" size={20} color="#ff6b6b" />
               <Text style={styles.profileMenuText}>Cerrar sesión</Text>
@@ -533,9 +890,93 @@ const ProfileScreen = ({ route, navigation }) => {
                   : 'Usar mi filtro en toda la app'}
               </Text>
             </TouchableOpacity>
+              </>
+            ) : null}
+            {isCurrentUser ? (
+              <TouchableOpacity style={styles.profileMenuOption} onPress={toggleFilterAdd}>
+                <Ionicons
+                  name={showFilterAdd ? 'remove-circle-outline' : 'add-circle-outline'}
+                  size={20}
+                  color="#4dabf7"
+                />
+                <Text style={styles.profileMenuText}>
+                  {showFilterAdd ? 'Ocultar agregar categoría a mi filtro' : 'Mostrar agregar categoría a mi filtro'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.profileMenuOption} onPress={toggleFollowButton}>
+                <Ionicons
+                  name={showFollowButton ? 'heart-dislike-outline' : 'heart-outline'}
+                  size={20}
+                  color="#ff0b5a"
+                />
+                <Text style={styles.profileMenuText}>
+                  {showFollowButton ? 'Ocultar botón de favoritos' : 'Mostrar botón de favoritos'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.profileMenuOption} onPress={toggleRecommendations}>
+              <Ionicons
+                name={showRecommendations ? 'eye-off-outline' : 'ribbon-outline'}
+                size={20}
+                color="#f59f00"
+              />
+              <Text style={styles.profileMenuText}>
+                {showRecommendations ? 'Ocultar recomendaciones' : 'Mostrar recomendaciones'}
+              </Text>
+            </TouchableOpacity>
+            {isSuperAdmin && !isCurrentUser && adminState ? (
+              <>
+                <Text style={styles.profileMenuSection}>Administración</Text>
+                <TouchableOpacity style={styles.profileMenuOption} onPress={adminToggleVerified}>
+                  <Ionicons
+                    name={adminState.is_verified ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                    size={20}
+                    color="#4dabf7"
+                  />
+                  <Text style={styles.profileMenuText}>
+                    {adminState.is_verified ? 'Quitar verificación' : 'Verificar perfil'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.profileMenuOption} onPress={adminToggleRecommended}>
+                  <Ionicons
+                    name={adminState.is_recommended ? 'ribbon' : 'ribbon-outline'}
+                    size={20}
+                    color="#f59f00"
+                  />
+                  <Text style={styles.profileMenuText}>
+                    {adminState.is_recommended ? 'Quitar recomendación' : 'Recomendar perfil'}
+                  </Text>
+                </TouchableOpacity>
+                {!adminState.is_superuser ? (
+                  <>
+                    <TouchableOpacity style={styles.profileMenuOption} onPress={adminToggleActive}>
+                      <Ionicons
+                        name={adminState.is_active ? 'pause-circle-outline' : 'play-circle-outline'}
+                        size={20}
+                        color={adminState.is_active ? '#ff6b6b' : '#2f9e44'}
+                      />
+                      <Text style={[styles.profileMenuText, adminState.is_active && { color: '#ff6b6b' }]}>
+                        {adminState.is_active ? 'Suspender cuenta' : 'Reactivar cuenta'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.profileMenuOption} onPress={adminToggleStaff}>
+                      <Ionicons name="shield-outline" size={20} color="#845ef7" />
+                      <Text style={styles.profileMenuText}>
+                        {adminState.is_staff ? 'Quitar staff' : 'Hacer staff'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : null}
+              </>
+            ) : null}
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {isCurrentUser ? (
+        <LanguagePickerModal visible={languageModalVisible} onClose={() => setLanguageModalVisible(false)} />
+      ) : null}
 
       {/* Filtros */}
       <View style={styles.appFilterSection}>
@@ -556,6 +997,7 @@ const ProfileScreen = ({ route, navigation }) => {
       {isCurrentUser ? (
         <PersonalCategoryFilter
           isOwner
+          canEdit={showFilterAdd}
           title="Mi filtro"
           excludeNames={appCategoryNames}
           onSelect={handleCategorySelect}
@@ -687,14 +1129,16 @@ const ProfileScreen = ({ route, navigation }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5' },
-  topBar: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', paddingTop: Platform.OS === 'ios' ? 50 : 16 },
-  backBtn: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 16, zIndex: 10 },
+  topBar: { padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', paddingTop: Platform.OS === 'ios' ? 50 : 34 },
+  backBtn: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 34, zIndex: 10 },
   topBarTitle: { fontSize: 20, fontWeight: '800', color: '#333' },
-  profileMenuButton: { position: 'absolute', right: 16, top: Platform.OS === 'ios' ? 50 : 16, padding: 4 },
-  profileMenuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: Platform.OS === 'ios' ? 92 : 58, paddingRight: 12 },
+  profileMenuButton: { position: 'absolute', right: 16, top: Platform.OS === 'ios' ? 50 : 34, padding: 4 },
+  sideMenuButton: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 34, zIndex: 10 },
+  profileMenuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: Platform.OS === 'ios' ? 92 : 76, paddingRight: 12 },
   profileMenuCard: { backgroundColor: '#fff', borderRadius: 12, padding: 6, minWidth: 220, elevation: 6 },
   profileMenuOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12, gap: 8 },
   profileMenuText: { color: '#333', fontSize: 14, fontWeight: '600' },
+  profileMenuSection: { color: '#868e96', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginTop: 6, paddingHorizontal: 12, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#f1f3f5' },
   appFilterSection: { marginBottom: 6 },
   appFilterTitle: { marginHorizontal: 16, fontSize: 13, fontWeight: '800', color: '#555' },
   emptyFilterText: { marginHorizontal: 16, marginTop: 6, color: '#999', fontSize: 12 },
@@ -723,7 +1167,23 @@ const styles = StyleSheet.create({
   clearFilterText: { color: '#4dabf7', fontSize: 12, fontWeight: '700' },
   profileHeader: { padding: 20, backgroundColor: '#fff', marginBottom: 10 },
   profileInfoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  profileAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#eee', marginRight: 15 },
+  socialStatsRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 22, rowGap: 8, marginBottom: 16 },
+  socialStat: { alignItems: 'flex-start' },
+  socialStatCount: { color: '#333', fontSize: 16, fontWeight: '800' },
+  socialStatLabel: { color: '#777', fontSize: 12, marginTop: 2 },
+  socialStatsError: { marginBottom: 16 },
+  socialStatsErrorText: { color: '#d9480f', fontSize: 12 },
+  followButton: { alignItems: 'center', justifyContent: 'center', minHeight: 38, borderRadius: 20, backgroundColor: '#4dabf7', paddingHorizontal: 22, alignSelf: 'flex-start', marginBottom: 4 },
+  profileActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  followingButton: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#4dabf7' },
+  followButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  followingButtonText: { color: '#4dabf7' },
+  profileAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#eee' },
+  profileAvatarWrap: { width: 70, height: 70, marginRight: 15 },
+  profileStoryRing: {
+    position: 'absolute', top: -5, left: -5, width: 80, height: 80, borderRadius: 40,
+    borderWidth: 3, borderColor: '#4dabf7',
+  },
   profileTextContainer: { flex: 1 },
   profileName: { fontSize: 22, fontWeight: 'bold', color: '#333' },
   profileEmail: { fontSize: 14, color: '#666', marginTop: 4 },

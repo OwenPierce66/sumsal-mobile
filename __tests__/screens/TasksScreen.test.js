@@ -12,6 +12,11 @@ import api from '@api';
 import { AuthContext } from '@app';
 import TasksScreen from '../../screens/TasksScreen';
 
+// El corazón de seguir junto a cada nombre (useMyRelations) necesita React Query; aquí no aplica.
+jest.mock('../../hooks/useMyRelations', () => ({
+  useMyRelations: () => ({ ready: false, getState: () => null, setStateLocally: () => {}, refresh: () => {} }),
+}));
+
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
 
@@ -61,7 +66,11 @@ jest.mock('@hooks/useApi', () => ({
   useTasksInfinite: () => mockTasksQuery,
   useSharedTasksInfinite: () => mockSharedQuery,
   useCategories: () => ({ data: [] }),
+  useStories: () => ({ data: [], refetch: jest.fn() }),
+  useTasks: () => ({ data: [], isLoading: false, refetch: jest.fn() }),
+  useMe: () => ({ data: mockMe }),
 }));
+const mockMe = { id: 'yo' };
 
 const textsOf = (renderer) => renderer.root
   .findAllByType(Text)
@@ -86,6 +95,9 @@ const openTaskActions = async (renderer) => {
 
 let mounted;
 async function renderFeed(user) {
+  // El menú de 3 puntos lee quién soy (y si soy superadmin) de useMe.
+  Object.keys(mockMe).forEach((key) => delete mockMe[key]);
+  Object.assign(mockMe, user);
   const client = new QueryClient();
   await act(async () => {
     mounted = TestRenderer.create(

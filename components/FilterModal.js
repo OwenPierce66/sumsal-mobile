@@ -177,7 +177,7 @@ const DraggableSubtheme = ({ name, index, subthemes, selected, onSelect, onReord
   );
 };
 
-const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, isSuperAdmin, currentPch }) => {
+const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentFollowedUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, showVideoOnlyFilter = false, isSuperAdmin, currentPch }) => {
   const [categories, setCategories] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
@@ -188,8 +188,10 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const [sortBy, setSortBy] = useState(currentSortBy || 'recent');
   const [favoritesOnly, setFavoritesOnly] = useState(currentFavorites || false);
   const [favoriteUsersOnly, setFavoriteUsersOnly] = useState(currentFavoriteUsers || false);
+  const [followedUsersOnly, setFollowedUsersOnly] = useState(currentFollowedUsers || false);
   const [verifiedUsersOnly, setVerifiedUsersOnly] = useState(currentVerifiedUsers || false);
   const [recommendedUsersOnly, setRecommendedUsersOnly] = useState(currentRecommendedUsers || false);
+  const [videosOnly, setVideosOnly] = useState(currentVideosOnly || false);
   // ✅ USAMOS LA PROP DIRECTAMENTE, NO UN ESTADO LOCAL
   const isSuper = isSuperAdmin;
   const [newCatName, setNewCatName] = useState('');
@@ -342,9 +344,11 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setSortBy(currentSortBy || 'recent');
     setFavoritesOnly(currentFavorites || false);
     setFavoriteUsersOnly(currentFavoriteUsers || false);
+    setFollowedUsersOnly(currentFollowedUsers || false);
     setVerifiedUsersOnly(currentVerifiedUsers || false);
     setRecommendedUsersOnly(currentRecommendedUsers || false);
-  }, [currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentVerifiedUsers, currentRecommendedUsers, visible, subthemesTree]);
+    setVideosOnly(currentVideosOnly || false);
+  }, [currentCategory, currentStatus, currentDateFilter, currentSortBy, currentFavorites, currentFavoriteUsers, currentFollowedUsers, currentVerifiedUsers, currentRecommendedUsers, currentVideosOnly, visible, subthemesTree]);
 
   const fetchCategories = async () => {
     try {
@@ -408,6 +412,9 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
   const sortOptions = [
     { label: 'Más recientes', value: 'recent' },
     { label: 'Más likes', value: 'likes' },
+    { label: 'Top 24 h', value: 'top_day' },
+    { label: 'Top semanal', value: 'top_week' },
+    { label: 'Top mensual', value: 'top_month' },
   ];
 
   const selectMainCategory = (category) => {
@@ -552,8 +559,10 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       sort_by: sortBy,
       favorites_only: favoritesOnly,
       favorite_users_only: favoriteUsersOnly,
+      followed_users_only: followedUsersOnly,
       verified_users_only: verifiedUsersOnly,
       recommended_users_only: recommendedUsersOnly,
+      videos_only: videosOnly,
     });
     onClose();
   };
@@ -567,8 +576,10 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
     setSortBy('recent');
     setFavoritesOnly(false);
     setFavoriteUsersOnly(false);
+    setFollowedUsersOnly(false);
     setVerifiedUsersOnly(false);
     setRecommendedUsersOnly(false);
+    setVideosOnly(showVideoOnlyFilter);
     onApply({
       category: '',
       status: '',
@@ -576,8 +587,10 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
       sort_by: 'recent',
       favorites_only: false,
       favorite_users_only: false,
+      followed_users_only: false,
       verified_users_only: false,
       recommended_users_only: false,
+      videos_only: showVideoOnlyFilter,
     });
     onClose();
   };
@@ -809,7 +822,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                     favoritesOnly && styles.optionTextActive,
                   ]}
                 >
-                  Mis Favoritas
+                  {favoritesOnly ? 'Solo mis favoritas' : 'Modo general (todas)'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -826,6 +839,22 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   ]}
                 >
                   Mis Usuarios Favoritos
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.optionBadge,
+                  followedUsersOnly && styles.optionBadgeActive,
+                ]}
+                onPress={() => setFollowedUsersOnly(!followedUsersOnly)}
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    followedUsersOnly && styles.optionTextActive,
+                  ]}
+                >
+                  Personas que sigo
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -860,6 +889,18 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   Usuarios Recomendados
                 </Text>
               </TouchableOpacity>
+              {showVideoOnlyFilter && (
+                <TouchableOpacity
+                  style={[styles.optionBadge, videosOnly && styles.optionBadgeActive]}
+                  onPress={() => setVideosOnly((value) => !value)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: videosOnly }}
+                >
+                  <Text style={[styles.optionText, videosOnly && styles.optionTextActive]}>
+                    {videosOnly ? 'Solo videos' : 'Videos e imágenes'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <Text style={styles.sectionTitle}>Fecha</Text>
@@ -900,7 +941,7 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                     favoritesOnly && styles.optionTextActive,
                   ]}
                 >
-                  Mis Favoritas
+                  {favoritesOnly ? 'Solo mis favoritas' : 'Modo general (todas)'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -917,6 +958,22 @@ const FilterModal = ({ visible, onClose, onApply, currentCategory, currentStatus
                   ]}
                 >
                   Mis Usuarios Favoritos
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.optionBadge,
+                  followedUsersOnly && styles.optionBadgeActive,
+                ]}
+                onPress={() => setFollowedUsersOnly(!followedUsersOnly)}
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    followedUsersOnly && styles.optionTextActive,
+                  ]}
+                >
+                  Personas que sigo
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity

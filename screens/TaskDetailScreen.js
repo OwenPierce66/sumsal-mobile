@@ -1,7 +1,7 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Modal,
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, TextInput, FlatList, Platform, KeyboardAvoidingView, Dimensions
+  ActivityIndicator, Alert, TextInput, Platform, KeyboardAvoidingView, Dimensions, useWindowDimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,147 +9,26 @@ import moment from 'moment';
 import 'moment/locale/es'; 
 import api, { getImageUrl } from '@api';
 import { Image } from 'expo-image';
-import { Video } from 'expo-av';
 import ShareModal from '@components/ShareModal';
 import TieredLikesModal from './TieredLikesModal';
-import Slider from '@react-native-community/slider';
+import ShareActionMenu from './ShareActionMenu';
+import TaskPostCard, { FeedVideoVisibilityContext } from '@components/TaskPostCard';
+import TaskActionsModal from '@components/TaskActionsModal';
+import ReportContentButton from '@components/ReportContentButton';
+import useTaskActions from '@hooks/useTaskActions';
 import TouchableUsername from '@components/TouchableUsername';
-import CategoryHierarchy from '@components/CategoryHierarchy';
 import AportacionCard from '@components/AportacionCard';
 import FavoriteAportacionPicker from '@components/FavoriteAportacionPicker';
-import LinkifiedText from '@components/LinkifiedText';
-import { useTaskDetail, useTaskComments, useMe, useIsAdmin } from '@hooks/useApi';
-import { useDownloadTask } from '@hooks/useDownloadTask';
 import HiddenTaskBanner from '@components/HiddenTaskBanner';
 import UserTagPicker from '@components/UserTagPicker';
+import { useTaskDetail, useTaskComments, useMe, useIsAdmin } from '@hooks/useApi';
+import { buildCommentPayload, getCommentAportacion } from '../utils/commentAportacion';
 import { toAportacionInfo } from '../utils/aportaciones';
-import { withLegacyLink } from '../utils/links';
 
 moment.locale('es');
 
 /** Ids etiquetados, en orden estable, para saber si cambiaron al editar. */
 const tagIdsKey = (users) => users.map((user) => String(user.id)).sort().join(',');
-
-const isVideoMedia = (path) => {
-  const value = String(path || '').toLowerCase();
-  return value.startsWith('data:video/') || /\.(mp4|mov|avi|mkv|webm|m4v)(\?|$)/i.test(value);
-};
-
-const DETAIL_VIDEO_AUTOPLAY_DELAY_MS = 500;
-
-const DetailVideoPreview = ({ uri, onOpenReel }) => {
-  const containerRef = useRef(null);
-  const playerRef = useRef(null);
-  const visibleSinceRef = useRef(null);
-  const [isVisible, setIsVisible] = useState(false);
-  const [isReadyToPlay, setIsReadyToPlay] = useState(false);
-  const [isPausedByUser, setIsPausedByUser] = useState(false);
-  const [controlsVisible, setControlsVisible] = useState(false);
-  const [playbackStatus, setPlaybackStatus] = useState({});
-
-  useEffect(() => {
-    setIsReadyToPlay(false);
-    if (isVisible) {
-      visibleSinceRef.current = Date.now();
-    } else {
-      visibleSinceRef.current = null;
-      setIsPausedByUser(false);
-    }
-  }, [isVisible]);
-
-  useEffect(() => {
-    if (!isReadyToPlay || !isVisible || isPausedByUser) return undefined;
-    playerRef.current?.playAsync().catch(() => {});
-    return undefined;
-  }, [isReadyToPlay, isVisible, isPausedByUser]);
-
-  useEffect(() => {
-    const checkVisibility = () => {
-      containerRef.current?.measureInWindow((x, y, width, height) => {
-        const viewport = Dimensions.get('window');
-        const visible = x + width > 0 && x < viewport.width && y + height > 0 && y < viewport.height;
-        setIsVisible(visible);
-        if (visible && visibleSinceRef.current && Date.now() - visibleSinceRef.current >= DETAIL_VIDEO_AUTOPLAY_DELAY_MS) {
-          setIsReadyToPlay(true);
-        }
-      });
-    };
-    const interval = setInterval(checkVisibility, 250);
-    checkVisibility();
-    return () => clearInterval(interval);
-  }, []);
-
-  const togglePlayback = () => {
-    if (playbackStatus.isPlaying) {
-      setIsPausedByUser(true);
-      playerRef.current?.pauseAsync();
-    } else {
-      setIsPausedByUser(false);
-      playerRef.current?.playAsync();
-    }
-    setControlsVisible(true);
-  };
-
-  return (
-    <View ref={containerRef} collapsable={false} style={styles.detailVideoWrapper}>
-      <Video
-        ref={playerRef}
-        source={{ uri: getImageUrl(uri) }}
-        style={styles.detailVideo}
-        resizeMode="contain"
-        shouldPlay={isReadyToPlay && isVisible && !isPausedByUser}
-        isLooping
-        onPlaybackStatusUpdate={setPlaybackStatus}
-      />
-      <TouchableOpacity style={styles.detailVideoTouchSurface} activeOpacity={1} onPress={() => setControlsVisible((visible) => !visible)} />
-      {controlsVisible && (
-        <View style={styles.detailVideoControls} pointerEvents="box-none">
-          <TouchableOpacity style={styles.detailVideoControlButton} onPress={togglePlayback}>
-            <Ionicons name={playbackStatus.isPlaying ? 'pause' : 'play'} size={20} color="#fff" />
-          </TouchableOpacity>
-          <Slider
-            style={styles.detailVideoProgress}
-            minimumValue={0}
-            maximumValue={playbackStatus.durationMillis || 1}
-            value={playbackStatus.positionMillis || 0}
-            onSlidingStart={() => setIsPausedByUser(true)}
-            onSlidingComplete={(value) => {
-              playerRef.current?.setPositionAsync(value);
-              setIsPausedByUser(false);
-            }}
-            minimumTrackTintColor="#fff"
-            maximumTrackTintColor="rgba(255,255,255,0.45)"
-            thumbTintColor="#fff"
-          />
-          <TouchableOpacity accessibilityLabel="Abrir video en reels" style={styles.detailExpandButton} onPress={onOpenReel}>
-            <Ionicons name="expand-outline" size={22} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
-};
-
-const MediaPreview = ({ uri, label, onOpenReel }) => {
-  if (!uri) return null;
-  const mediaUri = getImageUrl(uri);
-
-  if (isVideoMedia(uri)) {
-    return (
-      <View style={styles.mediaBlock}>
-        <DetailVideoPreview uri={uri} onOpenReel={onOpenReel} />
-        <Text style={styles.mediaLabel}>{label}</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.mediaBlock}>
-      <Image source={{ uri: mediaUri }} style={styles.detailImage} contentFit="cover" />
-      <Text style={styles.mediaLabel}>{label}</Text>
-    </View>
-  );
-};
 
 // =====================================================================
 // COMPONENTE RECURSIVO (COMENTARIOS)
@@ -166,6 +45,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
     return children.reduce((total, child) => total + 1 + countAllReplies(child.children || []), 0);
   };
   const totalReplies = countAllReplies(comment.children);
+  const aportacion = getCommentAportacion(comment);
 
   // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DEL COMENTARIO
 // ⚡ HELPER PARA EL NOMBRE DEL COMENTARIO (Basado en tu modelo de Django)
@@ -208,6 +88,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
               <Text style={styles.commentDate}>
                 {moment(comment.created_at).fromNow()}
               </Text>
+              <ReportContentButton targetType="comment" targetId={comment.id} size={15} />
               
               {/* BOTÓN DE ELIMINAR */}
               {(currentUserId === comment.created_by?.id || currentUserId === comment.user?.id) && (
@@ -251,10 +132,10 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
         </View>
       ) : null}
 
-      {comment.aportacion_info ? (
+      {aportacion ? (
         <AportacionCard
           info={comment.aportacion_info}
-          onPress={() => onOpenAportacion(comment.aportacion_info)}
+          onPress={() => onOpenAportacion(aportacion)}
           style={styles.commentAportacion}
         />
       ) : null}
@@ -316,16 +197,14 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [podcastInvitationStatus, setPodcastInvitationStatus] = useState(null);
   const [respondingToPodcast,     setRespondingToPodcast]     = useState(false);
   const [expandedCommentIds, setExpandedCommentIds] = useState([]);
-
-  // Aportación favorita adjunta al comentario o a la respuesta (formato aportacion_info).
-  const [attachedAportacion,      setAttachedAportacion]      = useState(null);
+  // Aportación favorita adjunta al comentario o respuesta (también al editar).
+  const [attachedAportacion, setAttachedAportacion] = useState(null);
   const [aportacionPickerVisible, setAportacionPickerVisible] = useState(false);
-  // Al editar: la aportación que ya tenía, para enviarla solo si cambió.
-  const [editingAportacionId,     setEditingAportacionId]     = useState(null);
+  const [editingAportacionId, setEditingAportacionId] = useState(null);
   // Personas etiquetadas en el comentario (testimonio en su perfil si lo aprueban).
-  const [commentTags,             setCommentTags]             = useState([]);
-  const [tagPickerVisible,        setTagPickerVisible]        = useState(false);
-  const [editingTagIds,           setEditingTagIds]           = useState('');
+  const [commentTags, setCommentTags] = useState([]);
+  const [tagPickerVisible, setTagPickerVisible] = useState(false);
+  const [editingTagIds, setEditingTagIds] = useState('');
 
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
@@ -337,7 +216,6 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [taskToShare,       setTaskToShare]       = useState(null);
   // Modal de acciones
   const [actionModalVisible, setActionModalVisible] = useState(false);
-  const { downloadTask, isDownloading } = useDownloadTask();
 
   const openMediaInReels = useCallback((mediaUri) => {
     if (!task?.id || !mediaUri) return;
@@ -349,60 +227,117 @@ const TaskDetailScreen = ({ route, navigation }) => {
     });
   }, [navigation, task?.id]);
 
-  const handleDeleteTask = async () => {
-    const executeDelete = async () => {
-      try {
-        await api.delete("tasks/" + taskId + "/");
-        setActionModalVisible(false);
-        if (Platform.OS === "web") {
-          window.alert("Éxito: Tarea eliminada.");
-        } else {
-          Alert.alert("Éxito", "Tarea eliminada.");
-        }
-        navigation.goBack();
-      } catch (error) {
-        console.error("Error deleting task:", error);
-      }
-    };
+  const [shareActionMenuVisible, setShareActionMenuVisible] = useState(false);
 
-    if (Platform.OS === "web") {
-      if (window.confirm("¿Estás seguro de que deseas eliminar esta tarea permanentemente?")) executeDelete();
+  const { width: screenWidth } = useWindowDimensions();
+  const carouselWidth = Math.max(280, screenWidth - 56);
+
+  // Autoplay de videos: se mide contra el ScrollView real (no toda la ventana)
+  const scrollRef = useRef(null);
+  const repostInFlightRef = useRef(false);
+  const getScrollBounds = useCallback((callback) => {
+    const node = scrollRef.current?.getNativeScrollRef?.() || scrollRef.current;
+    if (node && typeof node.measureInWindow === 'function') {
+      node.measureInWindow((x, y, width, height) => callback({ x, y, width, height }));
     } else {
-      Alert.alert("Eliminar Tarea", "¿Estás seguro de que deseas eliminar esta tarea permanentemente?", [
-        { text: "Cancelar", style: "cancel" },
-        { text: "Eliminar", style: "destructive", onPress: executeDelete }
-      ]);
+      callback(null);
     }
+  }, []);
+  const videoVisibility = useMemo(
+    () => ({ visibleIds: null, getListBounds: getScrollBounds }),
+    [getScrollBounds]
+  );
+
+  const openSubMediaInReels = useCallback((subTask, sub, section) => {
+    if (!subTask?.id || !sub?.video) return;
+    navigation.navigate('Reels', {
+      openTaskId: subTask.id,
+      openMediaSrc: sub.video,
+      openMediaType: 'video',
+      openMediaSection: section,
+      openMediaRequestId: Date.now(),
+    });
+  }, [navigation]);
+
+  const handleShareSubItemToStory = useCallback(async (subTask, section, sub) => {
+    if (!subTask || !sub) return;
+    try {
+      await api.post('stories/share-task/', {
+        task_id: subTask.id,
+        source_item_type: section,
+        source_item_id: sub.id,
+      });
+      Alert.alert('Éxito', 'Se compartió la aportación en tu historia de 24 horas.');
+      navigation.navigate('Stories');
+    } catch (error) {
+      Alert.alert('Error', error.response?.data?.error || 'No se pudo compartir esta aportación en historia.');
+    }
+  }, [navigation]);
+
+  const handleShareToStory = useCallback(async () => {
+    if (!task?.id) return;
+    try {
+      await api.post('stories/share-task/', { task_id: task.id });
+      Alert.alert('Éxito', 'Se compartió en tu historia de 24 horas.');
+      navigation.navigate('Stories');
+    } catch (error) {
+      Alert.alert('Error', error.response?.data?.error || 'No se pudo compartir esta tarea en historia.');
+    }
+  }, [task?.id, navigation]);
+
+  const handleRepost = useCallback(async () => {
+    if (!task?.id || repostInFlightRef.current) return;
+    repostInFlightRef.current = true;
+    const original = {
+      user_has_reposted: Boolean(task.user_has_reposted),
+      user_has_liked: Boolean(task.user_has_liked),
+      likes_count: task.likes_count || 0,
+      interaction_score: task.interaction_score || 0,
+    };
+    const nextReposted = !original.user_has_reposted;
+    const updateTask = (userHasReposted, userHasLiked, likesCount, interactionScore) => {
+      setTask(prev => prev ? {
+        ...prev,
+        user_has_reposted: userHasReposted,
+        user_has_liked: userHasLiked,
+        likes_count: likesCount,
+        interaction_score: interactionScore,
+      } : prev);
+    };
+    updateTask(
+      nextReposted,
+      original.user_has_liked || nextReposted,
+      original.likes_count + (!original.user_has_liked && nextReposted ? 1 : 0),
+      Math.max(0, original.interaction_score + (nextReposted ? 1 : -1)),
+    );
+    try {
+      const response = await api.post(`/tasks/${task.id}/repost/`);
+      updateTask(
+        response.data.user_has_reposted,
+        response.data.user_has_liked,
+        response.data.likes_count,
+        response.data.interaction_score,
+      );
+      Alert.alert('Éxito', response.data.reposted ? '¡Publicación impulsada!' : 'Se quitó el impulso; el like se conserva.');
+    } catch (error) {
+      console.error('Error al repostear:', error.response?.data || error);
+      Alert.alert('Error', 'Error al repostear. Inténtalo de nuevo.');
+      updateTask(original.user_has_reposted, original.user_has_liked, original.likes_count, original.interaction_score);
+    } finally {
+      repostInFlightRef.current = false;
+    }
+  }, [task?.id, task?.user_has_reposted, task?.user_has_liked, task?.likes_count, task?.interaction_score]);
+
+  const handleShowProfileLikes = (userId) => {
+    setLikesModalUrl(`profiles/${userId}/likes/`);
+    setLikesModalTitle('Likes del Perfil');
+    setLikesModalVisible(true);
   };
 
-  const handleApprovePodcast = () => {
-    if (!task?.id || !isAdmin) return;
-    const approve = async () => {
-      try {
-        const response = await api.post(`tasks/${task.id}/approve/`, { approve: true });
-        setTask(current => ({
-          ...current,
-          categories: response.data?.categories || current.categories,
-        }));
-        setActionModalVisible(false);
-        Alert.alert('Podcast aprobado', 'Se notificó al creador y a las personas etiquetadas.');
-      } catch (error) {
-        Alert.alert('No se pudo aprobar', error.response?.data?.detail || 'Intenta de nuevo.');
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm('¿Aprobar este podcast y notificar a sus involucrados?')) approve();
-    } else {
-      Alert.alert(
-        'Aprobar podcast',
-        'Se cambiará Procesando por Aprobada y se notificará al creador y a las personas etiquetadas.',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Aprobar', onPress: approve },
-        ],
-      );
-    }
+  const handleShowTaskShares = (sharedTaskId) => {
+    setLikesModalUrl(`tasks/${sharedTaskId}/users-who-shared/`);
+    setLikesModalTitle('Compartido por');
+    setLikesModalVisible(true);
   };
 
   const handlePodcastInvitationResponse = async (accepted) => {
@@ -422,33 +357,6 @@ const TaskDetailScreen = ({ route, navigation }) => {
     } finally {
       setRespondingToPodcast(false);
     }
-  };
-
-  const handleToggleProfileFavorite = async () => {
-    if (!task || !task.user) return;
-    try {
-      const userObj = typeof task.user === "object" ? task.user : { id: task.user };
-      const perfilId = userObj.id;
-      const isFav = !userObj.is_favorited;
-      
-      setTask(prev => ({ ...prev, user: { ...prev.user, is_favorited: isFav } }));
-      await api.post("pfavoritos/agregar/", { perfil_id: perfilId });
-    } catch (error) {
-      console.error("Error toggling profile favorite:", error);
-    } finally {
-      setActionModalVisible(false);
-    }
-  };
-
-  const handleGoToForum = () => {
-    if (!task || !task.user) return;
-    const userObj = task.user;
-    setActionModalVisible(false);
-    navigation.navigate("UserProfile", { 
-      userId: userObj.id, 
-      userName: getTaskAuthorName(), 
-      userAvatar: getTaskAuthorAvatar() 
-    });
   };
 
 
@@ -523,13 +431,20 @@ const TaskDetailScreen = ({ route, navigation }) => {
     }, [refetchTask, refetchComments])
   );
 
+  const resetComposer = () => {
+    setCommentText('');
+    setEditingCommentId(null);
+    setEditingAportacionId(null);
+    setAttachedAportacion(null);
+    setCommentTags([]);
+    setEditingTagIds('');
+  };
+
   const handleAddComment = async () => {
     if (!commentText.trim()) return;
     setIsCreatingComment(true);
 
     try {
-      // ⚡ ENVIAMOS UN JSON EN LUGAR DE FORMDATA
-      // Esto evita conflictos con el header 'Content-Type: application/json' predeterminado de Axios
       if (editingCommentId) {
         const changes = { text: commentText };
         const nextAportacionId = attachedAportacion?.id ?? null;
@@ -542,22 +457,14 @@ const TaskDetailScreen = ({ route, navigation }) => {
         }
         await api.patch(`comments/${editingCommentId}/`, changes);
       } else {
-        const payload = {
-          text: commentText,
-          ...(replyingTo && { parent: replyingTo.id }),
-          ...(attachedAportacion && { aportacion: attachedAportacion.id }),
-          ...(commentTags.length > 0 && { tagged_user_ids: commentTags.map((user) => user.id) }),
-        };
+        const payload = buildCommentPayload({ text: commentText, replyingTo, aportacion: attachedAportacion });
+        if (commentTags.length > 0) payload.tagged_user_ids = commentTags.map((user) => user.id);
         await api.post(`tasks/${taskId}/comments/`, payload);
+        // ⚡ ACTUALIZACIÓN OPTIMISTA: Incrementamos el conteo global al instante
         setTask(prev => prev ? { ...prev, comments_count: (prev.comments_count || 0) + 1 } : prev);
       }
 
-      setCommentText('');
-      setEditingCommentId(null);
-      setEditingAportacionId(null);
-      setAttachedAportacion(null);
-      setCommentTags([]);
-      setEditingTagIds('');
+      resetComposer();
       if (replyingTo) {
         setExpandedCommentIds((prev) => [...new Set([...prev, replyingTo.id])]);
       }
@@ -587,24 +494,16 @@ const TaskDetailScreen = ({ route, navigation }) => {
     setEditingTagIds(tagIdsKey(tags));
   };
 
-  const cancelEditing = () => {
-    setEditingCommentId(null);
-    setEditingAportacionId(null);
-    setAttachedAportacion(null);
-    setCommentTags([]);
-    setEditingTagIds('');
-    setCommentText('');
-  };
-
   const handleSelectAportacion = (favoriteTask) => {
     setAttachedAportacion(toAportacionInfo(favoriteTask));
     setAportacionPickerVisible(false);
   };
 
   const openAportacion = useCallback((info) => {
-    if (!info?.id || String(info.id) === String(taskId)) return;
-    navigation.push('TaskDetail', { taskId: info.id });
-  }, [navigation, taskId]);
+    if (!info?.id) return;
+    if (typeof navigation.push === 'function') navigation.push('TaskDetail', { taskId: info.id });
+    else navigation.navigate('TaskDetail', { taskId: info.id });
+  }, [navigation]);
 
   const handleLikeTask = async () => {
     // ⚡ ACTUALIZACIÓN OPTIMISTA: Cambiamos el corazón y el conteo al instante
@@ -744,6 +643,20 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const taskOwnerId = task?.user?.id || task?.user_id || task?.user;
   const isTaskOwner = currentUserId && taskOwnerId && String(currentUserId) === String(taskOwnerId);
 
+  // Menú de 3 puntos completo (mismos handlers que el feed)
+  const taskActions = useTaskActions({
+    navigation,
+    actionTask: task,
+    currentUserId,
+    close: () => setActionModalVisible(false),
+    refresh: fetchTaskDetail,
+    onShare: () => setShareActionMenuVisible(true),
+    onDeleted: () => {
+      Alert.alert('Éxito', 'Tarea eliminada.');
+      navigation.goBack();
+    },
+  });
+
   // ⚡ HELPER PARA EXTRAER EL AVATAR DEL AUTOR DE LA TAREA PRINCIPAL
   // const getTaskAuthorAvatar = () => {
   //   if (!task) return 'https://ui-avatars.com/api/?name=A';
@@ -780,109 +693,33 @@ const TaskDetailScreen = ({ route, navigation }) => {
             )}
           </TouchableOpacity>
         ) : null}
-        <TouchableOpacity onPress={() => setActionModalVisible(true)}>
-          <Ionicons name="ellipsis-vertical" size={24} color="#333" />
-        </TouchableOpacity>
+        <ReportContentButton targetType="task" targetId={task.id} />
+        <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.content}>
-        {/* LA TAREA PRINCIPAL */}
-        <View style={styles.taskCard}>
+      <ScrollView ref={scrollRef} style={styles.content}>
+        <View style={styles.hiddenBannerWrap}>
           <HiddenTaskBanner task={task} onPublished={() => refetchTask()} />
-          {/* ⚡ AÑADIMOS EL HEADER CON EL NOMBRE Y AVATAR DEL AUTOR */}
-          <View style={styles.taskAuthorHeader}>
-            <Image source={{ uri: getTaskAuthorAvatar() }} style={styles.taskAuthorAvatar} />
-            <View style={{ flex: 1 }}>
-              <TouchableUsername
-                username={getTaskAuthorName()}
-                userId={task.user?.id || null}
-                userImage={getTaskAuthorAvatar() || null}
-                navigation={navigation}
-                style={styles.taskAuthorNameWrap}
-                textStyle={styles.taskAuthorName}
-                numberOfLines={1}
-              />
-              <Text style={styles.taskDate}>{moment(task.created_at).format('LL')}</Text>
-            </View>
-            
-            {/* ⚡ BOTÓN PARA ENVIAR MENSAJE DIRECTO AL CREADOR */}
-            {task.user?.id && currentUserId !== task.user?.id && (
-              <TouchableOpacity 
-                style={styles.dmButton}
-                onPress={() => navigation.navigate('ChatDetail', { 
-                  chatId: task.user.id,
-                  type: 'direct',
-                  title: getTaskAuthorName(),
-                  avatar: getTaskAuthorAvatar()
-                })}
-              >
-                <Ionicons name="chatbubbles-outline" size={18} color="#fff" />
-                <Text style={styles.dmButtonText}>Mensaje</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.taskInfo}>
-            <Text style={styles.taskTitle}>{task.title}</Text>
-            <LinkifiedText style={styles.taskDescription} text={task.description} />
-
-            {Array.isArray(task.tagged_users) && task.tagged_users.length > 0 && (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
-                <Ionicons name="pricetag-outline" size={14} color="#845ef7" style={{ marginRight: 4 }} />
-                <Text style={{ color: '#868e96', fontSize: 13, marginRight: 4 }}>Con:</Text>
-                {task.tagged_users.map((u, idx) => (
-                  <View key={u.id || idx} style={{ marginRight: 8 }}>
-                    <TouchableUsername
-                      username={`@${u.username || u.first_name || 'usuario'}`}
-                      userId={u.id}
-                      navigation={navigation}
-                      textStyle={{ color: '#845ef7', fontSize: 13, fontWeight: '600' }}
-                    />
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <CategoryHierarchy categories={task.categories} />
-
-            <MediaPreview uri={task.video || task.image} label="Publicación" onOpenReel={() => openMediaInReels(task.video)} />
-
-            {/* El enlace que la web guardaba aparte en cada bloque se muestra dentro de su descripción */}
-            {[
-              ...(Array.isArray(task.subtasks) ? task.subtasks.map((item) => ({ ...item, section: 'Consejo' })) : []),
-              ...(Array.isArray(task.subfactores) ? task.subfactores.map((item) => ({ ...item, section: 'Factor' })) : []),
-              ...(Array.isArray(task.subfuentes) ? task.subfuentes.map((item) => ({ ...item, section: 'Fuente' })) : []),
-            ].map((item) => ({ ...item, description: withLegacyLink(item.description, item.link) })).map((item, index) => (
-              <View key={item.id || `${item.section}-${index}`} style={styles.subtaskDetail}>
-                <Text style={styles.subtaskDetailSection}>{item.section}</Text>
-                {item.title ? <Text style={styles.subtaskDetailTitle}>{item.title}</Text> : null}
-                {item.description ? <LinkifiedText style={styles.subtaskDetailDescription} text={item.description} /> : null}
-                <MediaPreview uri={item.video || item.image} label={item.section} onOpenReel={() => openMediaInReels(item.video)} />
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.actions}>
-            <TouchableOpacity 
-              style={styles.actionBtn} 
-              onPress={handleLikeTask}
-              onLongPress={handleShowTaskLikes}
-            >
-              <Ionicons name={task.user_has_liked ? "heart" : "heart-outline"} size={20} color={task.user_has_liked ? "#ff6b6b" : "#999"} />
-              <Text style={styles.actionBtnText}>{task.likes_count || 0}</Text>
-            </TouchableOpacity>
-            <View style={styles.actionBtn}>
-              <Ionicons name="chatbubble-outline" size={20} color="#999" />
-              {/* ⚡ USAMOS EL CONTEO TOTAL DEL BACKEND QUE INCLUYE HASTA LOS NIETOS */}
-              <Text style={styles.actionBtnText}>{task.comments_count || 0}</Text>
-            </View>
-            <TouchableOpacity style={styles.actionBtn} onPress={openShareModal}>
-              <Ionicons name="share-social-outline" size={20} color="#51cf66" />
-              <Text style={styles.actionBtnText}>{task.share_count || 0}</Text>
-            </TouchableOpacity>
-          </View>
         </View>
-
+        {/* LA TAREA PRINCIPAL (misma tarjeta que en el feed) */}
+        <FeedVideoVisibilityContext.Provider value={videoVisibility}>
+          <TaskPostCard
+            task={task}
+            navigation={navigation}
+            tema={task.pch || ''}
+            carouselWidth={carouselWidth}
+            onAvatarPress={handleShowProfileLikes}
+            onOpenActions={() => setActionModalVisible(true)}
+            onRepost={handleRepost}
+            onLike={handleLikeTask}
+            onShowLikes={handleShowTaskLikes}
+            onPressComments={() => {}}
+            onShare={() => setShareActionMenuVisible(true)}
+            onShowShares={handleShowTaskShares}
+            onShareSubItemToStory={handleShareSubItemToStory}
+            onOpenSubMediaInReels={openSubMediaInReels}
+          />
+        </FeedVideoVisibilityContext.Provider>
         {/* SECCIÓN DE COMENTARIOS */}
         <View style={styles.commentsSection}>
           <Text style={styles.sectionTitle}>Comentarios</Text>
@@ -896,7 +733,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
                 onReply={onReplyPress} 
                 onLike={handleLikeComment}
                 onLikeLongPress={handleShowCommentLikes}
-                onDelete={handleDeleteComment}
+                onDelete={handleDeleteComment} 
                 onEdit={handleEditComment}
                 onOpenAportacion={openAportacion}
                 currentUserId={currentUserId}
@@ -941,7 +778,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
       {editingCommentId && (
         <View style={styles.replyBanner}>
           <Text style={styles.replyBannerText}>Editando comentario</Text>
-          <TouchableOpacity onPress={cancelEditing}>
+          <TouchableOpacity onPress={resetComposer} accessibilityLabel="Cancelar edición">
             <Ionicons name="close-circle" size={20} color="#666" />
           </TouchableOpacity>
         </View>
@@ -985,20 +822,16 @@ const TaskDetailScreen = ({ route, navigation }) => {
         >
           <Ionicons
             name={commentTags.length ? 'people' : 'person-add-outline'}
-            size={22}
-            color={commentTags.length ? '#1971c2' : '#4dabf7'}
+            size={20}
+            color={commentTags.length ? '#1971c2' : '#7048e8'}
           />
         </TouchableOpacity>
         <TouchableOpacity
-          style={styles.attachBtn}
+          style={[styles.attachBtn, attachedAportacion && styles.attachBtnActive]}
           onPress={() => setAportacionPickerVisible(true)}
           accessibilityLabel="Adjuntar una de tus aportaciones favoritas"
         >
-          <Ionicons
-            name={attachedAportacion ? 'star' : 'star-outline'}
-            size={22}
-            color={attachedAportacion ? '#f59f00' : '#4dabf7'}
-          />
+          <Ionicons name="bookmark" size={20} color={attachedAportacion ? '#fff' : '#7048e8'} />
         </TouchableOpacity>
         <TextInput
           style={styles.input}
@@ -1030,85 +863,37 @@ const TaskDetailScreen = ({ route, navigation }) => {
         title={likesModalTitle}
       />
 
-      {/* MODAL DE ACCIONES (3 PUNTOS) */}
-      <Modal visible={actionModalVisible} transparent animationType="fade" onRequestClose={() => setActionModalVisible(false)}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setActionModalVisible(false)}>
-          <View style={styles.actionModalContainer}>
-            <View style={styles.modalDragHandle} />
-            {task && (
-              <>
-                <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); openShareModal(); }}>
-                  <Ionicons name="share-social-outline" size={20} color="#555" />
-                  <Text style={styles.actionText}>Compartir</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.actionOption}
-                  onPress={() => { const target = task; setActionModalVisible(false); downloadTask(target); }}
-                  disabled={isDownloading}
-                  accessibilityLabel="Descargar imágenes y videos"
-                >
-                  <Ionicons name="download-outline" size={20} color="#555" />
-                  <Text style={styles.actionText}>{isDownloading ? 'Descargando…' : 'Descargar'}</Text>
-                </TouchableOpacity>
-                {task.user && currentUserId !== (task.user?.id || task.user) && (
-                  <>
-                    <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); navigation.navigate("ChatDetail", { chatId: task.user.id, type: "direct", title: getTaskAuthorName(), avatar: getTaskAuthorAvatar() }); }}>
-                      <Ionicons name="chatbubbles-outline" size={20} color="#4dabf7" />
-                      <Text style={styles.actionText}>Mensaje Directo</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionOption} onPress={handleGoToForum}>
-                      <Ionicons name="person-outline" size={20} color="#4dabf7" />
-                      <Text style={styles.actionText}>Ir a su perfil/foro</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionOption} onPress={handleToggleProfileFavorite}>
-                      <Ionicons name={(task.user && task.user.is_favorited) ? "heart" : "heart-outline"} size={20} color={(task.user && task.user.is_favorited) ? "#ff0b5a" : "#555"} />
-                      <Text style={styles.actionText}>{(task.user && task.user.is_favorited) ? "Eliminar perfil de favoritos" : "Agregar perfil a favoritos"}</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-                {isTaskOwner && (
-                  <>
-                    <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); navigation.navigate('CreateTask', { task }); }}>
-                      <Ionicons name="pencil-outline" size={20} color="#4dabf7" />
-                      <Text style={styles.actionText}>Editar</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.actionOption, styles.actionOptionDelete]} onPress={handleDeleteTask}>
-                      <Ionicons name="trash-outline" size={20} color="#ff6b6b" />
-                      <Text style={[styles.actionText, { color: "#ff6b6b", fontWeight: "bold" }]}>Eliminar</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-                {isAdmin && String(task.categories || '').split(',').some(category => category.trim().toLowerCase() === 'grabar podcast') && (
-                    <TouchableOpacity style={styles.actionOption} onPress={handleApprovePodcast}>
-                      <Ionicons
-                        name={String(task.categories || '').split(',').some(category => category.trim().toLowerCase() === 'aprobada') ? 'send-outline' : 'ribbon-outline'}
-                        size={20}
-                        color="#f59f00"
-                      />
-                      <Text style={[styles.actionText, { color: '#e67700', fontWeight: '700' }] }>
-                        {String(task.categories || '').split(',').some(category => category.trim().toLowerCase() === 'aprobada')
-                          ? 'Enviar invitaciones del podcast'
-                          : 'Aprobar podcast'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                {podcastInvitationStatus === 'pending' && (
-                  <TouchableOpacity
-                    style={styles.actionOption}
-                    onPress={() => {
-                      setActionModalVisible(false);
-                      handlePodcastInvitationResponse(false);
-                    }}
-                  >
-                    <Ionicons name="close-circle-outline" size={20} color="#e03131" />
-                    <Text style={[styles.actionText, { color: '#e03131' }]}>Rechazar invitación</Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            )}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      {/* MODAL DE ACCIONES (3 PUNTOS): mismo menú completo que el feed */}
+      <TaskActionsModal
+        visible={actionModalVisible}
+        onClose={() => setActionModalVisible(false)}
+        actionTask={task}
+        currentUserId={currentUserId}
+        isAdmin={isAdmin}
+        canEdit={Boolean(isTaskOwner)}
+        handlers={taskActions}
+        extraOptions={podcastInvitationStatus === 'pending' ? (
+          <TouchableOpacity
+            style={styles.actionOption}
+            onPress={() => {
+              setActionModalVisible(false);
+              handlePodcastInvitationResponse(false);
+            }}
+          >
+            <Ionicons name="close-circle-outline" size={20} color="#e03131" />
+            <Text style={[styles.actionText, { color: '#e03131' }]}>Rechazar invitación</Text>
+          </TouchableOpacity>
+        ) : null}
+      />
+
+      {/* MENÚ DE COMPARTIR (igual que en el feed) */}
+      <ShareActionMenu
+        isVisible={shareActionMenuVisible}
+        onClose={() => setShareActionMenuVisible(false)}
+        onShare={() => { setShareActionMenuVisible(false); openShareModal(); }}
+        onSendMessage={() => { setShareActionMenuVisible(false); openShareModal(); }}
+        onShareToStory={() => { setShareActionMenuVisible(false); handleShareToStory(); }}
+      />
 
       {/* MODAL DE COMPARTIR */}
       <ShareModal
@@ -1119,6 +904,8 @@ const TaskDetailScreen = ({ route, navigation }) => {
         navigation={navigation}
         taskTitle={task?.title || 'esta publicación'}
         taskDescription={task?.description || ''}
+        messageTaskId={task?.id}
+        messageTaskType="task"
       />
 
       {/* SELECTOR DE PERSONAS PARA ETIQUETAR EN EL COMENTARIO */}
@@ -1143,15 +930,8 @@ const TaskDetailScreen = ({ route, navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  commentTags: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 },
-  commentTagsLabel: { fontSize: 12, color: '#868e96' },
-  commentTagName: { fontSize: 12, color: '#1971c2', fontWeight: '700' },
-  tagsBar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee' },
-  tagsBarLabel: { fontSize: 12, fontWeight: '700', color: '#555' },
-  tagChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: '#e7f5ff' },
-  tagChipText: { fontSize: 12, fontWeight: '700', color: '#1971c2' },
   container: { flex: 1, backgroundColor: '#f5f5f5' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingTop: Platform.OS === 'android' ? 34 : 16, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
   podcastAcceptButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#51cf66', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6, marginLeft: 'auto', marginRight: 8 },
   podcastAcceptText: { color: '#fff', fontSize: 12, fontWeight: '800', marginLeft: 4 },
@@ -1214,7 +994,6 @@ const styles = StyleSheet.create({
   commentLikeCount: { fontSize: 12, color: '#666' },
   
   commentText: { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 8 },
-  commentAportacion: { marginBottom: 10 },
   commentFooter: { flexDirection: 'row', gap: 16, alignItems: 'center' },
   replyActionText: { fontSize: 12, color: '#4dabf7', fontWeight: 'bold' },
   toggleRepliesBtn: { backgroundColor: '#f0f0f0', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
@@ -1224,11 +1003,23 @@ const styles = StyleSheet.create({
 
   replyBanner: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#e3f2fd', padding: 10, alignItems: 'center', borderTopWidth: 1, borderColor: '#b3e5fc' },
   replyBannerText: { fontSize: 13, color: '#333' },
-  attachmentBar: { paddingHorizontal: 12, paddingTop: 10, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee' },
   commentInputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', alignItems: 'flex-end', gap: 8 },
-  attachBtn: { width: 40, height: 45, justifyContent: 'center', alignItems: 'center' },
   input: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, minHeight: 45, maxHeight: 100 },
-  sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' }
+  sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
+
+  // Aportación favorita adjunta al comentario
+  attachBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#f3f0ff', justifyContent: 'center', alignItems: 'center' },
+  attachBtnActive: { backgroundColor: '#7048e8' },
+  hiddenBannerWrap: { paddingHorizontal: 12, paddingTop: 12 },
+  attachmentBar: { paddingHorizontal: 12, paddingTop: 8, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee' },
+  commentAportacion: { marginBottom: 10 },
+  commentTags: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 },
+  commentTagsLabel: { fontSize: 12, color: '#868e96' },
+  commentTagName: { fontSize: 12, color: '#1971c2', fontWeight: '700' },
+  tagsBar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee' },
+  tagsBarLabel: { fontSize: 12, fontWeight: '700', color: '#555' },
+  tagChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: '#e7f5ff' },
+  tagChipText: { fontSize: 12, fontWeight: '700', color: '#1971c2' },
 });
 
 export default TaskDetailScreen;

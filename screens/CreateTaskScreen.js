@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import api, { getImageUrl } from '@api';
+import api, { getImageUrl, UPLOAD_TIMEOUT_MS } from '@api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { Video } from 'expo-av';
@@ -70,7 +70,7 @@ const CreateTaskScreen = ({ navigation, route }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   // Al crear (no editar), respeta el PCH que estaba activo en TasksScreen
-  const [tema, setTema] = useState(route?.params?.initialPch || 'consejos');
+  const [tema, setTema] = useState(route?.params?.initialPch || editTask?.pch || '');
   const [availableCategories, setAvailableCategories] = useState([]);
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [manualCategories, setManualCategories] = useState('');
@@ -97,12 +97,18 @@ const CreateTaskScreen = ({ navigation, route }) => {
   ) || manualCategories.split(',').some(
     category => category.trim().toLowerCase() === 'grabar podcast'
   );
+  const canModerateEditTask = Boolean(
+    editTask?.id &&
+    (isPodcastTask || ['peticion', 'peticiones'].includes(
+      String(editTask.pch || '').trim().toLowerCase()
+    ))
+  );
 
   useEffect(() => {
     if (!editTask) return;
     setTitle(editTask.title || '');
     setDescription(editTask.description || '');
-    setTema(editTask.pch || 'consejos');
+    setTema(editTask.pch || '');
     setSelectedCategories((editTask.categories || '').split(',').map(value => value.trim()).filter(Boolean));
     setManualCategories('');
     setSelectedSubcategories([]);
@@ -110,7 +116,10 @@ const CreateTaskScreen = ({ navigation, route }) => {
     setTaggedUsers(Array.isArray(editTask.tagged_users) ? editTask.tagged_users : []);
     setIsHidden(Boolean(editTask.is_hidden));
     setIsApproved(
-      (editTask.categories || '').split(',').map(c => c.trim().toLowerCase()).includes('aprobada')
+      (editTask.categories || '')
+        .split(',')
+        .map(category => category.trim().toLowerCase())
+        .some(category => ['aprobada', 'aprobadas', 'aprovada', 'aprovadas'].includes(category))
     );
 
     const normalizeBlocks = (blocks) => {
@@ -152,8 +161,6 @@ const CreateTaskScreen = ({ navigation, route }) => {
     const mine = myCategoriesQuery.data ?? [];
     setAvailableCategories(cats);
     setMyCategories(mine);
-    const validNames = new Set([...cats, ...mine].map(c => c.name));
-    setSelectedCategories(prev => prev.filter(name => validNames.has(name)));
   }, [appCategories.data, myCategoriesQuery.data]);
 
   useEffect(() => {
@@ -344,6 +351,9 @@ const CreateTaskScreen = ({ navigation, route }) => {
     if (!title.trim()) {
       return Alert.alert("Falta información", "El título principal es obligatorio.");
     }
+    if (!['consejos', 'peticiones', 'historias'].includes(tema)) {
+      return Alert.alert('Falta elegir el tipo', 'Selecciona consejos, peticiones o historias.');
+    }
 
     setLoading(true);
     const formData = new FormData();
@@ -408,7 +418,9 @@ const CreateTaskScreen = ({ navigation, route }) => {
         await appendEditBlocks(subfactores, 'subfactores');
         await appendEditBlocks(subfuentes, 'subfuentes');
 
-        const response = await api.patch(`tasks/${editTask.id}/`, updateFormData);
+        const response = await api.patch(`tasks/${editTask.id}/`, updateFormData, {
+          timeout: UPLOAD_TIMEOUT_MS,
+        });
         await syncTaskTags(editTask.id);
         Alert.alert("¡Éxito!", "Aportación actualizada correctamente.");
         navigation.goBack();
@@ -465,14 +477,13 @@ const CreateTaskScreen = ({ navigation, route }) => {
     };
 
     try {
-      // Usamos AWAIT para asegurar que las imágenes se carguen antes de enviar
       await appendArrayToFormData(subtasks, 'subtasks');
       await appendArrayToFormData(subfactores, 'subfactores');
       await appendArrayToFormData(subfuentes, 'subfuentes');
 
-      // Forzamos el multipart para que envíe archivos
       const createResponse = await api.post('tasks/', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' } });
+        timeout: UPLOAD_TIMEOUT_MS,
+      });
       const createdTaskId = createResponse?.data?.id;
       if (createdTaskId && taggedUsers.length > 0) {
         await syncTaskTags(createdTaskId);
@@ -490,8 +501,21 @@ const CreateTaskScreen = ({ navigation, route }) => {
         navigation.navigate('TasksList');
       }
     } catch (error) {
-      console.error("Error creando tarea:", error.response?.data || error.message);
-      Alert.alert("Error", "Hubo un problema al subir la información.");
+      const backendData = error.response?.data;
+      const backendMessage = typeof backendData === 'string'
+        ? backendData
+        : backendData?.detail
+          || backendData?.error
+          || Object.entries(backendData || {})
+            .map(([field, value]) => `${field}: ${Array.isArray(value) ? value.join(', ') : String(value)}`)
+            .join('\n');
+      const message = backendMessage
+        || (error.response
+          ? `El servidor respondió con el error ${error.response.status}.`
+          : `No se pudo conectar con el servidor. ${error.message}`);
+
+      console.error("Error creando tarea:", error.response?.status, backendData || error.message);
+      Alert.alert("Error", String(message).slice(0, 500));
     } finally {
       setLoading(false);
     }
@@ -593,6 +617,7 @@ const CreateTaskScreen = ({ navigation, route }) => {
           placeholderTextColor="#aaa"
         />
         
+        <Text style={styles.pchLabel}>Tipo de aportación (obligatorio)</Text>
         <View style={styles.temaContainer}>
           {['consejos', 'peticiones', 'historias'].map(t => (
             <TouchableOpacity 
@@ -673,7 +698,7 @@ const CreateTaskScreen = ({ navigation, route }) => {
         </View>
       </Modal>
 
-      {isAdminUser && editTask?.id && (
+      {isAdminUser && canModerateEditTask && (
         <TouchableOpacity
           style={[tagStyles.approveBtn, isApproved && tagStyles.approveBtnActive]}
           onPress={handleToggleApprove}
@@ -693,18 +718,22 @@ const CreateTaskScreen = ({ navigation, route }) => {
       <View style={styles.categoriesBlock}>
         <Text style={styles.sectionTitle}>Categorías (Opcional)</Text>
         
-        {availableCategories.length > 0 && (
+        {(availableCategories.length > 0 || myCategories.some(category => !category.parent)) && (
           <View style={styles.tagsContainer}>
             {[
-              ...availableCategories,
-              ...myCategories.filter(mine => !mine.parent && !availableCategories.some(
-                app => app.name.trim().toLowerCase() === mine.name.trim().toLowerCase()
-              )),
+              ...availableCategories
+                .filter(category => !category.parent)
+                .map(category => ({ ...category, source: 'app' })),
+              ...myCategories
+                .filter(mine => !mine.parent && !availableCategories.some(
+                  app => app.name.trim().toLowerCase() === mine.name.trim().toLowerCase()
+                ))
+                .map(category => ({ ...category, source: 'personal' })),
             ]
               .filter(cat => isAdminUser || cat.name.trim().toLowerCase() !== 'aprobada')
               .map(cat => (
               <TouchableOpacity
-                key={cat.id}
+                key={`${cat.source}-${cat.id}`}
                 style={[styles.tagBadge, selectedCategories.includes(cat.name) && styles.tagBadgeActive]}
                 onPress={() => toggleCategory(cat.name)}
               >
@@ -745,11 +774,23 @@ const CreateTaskScreen = ({ navigation, route }) => {
             .filter((value, index, self) => self.indexOf(value) === index) // Evitar duplicados
             .map((theme, idx) => {
             const themeKey = theme.toLowerCase();
-            const parentNode = myCategories.find(c => c.name.trim().toLowerCase() === themeKey);
-            const ownSubs = parentNode
-              ? myCategories.filter(c => c.parent === parentNode.id).map(c => c.name)
+            const catalogParent = availableCategories.find(
+              category => category.name.trim().toLowerCase() === themeKey && !category.parent
+            );
+            const personalParent = myCategories.find(
+              category => category.name.trim().toLowerCase() === themeKey && !category.parent
+            );
+            const catalogSubs = catalogParent
+              ? availableCategories
+                .filter(category => String(category.parent) === String(catalogParent.id))
+                .map(category => category.name)
               : [];
-            const subs = [...new Set([...(subthemesTree[themeKey] || []), ...ownSubs])];
+            const personalSubs = personalParent
+              ? myCategories
+                .filter(category => String(category.parent) === String(personalParent.id))
+                .map(category => category.name)
+              : [];
+            const subs = [...new Set([...(subthemesTree[themeKey] || []), ...catalogSubs, ...personalSubs])];
             if (subs.length === 0) return null;
 
             return (
@@ -880,6 +921,7 @@ const styles = StyleSheet.create({
   inlineAddRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   inlineAddBtn: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#4dabf7', alignItems: 'center', justifyContent: 'center' },
   temaContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  pchLabel: { color: '#333', fontSize: 14, fontWeight: '700', marginTop: 14 },
   temaBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#f0f0f0', flex: 0.31, alignItems: 'center' },
   temaBtnActive: { backgroundColor: '#333' },
   temaText: { fontSize: 11, fontWeight: 'bold', color: '#666' },

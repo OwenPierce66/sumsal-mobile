@@ -9,6 +9,7 @@ import { AuthContext } from '@app';
 import { NotificationsContext } from '@contexts/NotificationsContext';
 import { useTasks } from '@hooks/useApi';
 import { Ionicons } from '@expo/vector-icons';
+import SideMenu from '@components/SideMenu';
 
 const HomeScreen = ({ navigation }) => {
   const { user, signOut } = useContext(AuthContext);
@@ -98,9 +99,8 @@ const HomeScreen = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>
-          Sumsal{user?.first_name ? `, ${user.first_name}` : ''} 🖤
-        </Text>
+        <SideMenu navigation={navigation} signOut={signOut} user={user} buttonStyle={styles.menuButton} />
+        <Text numberOfLines={1} style={styles.title}>Aportaciones</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
           <TouchableOpacity
             onPress={() => navigation.navigate('Notifications')}
@@ -122,9 +122,6 @@ const HomeScreen = ({ navigation }) => {
           <TouchableOpacity onPress={() => navigation.navigate('ChatList')}>
             <Ionicons name="chatbubbles-outline" size={26} color="#333" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={signOut}>
-            <Ionicons name="log-out-outline" size={26} color="#ff6b6b" />
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -134,26 +131,28 @@ const HomeScreen = ({ navigation }) => {
           title="Nueva tarea"
           onPress={() => navigation.navigate('Tasks', {
             screen: 'CreateTask',
-            params: { initialPch: 'consejos' },
+            params: { initialPch: '' },
           })}
           color="#4dabf7"
         />
       </View>
 
       {renderContent()}
+
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, padding: 16, paddingTop: 32, backgroundColor: '#f5f5f5' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
   },
-  title: { fontSize: 22, fontWeight: 'bold' },
+  title: { flex: 1, minWidth: 0, fontSize: 22, fontWeight: 'bold', marginRight: 8 },
+  menuButton: { padding: 2, marginRight: 8 },
   notificationButton: { position: 'relative', padding: 2 },
   notificationBadge: {
     position: 'absolute', right: -7, top: -5,

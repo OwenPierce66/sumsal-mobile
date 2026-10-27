@@ -43,4 +43,19 @@ describe('buildReelsFromPages', () => {
     const data = { pages: [[{ id: 9, is_original: true, media: 'z' }]] };
     expect(buildReelsFromPages(data, media)).toHaveLength(1);
   });
+
+  it('permite limitar el feed a publicaciones con videos, incluidas las compartidas', () => {
+    const data = {
+      pages: [{
+        results: [
+          { id: 1, is_original: true, media: [{ type: 'image' }] },
+          { id: 2, is_original: true, media: [{ type: 'image' }, { type: 'video' }] },
+          { id: 3, is_original: false, task: { media: [{ type: 'video' }] } },
+        ],
+      }],
+    };
+    const hasVideo = (content) => content.media?.some((entry) => entry.type === 'video');
+
+    expect(buildReelsFromPages(data, media, hasVideo).map((reel) => reel.id)).toEqual([2, 3]);
+  });
 });
