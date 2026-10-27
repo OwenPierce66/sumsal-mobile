@@ -19,10 +19,13 @@ import ShareActionMenu from './ShareActionMenu';
 import TouchableUsername from '@components/TouchableUsername';
 import CategoryHierarchy from '@components/CategoryHierarchy';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
+import LinkifiedText from '@components/LinkifiedText';
+import { withLegacyLink } from '../utils/links';
 import Slider from '@react-native-community/slider';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTasksInfinite, useSharedTasksInfinite, useCategories } from '@hooks/useApi';
 import { useIsOnline } from '../hooks/useIsOnline';
+import { useDownloadTask } from '../hooks/useDownloadTask';
 import OfflineEmptyState from '../components/OfflineEmptyState';
 
 const TASK_VIDEO_AUTOPLAY_DELAY_MS = 500;
@@ -186,6 +189,7 @@ const TasksScreen = ({ navigation }) => {
   
   // Modal de acciones (3 puntos)
   const [actionModalVisible, setActionModalVisible] = useState(false);
+  const { downloadTask, isDownloading } = useDownloadTask();
   const [selectedActionTask, setSelectedActionTask] = useState(null);
 
   // Estados para el flujo de compartir
@@ -552,6 +556,37 @@ const TasksScreen = ({ navigation }) => {
       setSharedTasks(prev => updateTasks(prev));
     } catch (error) {
       console.error("Error toggling recommended:", error);
+    }
+  };
+
+  // ⚡ Like de la App (de peticiones.js en la web): el backend lo da con la cuenta de la App
+  // (owen@gmail.com). Solo superadmins, igual que el endpoint.
+  const handleToggleAppLike = async () => {
+    if (!selectedActionTask) return;
+    const sourceTask = selectedActionTask.isSharedTask ? selectedActionTask.task : selectedActionTask;
+    if (!sourceTask?.id) return;
+    setActionModalVisible(false);
+
+    try {
+      const { data } = await api.post(`admin/tasks/${sourceTask.id}/like/`, { liked: !sourceTask.app_has_liked });
+      // Si quien administra es la propia cuenta de la App, también cambia su corazón.
+      const isAppAccount = String(data.app_account_id) === String(currentUserId);
+      const updateTask = (task) => (
+        task?.id === sourceTask.id
+          ? {
+            ...task,
+            app_has_liked: data.liked,
+            likes_count: data.likes_count,
+            ...(isAppAccount && { user_has_liked: data.liked }),
+          }
+          : task
+      );
+      setTasks(current => current.map(updateTask));
+      setSharedTasks(current => current.map(shared => (
+        shared.task?.id === sourceTask.id ? { ...shared, task: updateTask(shared.task) } : shared
+      )));
+    } catch (error) {
+      Alert.alert('No se pudo cambiar el like de la App', error.response?.data?.detail || 'Intenta de nuevo.');
     }
   };
 
@@ -1139,18 +1174,6 @@ const TasksScreen = ({ navigation }) => {
     return '#555';
   };
 
-  const getUserStatusIcon = (userObj) => {
-    if (!userObj) return null;
-    const profile = userObj.profile || {};
-    if (profile.is_verified) return 'checkmark-circle';
-    if (profile.subscriptionActive && parseFloat(profile.subscription_amount || 0) >= 8) return 'star';
-    // ✅ AÑADIDO: Icono para administradores
-    if (userObj.is_staff || userObj.is_superuser) return 'shield-checkmark';
-    if (profile.subscriptionActive) return 'star-half';
-    if (profile.is_recommended) return 'medal';
-    return null;
-  };
-
   // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA
   const getAuthorName = (item) => {
     const userObj = item.user;
@@ -1238,6 +1261,8 @@ const TasksScreen = ({ navigation }) => {
           {content.map((sub, idx) => {
             const finalUri = getImageUrl(sub.image);
             const videoUri = getImageUrl(sub.video);
+            // El enlace que la web guardaba aparte se muestra dentro de la descripción.
+            const description = withLegacyLink(sub.description, sub.link);
 
             return (
               <View key={sub.id || `${section}-${idx}`} style={[styles.subItem, { width: carouselWidth }]}>
@@ -1257,8 +1282,8 @@ const TasksScreen = ({ navigation }) => {
                   </TouchableOpacity>
                 </View>
 
-                {sub.description ? (
-                  <Text style={styles.subItemDesc}>{sub.description}</Text>
+                {description ? (
+                  <LinkifiedText style={styles.subItemDesc} text={description} />
                 ) : null}
 
                 {finalUri && (
@@ -1316,7 +1341,7 @@ const TasksScreen = ({ navigation }) => {
         </View>
 
         {shared.description ? (
-          <Text style={styles.sharedDescription}>{shared.description}</Text>
+          <LinkifiedText style={styles.sharedDescription} text={shared.description} />
         ) : null}
 
         <View style={styles.originalTaskCard}>
@@ -1339,11 +1364,6 @@ const TasksScreen = ({ navigation }) => {
                     navigation={navigation}
                     textStyle={[styles.taskUser, { color: getUserStatusColor(task.user) }]}
                   />
-                  {/* ✅ AÑADIDO: Mostrar el ícono de admin si corresponde */}
-                  {(task.user?.is_staff || task.user?.is_superuser) && (
-                    <Ionicons name="shield-checkmark" size={14} color="#4dabf7" style={{ marginLeft: 2 }} />
-                  )}
-                  {getUserStatusIcon(task.user) && <Ionicons name={getUserStatusIcon(task.user)} size={14} color={getUserStatusColor(task.user)} />}
               </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(task.created_at).fromNow()}</Text>
               </View>
             </View>
@@ -1353,7 +1373,7 @@ const TasksScreen = ({ navigation }) => {
           </View>
 
           <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('TaskDetail', { taskId: task.id })}>
-            <Text style={styles.taskDescription}>{task.description}</Text>
+            <LinkifiedText style={styles.taskDescription} text={task.description} />
 
             {task.categories ? (
               <View style={styles.categoriesList}>
@@ -1466,11 +1486,6 @@ const TasksScreen = ({ navigation }) => {
                   navigation={navigation}
                   textStyle={[styles.taskUser, { color: getUserStatusColor(item.user) }]}
                 />
-                {/* ✅ AÑADIDO: Mostrar el ícono de admin si corresponde */}
-                {(item.user?.is_staff || item.user?.is_superuser) && (
-                  <Ionicons name="shield-checkmark" size={14} color="#4dabf7" style={{ marginLeft: 2 }} />
-                )}
-                {getUserStatusIcon(item.user) && <Ionicons name={getUserStatusIcon(item.user)} size={14} color={getUserStatusColor(item.user)} />}
               </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(item.created_at).fromNow()}</Text></View>
             
           </View>
@@ -1480,7 +1495,7 @@ const TasksScreen = ({ navigation }) => {
         </View>
 
         <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('TaskDetail', { taskId: item.id })}>
-          <Text style={styles.taskDescription}>{item.description}</Text>
+          <LinkifiedText style={styles.taskDescription} text={item.description} />
 
           {item.categories ? (
             <View style={styles.categoriesList}>
@@ -1932,6 +1947,15 @@ const TasksScreen = ({ navigation }) => {
                   <Ionicons name='share-social-outline' size={20} color='#555' />
                   <Text style={styles.actionText}>Compartir</Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionOption}
+                  onPress={() => { const target = selectedActionTask; setActionModalVisible(false); downloadTask(target); }}
+                  disabled={isDownloading}
+                  accessibilityLabel="Descargar imágenes y videos"
+                >
+                  <Ionicons name="download-outline" size={20} color="#555" />
+                  <Text style={styles.actionText}>{isDownloading ? 'Descargando…' : 'Descargar'}</Text>
+                </TouchableOpacity>
                 {(selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user) && currentUserId !== ((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.id || (selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)) && (
                   <>
                     <TouchableOpacity style={styles.actionOption} onPress={handleDirectMessage}>
@@ -1997,6 +2021,17 @@ const TasksScreen = ({ navigation }) => {
                       <Ionicons name={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_recommended) ? "ribbon" : "ribbon-outline"} size={20} color={((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_recommended) ? "#f59f00" : "#555"} />
                       <Text style={styles.actionText}>{((selectedActionTask.isSharedTask ? selectedActionTask.shared_by : selectedActionTask.user)?.profile?.is_recommended) ? "Quitar Recomendación" : "Recomendar Perfil"}</Text>
                     </TouchableOpacity>
+                    {user?.is_superuser && (() => {
+                      const appLiked = Boolean(
+                        (selectedActionTask.isSharedTask ? selectedActionTask.task : selectedActionTask)?.app_has_liked
+                      );
+                      return (
+                        <TouchableOpacity style={styles.actionOption} onPress={handleToggleAppLike}>
+                          <Ionicons name={appLiked ? 'heart-dislike-outline' : 'heart-circle-outline'} size={20} color="#e64980" />
+                          <Text style={styles.actionText}>{appLiked ? 'Quitar like de la App' : 'Dar like como la App'}</Text>
+                        </TouchableOpacity>
+                      );
+                    })()}
                   </>
                 )}
               </>

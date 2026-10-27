@@ -2,15 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import api from '../api';
+import api, { getImageUrl as getMediaUrl } from '../api';
 import TouchableUsername from './TouchableUsername';
 
-const getImageUrl = (path) => {
-  if (!path) return 'https://ui-avatars.com/api/?name=User';
-  let cleanPath = path.replace('localhost', '192.168.0.115').replace('127.0.0.1', '192.168.0.115');
-  if (cleanPath.startsWith('http')) return cleanPath;
-  return `http://192.168.0.115:8001${cleanPath}`;
-};
+// Usa la IP/puerto configurados en api.js (en el emulador Android es 10.0.2.2).
+const getImageUrl = (path) => getMediaUrl(path) || 'https://ui-avatars.com/api/?name=User';
 
 const LikesListModal = ({ visible, onClose, apiUrl, title = "Le gusta a", navigation }) => {
   const [users, setUsers] = useState([]);

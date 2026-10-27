@@ -16,6 +16,7 @@ import 'moment/locale/es';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 import api, { getImageUrl } from '@api';
+import { NameWithBadges } from '@components/UserBadges';
 import { NotificationsContext } from '@contexts/NotificationsContext';
 import { useNotificationsInfinite } from '@hooks/useApi';
 
@@ -44,6 +45,8 @@ const NOTIFICATION_COPY = {
   podcast_approved:             { icon: 'ribbon',            color: '#f59f00', text: '¡El podcast donde fuiste etiquetado fue aprobado! ¡A grabar se ha dicho! 🎙️' },
   podcast_invitation_response:  { icon: 'chatbubbles',       color: '#4dabf7', text: 'respondió a la invitación del podcast' },
   task_approved:                { icon: 'checkmark-circle',  color: '#51cf66', text: 'Tu aportación fue aprobada ✅' },
+  subscription_gift:            { icon: 'gift',              color: '#51cf66', text: 'te regaló una suscripción 🎁' },
+  comment_tag:                  { icon: 'pricetags',         color: '#845ef7', text: 'te etiquetó en un comentario. ¿Lo muestras en tu perfil como testimonio?' },
   forum_post_like:              { icon: 'heart',             color: '#ff5d73', text: 'le dio me gusta a tu publicación del foro' },
   forum_reply:                  { icon: 'arrow-undo',        color: '#4dabf7', text: 'respondió a tu comentario del foro' },
   direct_message:               { icon: 'mail',              color: '#4dabf7', text: 'te envió un mensaje' },
@@ -64,10 +67,11 @@ const getActorName = (n) => {
 
 const getNotificationType = (n) => n?.notification_type || n?.type || 'notification';
 
+const getActionText = (n) => NOTIFICATION_COPY[getNotificationType(n)]?.text || 'interactuó con tu contenido';
+
 const getNotificationText = (n) => {
   if (n?.message || n?.text) return n.message || n.text;
-  const cfg = NOTIFICATION_COPY[getNotificationType(n)];
-  return `${getActorName(n)} ${cfg?.text || 'interactuó con tu contenido'}`;
+  return `${getActorName(n)} ${getActionText(n)}`;
 };
 
 const getTarget = (n) => ({
@@ -79,6 +83,8 @@ const getTarget = (n) => ({
 
 const NotificationsScreen = ({ navigation }) => {
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  // Respuesta a cada testimonio desde la notificación: id → 'approved' | 'rejected'.
+  const [testimonialAnswers, setTestimonialAnswers] = useState({});
   const queryClient = useQueryClient();
   const {
     unreadCount,
@@ -229,6 +235,16 @@ const NotificationsScreen = ({ navigation }) => {
     navigateToTarget(notification);
   }, [markReadMutation, navigateToTarget]);
 
+  const answerTestimonial = useCallback(async (testimonialId, status) => {
+    try {
+      await api.patch(`testimonials/${testimonialId}/`, { status });
+      setTestimonialAnswers((prev) => ({ ...prev, [testimonialId]: status }));
+      queryClient.invalidateQueries({ queryKey: ['testimonials'] });
+    } catch (error) {
+      Alert.alert('No se pudo guardar', error?.response?.data?.detail || 'Intenta de nuevo en un momento.');
+    }
+  }, [queryClient]);
+
   const handleDelete = useCallback((notification) => {
     Alert.alert(
       'Eliminar notificación',
@@ -289,11 +305,51 @@ const NotificationsScreen = ({ navigation }) => {
               <Ionicons name="sparkles" size={14} color="#f783ac" />
             </View>
           )}
-          <Text style={[styles.notificationText, isPodcastSpecial && styles.podcastText]}>
-            {getNotificationText(item)}
-          </Text>
+          {actor.id && !(item.message || item.text) ? (
+            <>
+              <NameWithBadges
+                userId={actor.id}
+                style={[styles.notificationText, styles.actorName, isPodcastSpecial && styles.podcastText]}
+              >
+                {actorName}
+              </NameWithBadges>
+              <Text style={[styles.notificationText, isPodcastSpecial && styles.podcastText]}>
+                {getActionText(item)}
+              </Text>
+            </>
+          ) : (
+            <Text style={[styles.notificationText, isPodcastSpecial && styles.podcastText]}>
+              {getNotificationText(item)}
+            </Text>
+          )}
           {detail ? (
             <Text style={styles.notificationDetail} numberOfLines={2}>{detail}</Text>
+          ) : null}
+          {type === 'comment_tag' && item.data?.testimonial_id ? (
+            testimonialAnswers[item.data.testimonial_id] ? (
+              <Text style={styles.testimonialDone}>
+                {testimonialAnswers[item.data.testimonial_id] === 'approved'
+                  ? 'Se muestra en tu perfil como testimonio.'
+                  : 'No se mostrará en tu perfil.'}
+              </Text>
+            ) : (
+              <View style={styles.testimonialActions}>
+                <TouchableOpacity
+                  style={[styles.testimonialBtn, styles.testimonialApprove]}
+                  onPress={() => answerTestimonial(item.data.testimonial_id, 'approved')}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.testimonialApproveText}>Mostrar en mi perfil</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.testimonialBtn}
+                  onPress={() => answerTestimonial(item.data.testimonial_id, 'rejected')}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.testimonialRejectText}>No mostrar</Text>
+                </TouchableOpacity>
+              </View>
+            )
           ) : null}
           <Text style={[styles.time, !item.is_read && styles.timeUnread]}>
             {moment(item.created_at).fromNow()}
@@ -444,8 +500,15 @@ const styles = StyleSheet.create({
   },
   notificationCopy: { flex: 1 },
   notificationText: { fontSize: 14, lineHeight: 19, color: '#2d3436' },
+  actorName: { fontWeight: '800' },
   notificationDetail: { fontSize: 13, lineHeight: 18, color: '#6c757d', marginTop: 3 },
   time: { fontSize: 11, color: '#999', marginTop: 5 },
+  testimonialActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  testimonialBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12, backgroundColor: '#f1f3f5' },
+  testimonialApprove: { backgroundColor: '#845ef7' },
+  testimonialApproveText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  testimonialRejectText: { color: '#495057', fontSize: 12, fontWeight: '700' },
+  testimonialDone: { marginTop: 6, fontSize: 12, fontWeight: '700', color: '#5f3dc4' },
   timeUnread: { color: '#228be6', fontWeight: '700' },
   unreadDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#228be6', marginLeft: 9 },
   unreadDotPodcast: { backgroundColor: '#f783ac' },

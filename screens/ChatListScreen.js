@@ -17,6 +17,7 @@ import moment from 'moment';
 import 'moment/locale/es';
 import { useFocusEffect } from '@react-navigation/native';
 import api, { getImageUrl } from '../api';
+import { NameWithBadges } from '../components/UserBadges';
 
 moment.locale('es');
 
@@ -256,9 +257,12 @@ const ChatListScreen = ({ navigation }) => {
         <View style={styles.chatInfo}>
           <View style={styles.chatHeader}>
             <View style={styles.chatTitleRow}>
-              <Text style={[styles.chatName, unreadCount > 0 && styles.chatNameUnread]} numberOfLines={1}>
+              <NameWithBadges
+                userId={isGroup ? null : item.id}
+                style={[styles.chatName, unreadCount > 0 && styles.chatNameUnread]}
+              >
                 {title}
-              </Text>
+              </NameWithBadges>
               {isGroup ? <Text style={styles.groupLabel}>Grupo</Text> : null}
             </View>
             <Text style={[styles.chatTime, unreadCount > 0 && styles.chatTimeUnread]}>
@@ -442,7 +446,9 @@ const ChatListScreen = ({ navigation }) => {
                   return (
                     <TouchableOpacity style={styles.userRow} onPress={() => startDirectChat(item)}>
                       <Image source={{ uri: avatar }} style={styles.userAvatar} contentFit="cover" />
-                      <Text style={styles.userName}>{name}</Text>
+                      <NameWithBadges userId={item.id} style={styles.userName} containerStyle={styles.userNameRow}>
+                        {name}
+                      </NameWithBadges>
                       <Ionicons name="chevron-forward" size={18} color="#adb5bd" />
                     </TouchableOpacity>
                   );
@@ -510,7 +516,9 @@ const ChatListScreen = ({ navigation }) => {
                   return (
                     <TouchableOpacity style={styles.userRow} onPress={() => toggleMember(item.id)}>
                       <Image source={{ uri: avatar }} style={styles.userAvatar} contentFit="cover" />
-                      <Text style={styles.userName}>{name}</Text>
+                      <NameWithBadges userId={item.id} style={styles.userName} containerStyle={styles.userNameRow}>
+                        {name}
+                      </NameWithBadges>
                       <Ionicons
                         name={selected ? 'checkmark-circle' : 'ellipse-outline'}
                         size={24}
@@ -680,7 +688,8 @@ const styles = StyleSheet.create({
   modalEmpty: { textAlign: 'center', color: '#8b949e', marginTop: 35 },
   userRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#f1f3f5' },
   userAvatar: { width: 44, height: 44, borderRadius: 22, marginRight: 12, backgroundColor: '#e9ecef' },
-  userName: { flex: 1, fontSize: 15, color: '#343a40', fontWeight: '600' },
+  userName: { fontSize: 15, color: '#343a40', fontWeight: '600' },
+  userNameRow: { flex: 1 },
   groupNameInput: {
     height: 48,
     borderWidth: 1,

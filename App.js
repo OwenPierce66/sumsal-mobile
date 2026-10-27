@@ -85,6 +85,7 @@ const ChatDetailScreen      = React.lazy(() => import('./screens/ChatDetailScree
 const NotificationsScreen   = React.lazy(() => import('./screens/NotificationsScreen'));
 const EditProfileScreen     = React.lazy(() => import('./screens/EditProfileScreen'));
 const FavoritesScreen       = React.lazy(() => import('./screens/FavoritesScreen'));
+const SubscriptionsScreen   = React.lazy(() => import('./screens/SubscriptionsScreen'));
 
 import { NotificationsProvider } from './contexts/NotificationsContext';
 
@@ -118,6 +119,7 @@ const TasksStackNavigator = () => {
       <Stack.Screen name="SharedTaskDetail" component={LazyScreen(SharedTaskDetailScreen)} />
       <Stack.Screen name="ChatDetail" component={LazyScreen(ChatDetailScreen)} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="Subscriptions" component={LazyScreen(SubscriptionsScreen)} />
     </Stack.Navigator>
   );
 };
@@ -131,6 +133,7 @@ const HomeStackNavigator = () => {
       <Stack.Screen name="ChatDetail" component={LazyScreen(ChatDetailScreen)} />
       <Stack.Screen name="CreateTask" component={LazyScreen(CreateTaskScreen)} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="Subscriptions" component={LazyScreen(SubscriptionsScreen)} />
       <Stack.Screen name="TaskDetail" component={LazyScreen(TaskDetailScreen)} />
       <Stack.Screen name="SharedTaskDetail" component={LazyScreen(SharedTaskDetailScreen)} />
     </Stack.Navigator>
@@ -163,6 +166,7 @@ const ProfileStackNavigator = () => {
       <Stack.Screen name="TaskDetail" component={LazyScreen(TaskDetailScreen)} />
       <Stack.Screen name="EditProfile" component={LazyScreen(EditProfileScreen)} />
       <Stack.Screen name="Favorites" component={LazyScreen(FavoritesScreen)} />
+      <Stack.Screen name="Subscriptions" component={LazyScreen(SubscriptionsScreen)} />
       <Stack.Screen name="SharedTaskDetail" component={LazyScreen(SharedTaskDetailScreen)} />
     </Stack.Navigator>
   );

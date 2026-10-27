@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Text, Pressable, Modal, View, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../api';
+import UserBadges from './UserBadges';
 
 const TouchableUsername = ({
   username,
@@ -13,6 +14,7 @@ const TouchableUsername = ({
   onNavigate,
   disabled = false,
   numberOfLines = 1,
+  showBadges = true,
 }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [isLikedProfile, setIsLikedProfile] = useState(false);
@@ -103,9 +105,14 @@ const TouchableUsername = ({
        delayLongPress={500}
        style={({ pressed }) => [style, pressed && { opacity: 0.7 }]}
      >
-       <Text style={[styles.username, textStyle]} numberOfLines={numberOfLines}>
-         {username || 'Usuario'}
-       </Text>
+       <View style={styles.nameRow}>
+         <Text style={[styles.username, textStyle, styles.nameText]} numberOfLines={numberOfLines}>
+           {username || 'Usuario'}
+         </Text>
+         {showBadges ? (
+           <UserBadges userId={userId} size={StyleSheet.flatten([styles.username, textStyle]).fontSize} />
+         ) : null}
+       </View>
      </Pressable>
 
      <Modal
@@ -154,6 +161,14 @@ const TouchableUsername = ({
 };
 
 const styles = StyleSheet.create({
+  nameRow: {
+   flexDirection: 'row',
+   alignItems: 'center',
+   flexShrink: 1,
+  },
+  nameText: {
+   flexShrink: 1,
+  },
   username: {
    color: '#297fce',
    fontWeight: '600',

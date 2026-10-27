@@ -14,11 +14,16 @@ import { getImageUrl } from '@api';
 import { AuthContext } from '@app';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import CategoryHierarchy from '@components/CategoryHierarchy';
+import ProfileSubscription from '@components/ProfileSubscription';
+import HiddenTaskBanner from '@components/HiddenTaskBanner';
+import TestimonialCard from '@components/TestimonialCard';
+import { NameWithBadges } from '@components/UserBadges';
 import {
   useMe,
   useProfileTasksInfinite,
   useProfileCategories,
   useFavoritesFeed,
+  useUserTestimonials,
 } from '@hooks/useApi';
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
@@ -99,6 +104,26 @@ const ProfileScreen = ({ route, navigation }) => {
     isLoading: favoriteFeedLoading,
   } = useFavoritesFeed(favoriteFeedEnabled);
 
+  // ── Testimonios (comentarios donde lo etiquetaron y que aprobó) ──────────
+  const { data: testimonialsData, refetch: refetchTestimonials } = useUserTestimonials(ownerId);
+  const showTestimonials = viewMode === 'testimonials' && !showFavoriteFeed;
+  const testimonials = useMemo(
+    () => [...(testimonialsData?.pending ?? []), ...(testimonialsData?.testimonials ?? [])],
+    [testimonialsData]
+  );
+  const approvedCount = testimonialsData?.testimonials?.length ?? 0;
+  const pendingCount = testimonialsData?.pending?.length ?? 0;
+
+  const answerTestimonial = async (testimonial, status) => {
+    try {
+      const api = (await import('@api')).default;
+      await api.patch(`testimonials/${testimonial.id}/`, { status });
+      refetchTestimonials();
+    } catch {
+      Alert.alert('Error', 'No se pudo guardar tu respuesta. Intenta de nuevo.');
+    }
+  };
+
   // ── Refresh al enfocar la pantalla ────────────────────────────────────────
   useFocusEffect(
     useCallback(() => {
@@ -113,6 +138,7 @@ const ProfileScreen = ({ route, navigation }) => {
     if (isCurrentUser) refetchMe();
     refetchTasks();
     refetchCategories();
+    refetchTestimonials();
   }, [isCurrentUser]);
 
   const loadMoreTasks = () => {
@@ -173,6 +199,7 @@ const ProfileScreen = ({ route, navigation }) => {
         onPress={() => navigation.push('TaskDetail', { taskId: item.id })}
         activeOpacity={0.9}
       >
+        <HiddenTaskBanner task={item} compact onPublished={() => refetchTasks()} />
         <View style={styles.taskHeader}>
           <Image
             source={{ uri: getImageUrl(taskOwner?.user_image || taskOwner?.profile?.user_image) }}
@@ -180,12 +207,12 @@ const ProfileScreen = ({ route, navigation }) => {
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.taskTitle}>{item.title}</Text>
-            <Text style={styles.taskCreator}>
+            <NameWithBadges userId={taskOwner?.id || ownerId} style={styles.taskCreator} badgeSize={12}>
               Creada por{' '}
               {taskOwner?.username ||
                 [taskOwner?.first_name, taskOwner?.last_name].filter(Boolean).join(' ') ||
                 'Usuario'}
-            </Text>
+            </NameWithBadges>
             <Text style={styles.taskDate}>{moment(item.created_at).fromNow()}</Text>
           </View>
         </View>
@@ -248,6 +275,7 @@ const ProfileScreen = ({ route, navigation }) => {
 
     return (
       <View style={styles.detailedCard}>
+        <HiddenTaskBanner task={item} compact onPublished={() => refetchTasks()} />
         <View style={styles.taskHeader}>
           <Image
             source={{ uri: getImageUrl(taskOwner?.user_image || taskOwner?.profile?.user_image) }}
@@ -255,12 +283,12 @@ const ProfileScreen = ({ route, navigation }) => {
           />
           <View style={{ flex: 1 }}>
             <Text style={styles.taskTitle}>{item.title}</Text>
-            <Text style={styles.taskCreator}>
+            <NameWithBadges userId={taskOwner?.id || ownerId} style={styles.taskCreator} badgeSize={12}>
               Creada por{' '}
               {taskOwner?.username ||
                 [taskOwner?.first_name, taskOwner?.last_name].filter(Boolean).join(' ') ||
                 'Usuario'}
-            </Text>
+            </NameWithBadges>
             <Text style={styles.taskDate}>{moment(item.created_at).fromNow()}</Text>
           </View>
         </View>
@@ -362,11 +390,11 @@ const ProfileScreen = ({ route, navigation }) => {
           style={styles.profileAvatar}
         />
         <View style={styles.profileTextContainer}>
-          <Text style={styles.profileName}>
+          <NameWithBadges userId={ownerId} style={styles.profileName} badgeSize={20} numberOfLines={2}>
             {user?.first_name
               ? `${user.first_name} ${user.last_name || ''}`
               : user?.username || 'Usuario'}
-          </Text>
+          </NameWithBadges>
           <Text style={styles.profileEmail}>{user?.email}</Text>
           {isCurrentUser && (user?.is_staff || user?.is_superuser) ? (
             <View style={styles.adminBadge}>
@@ -379,11 +407,22 @@ const ProfileScreen = ({ route, navigation }) => {
         </View>
       </View>
 
+      {ownerId ? (
+        <ProfileSubscription
+          userId={ownerId}
+          username={user?.username}
+          isCurrentUser={isCurrentUser}
+          navigation={navigation}
+        />
+      ) : null}
+
       <View style={styles.divider} />
       <View style={styles.sectionTitleRow}>
         <Text style={styles.sectionTitle}>
           {showFavoriteFeed
             ? 'Tareas favoritas'
+            : showTestimonials
+            ? (isCurrentUser ? 'Mis testimonios' : `Testimonios de ${user?.username || ''}`)
             : isCurrentUser
             ? 'Mis Publicaciones'
             : `Publicaciones de ${user?.username || ''}`}
@@ -464,6 +503,16 @@ const ProfileScreen = ({ route, navigation }) => {
             >
               <Ionicons name="pencil-outline" size={20} color="#4dabf7" />
               <Text style={styles.profileMenuText}>Editar perfil</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileMenuOption}
+              onPress={() => {
+                setProfileMenuVisible(false);
+                navigation.navigate('Subscriptions');
+              }}
+            >
+              <Ionicons name="card-outline" size={20} color="#2f9e44" />
+              <Text style={styles.profileMenuText}>Mis suscripciones</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.profileMenuOption} onPress={handleLogout}>
               <Ionicons name="log-out-outline" size={20} color="#ff6b6b" />
@@ -552,6 +601,27 @@ const ProfileScreen = ({ route, navigation }) => {
             Detallada
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.viewModeBtn, viewMode === 'testimonials' && styles.viewModeBtnActive]}
+          onPress={() => setViewMode('testimonials')}
+          accessibilityRole="button"
+        >
+          <Ionicons
+            name="chatbox-ellipses-outline"
+            size={16}
+            color={viewMode === 'testimonials' ? '#fff' : '#4dabf7'}
+          />
+          <Text
+            style={[styles.viewModeText, viewMode === 'testimonials' && styles.viewModeTextActive]}
+          >
+            Testimonios{approvedCount ? ` (${approvedCount})` : ''}
+          </Text>
+          {isCurrentUser && pendingCount ? (
+            <View style={styles.pendingBadge}>
+              <Text style={styles.pendingBadgeText}>{pendingCount}</Text>
+            </View>
+          ) : null}
+        </TouchableOpacity>
       </View>
 
       {selectedCategory ? (
@@ -569,9 +639,20 @@ const ProfileScreen = ({ route, navigation }) => {
         <ActivityIndicator size="large" color="#4dabf7" style={{ marginTop: 50 }} />
       ) : (
         <FlatList
-          data={showFavoriteFeed ? favoriteFeedTasks : tasks}
+          data={showFavoriteFeed ? favoriteFeedTasks : showTestimonials ? testimonials : tasks}
           keyExtractor={(item) => item.id?.toString()}
-          renderItem={viewMode === 'detailed' ? renderDetailedTask : renderTask}
+          renderItem={
+            showTestimonials
+              ? ({ item }) => (
+                  <TestimonialCard
+                    testimonial={item}
+                    navigation={navigation}
+                    isOwner={isCurrentUser}
+                    onAnswer={answerTestimonial}
+                  />
+                )
+              : viewMode === 'detailed' ? renderDetailedTask : renderTask
+          }
           ListHeaderComponent={renderHeader}
           refreshControl={
             <RefreshControl
@@ -579,11 +660,17 @@ const ProfileScreen = ({ route, navigation }) => {
               onRefresh={onRefresh}
             />
           }
-          onEndReached={loadMoreTasks}
+          onEndReached={showTestimonials ? undefined : loadMoreTasks}
           onEndReachedThreshold={0.5}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>Aún no has publicado nada.</Text>
+            <Text style={styles.emptyText}>
+              {showTestimonials
+                ? isCurrentUser
+                  ? 'Aún no tienes testimonios. Cuando alguien te etiquete en un comentario, podrás mostrarlo aquí.'
+                  : 'Este perfil aún no tiene testimonios.'
+                : 'Aún no has publicado nada.'}
+            </Text>
           }
           ListFooterComponent={
             isFetchingNextPage ? (
@@ -611,7 +698,9 @@ const styles = StyleSheet.create({
   appFilterSection: { marginBottom: 6 },
   appFilterTitle: { marginHorizontal: 16, fontSize: 13, fontWeight: '800', color: '#555' },
   emptyFilterText: { marginHorizontal: 16, marginTop: 6, color: '#999', fontSize: 12 },
-  viewModeRow: { flexDirection: 'row', gap: 8, marginHorizontal: 16, marginBottom: 8 },
+  viewModeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginHorizontal: 16, marginBottom: 8 },
+  pendingBadge: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: '#845ef7' },
+  pendingBadgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   viewModeBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#e7f5ff', borderWidth: 1, borderColor: '#d0ebff' },
   viewModeBtnActive: { backgroundColor: '#4dabf7', borderColor: '#4dabf7' },
   viewModeText: { color: '#4dabf7', fontSize: 12, fontWeight: '700' },
@@ -665,7 +754,7 @@ const styles = StyleSheet.create({
   statsContainer: { flexDirection: 'row', gap: 20 },
   stat: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statText: { fontSize: 13, color: '#666', fontWeight: '600' },
-  emptyText: { textAlign: 'center', color: '#999', marginTop: 30, fontSize: 15, fontStyle: 'italic' },
+  emptyText: { textAlign: 'center', color: '#999', marginTop: 30, marginHorizontal: 24, fontSize: 15, fontStyle: 'italic' },
 });
 
 export default ProfileScreen;

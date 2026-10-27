@@ -15,9 +15,20 @@ import TieredLikesModal from './TieredLikesModal';
 import Slider from '@react-native-community/slider';
 import TouchableUsername from '@components/TouchableUsername';
 import CategoryHierarchy from '@components/CategoryHierarchy';
+import AportacionCard from '@components/AportacionCard';
+import FavoriteAportacionPicker from '@components/FavoriteAportacionPicker';
+import LinkifiedText from '@components/LinkifiedText';
 import { useTaskDetail, useTaskComments, useMe, useIsAdmin } from '@hooks/useApi';
+import { useDownloadTask } from '@hooks/useDownloadTask';
+import HiddenTaskBanner from '@components/HiddenTaskBanner';
+import UserTagPicker from '@components/UserTagPicker';
+import { toAportacionInfo } from '../utils/aportaciones';
+import { withLegacyLink } from '../utils/links';
 
 moment.locale('es');
+
+/** Ids etiquetados, en orden estable, para saber si cambiaron al editar. */
+const tagIdsKey = (users) => users.map((user) => String(user.id)).sort().join(',');
 
 const isVideoMedia = (path) => {
   const value = String(path || '').toLowerCase();
@@ -143,21 +154,21 @@ const MediaPreview = ({ uri, label, onOpenReel }) => {
 // =====================================================================
 // COMPONENTE RECURSIVO (COMENTARIOS)
 // =====================================================================
-const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onDelete, onEdit, currentUserId, expandedCommentIds, toggleExpand, navigation }) => {
+const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onDelete, onEdit, onOpenAportacion, currentUserId, expandedCommentIds, toggleExpand, navigation }) => {
   const hasChildren = comment.children && comment.children.length > 0;
   const isExpanded = expandedCommentIds.includes(comment.id);
 
   const marginLeft = depth > 0 ? 16 : 0;
   const borderLeftWidth = depth > 0 ? 2 : 0;
 
-  // âš¡ HELPER PARA CONTAR TODAS LAS RESPUESTAS ANIDADAS (HIJOS Y NIETOS)
+  // ⚡ HELPER PARA CONTAR TODAS LAS RESPUESTAS ANIDADAS (HIJOS Y NIETOS)
   const countAllReplies = (children = []) => {
     return children.reduce((total, child) => total + 1 + countAllReplies(child.children || []), 0);
   };
   const totalReplies = countAllReplies(comment.children);
 
-  // âš¡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DEL COMENTARIO
-// âš¡ HELPER PARA EL NOMBRE DEL COMENTARIO (Basado en tu modelo de Django)
+  // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DEL COMENTARIO
+// ⚡ HELPER PARA EL NOMBRE DEL COMENTARIO (Basado en tu modelo de Django)
   const getCommentAuthorName = (c) => {
     const userObj = c.created_by || c.user;
     
@@ -172,7 +183,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
       }
     }
     // 3. Fallback final
-    return c.username || 'AnÃ³nimo';
+    return c.username || 'Anónimo';
   };
 
   return (
@@ -198,13 +209,13 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
                 {moment(comment.created_at).fromNow()}
               </Text>
               
-              {/* BOTÃ“N DE ELIMINAR */}
+              {/* BOTÓN DE ELIMINAR */}
               {(currentUserId === comment.created_by?.id || currentUserId === comment.user?.id) && (
                 <View style={{ flexDirection: 'row', marginLeft: 10 }}>
-                  <TouchableOpacity onPress={() => onEdit(comment)} style={{ marginRight: 10 }}>
+                  <TouchableOpacity onPress={() => onEdit(comment)} style={{ marginRight: 10 }} accessibilityLabel="Editar comentario">
                     <Ionicons name="pencil-outline" size={14} color="#4dabf7" />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => onDelete(comment.id)}>
+                  <TouchableOpacity onPress={() => onDelete(comment.id)} accessibilityLabel="Eliminar comentario">
                     <Ionicons name="trash-outline" size={14} color="#ff6b6b" />
                   </TouchableOpacity>
                 </View>
@@ -225,8 +236,31 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
 
       <Text style={styles.commentText}>{comment.text || comment.content}</Text>
 
+      {comment.tagged_users?.length ? (
+        <View style={styles.commentTags}>
+          <Text style={styles.commentTagsLabel}>Con</Text>
+          {comment.tagged_users.map((tagged) => (
+            <TouchableUsername
+              key={tagged.id}
+              username={`@${tagged.username || 'usuario'}`}
+              userId={tagged.id}
+              navigation={navigation}
+              textStyle={styles.commentTagName}
+            />
+          ))}
+        </View>
+      ) : null}
+
+      {comment.aportacion_info ? (
+        <AportacionCard
+          info={comment.aportacion_info}
+          onPress={() => onOpenAportacion(comment.aportacion_info)}
+          style={styles.commentAportacion}
+        />
+      ) : null}
+
       <View style={styles.commentFooter}>
-        <TouchableOpacity onPress={() => onReply(comment)}>
+        <TouchableOpacity onPress={() => onReply(comment)} accessibilityLabel="Responder">
           <Text style={styles.replyActionText}>Responder</Text>
         </TouchableOpacity>
 
@@ -252,6 +286,7 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
               onLikeLongPress={onLikeLongPress}
               onDelete={onDelete}
               onEdit={onEdit}
+              onOpenAportacion={onOpenAportacion}
               currentUserId={currentUserId}
               expandedCommentIds={expandedCommentIds}
               toggleExpand={toggleExpand}
@@ -282,6 +317,16 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [respondingToPodcast,     setRespondingToPodcast]     = useState(false);
   const [expandedCommentIds, setExpandedCommentIds] = useState([]);
 
+  // Aportación favorita adjunta al comentario o a la respuesta (formato aportacion_info).
+  const [attachedAportacion,      setAttachedAportacion]      = useState(null);
+  const [aportacionPickerVisible, setAportacionPickerVisible] = useState(false);
+  // Al editar: la aportación que ya tenía, para enviarla solo si cambió.
+  const [editingAportacionId,     setEditingAportacionId]     = useState(null);
+  // Personas etiquetadas en el comentario (testimonio en su perfil si lo aprueban).
+  const [commentTags,             setCommentTags]             = useState([]);
+  const [tagPickerVisible,        setTagPickerVisible]        = useState(false);
+  const [editingTagIds,           setEditingTagIds]           = useState('');
+
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
   const [likesModalUrl,     setLikesModalUrl]     = useState('');
@@ -292,6 +337,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [taskToShare,       setTaskToShare]       = useState(null);
   // Modal de acciones
   const [actionModalVisible, setActionModalVisible] = useState(false);
+  const { downloadTask, isDownloading } = useDownloadTask();
 
   const openMediaInReels = useCallback((mediaUri) => {
     if (!task?.id || !mediaUri) return;
@@ -320,9 +366,9 @@ const TaskDetailScreen = ({ route, navigation }) => {
     };
 
     if (Platform.OS === "web") {
-      if (window.confirm("ï¿½Estï¿½s seguro de que deseas eliminar esta tarea permanentemente?")) executeDelete();
+      if (window.confirm("¿Estás seguro de que deseas eliminar esta tarea permanentemente?")) executeDelete();
     } else {
-      Alert.alert("Eliminar Tarea", "ï¿½Estï¿½s seguro de que deseas eliminar esta tarea permanentemente?", [
+      Alert.alert("Eliminar Tarea", "¿Estás seguro de que deseas eliminar esta tarea permanentemente?", [
         { text: "Cancelar", style: "cancel" },
         { text: "Eliminar", style: "destructive", onPress: executeDelete }
       ]);
@@ -482,33 +528,49 @@ const TaskDetailScreen = ({ route, navigation }) => {
     setIsCreatingComment(true);
 
     try {
-      // âš¡ ENVIAMOS UN JSON EN LUGAR DE FORMDATA
+      // ⚡ ENVIAMOS UN JSON EN LUGAR DE FORMDATA
       // Esto evita conflictos con el header 'Content-Type: application/json' predeterminado de Axios
-      const payload = {
-        text: commentText,
-        ...(replyingTo && { parent: replyingTo.id })
-      };
-
       if (editingCommentId) {
-        await api.patch(`comments/${editingCommentId}/`, { text: commentText });
+        const changes = { text: commentText };
+        const nextAportacionId = attachedAportacion?.id ?? null;
+        // Solo se envía si cambió: el backend no vuelve a exigir favorito a la que ya tenía.
+        if (String(nextAportacionId ?? '') !== String(editingAportacionId ?? '')) {
+          changes.aportacion = nextAportacionId;
+        }
+        if (tagIdsKey(commentTags) !== editingTagIds) {
+          changes.tagged_user_ids = commentTags.map((user) => user.id);
+        }
+        await api.patch(`comments/${editingCommentId}/`, changes);
       } else {
+        const payload = {
+          text: commentText,
+          ...(replyingTo && { parent: replyingTo.id }),
+          ...(attachedAportacion && { aportacion: attachedAportacion.id }),
+          ...(commentTags.length > 0 && { tagged_user_ids: commentTags.map((user) => user.id) }),
+        };
         await api.post(`tasks/${taskId}/comments/`, payload);
+        setTask(prev => prev ? { ...prev, comments_count: (prev.comments_count || 0) + 1 } : prev);
       }
 
       setCommentText('');
       setEditingCommentId(null);
+      setEditingAportacionId(null);
+      setAttachedAportacion(null);
+      setCommentTags([]);
+      setEditingTagIds('');
       if (replyingTo) {
         setExpandedCommentIds((prev) => [...new Set([...prev, replyingTo.id])]);
       }
       setReplyingTo(null);
-      
-      // âš¡ ACTUALIZACIÃ“N OPTIMISTA: Incrementamos el conteo global al instante
-      setTask(prev => prev ? { ...prev, comments_count: (prev.comments_count || 0) + 1 } : prev);
       await fetchComments();
     } catch (error) {
       console.error('Error adding comment:', error.response?.data || error.message);
-      setTask(prev => prev ? { ...prev, comments_count: Math.max(0, (prev.comments_count || 0) - 1) } : prev); // Revertimos si hay error
-      Alert.alert('Error', 'No se pudo publicar el comentario');
+      // Mensajes de validación del backend (p. ej. "Solo puedes adjuntar una de tus aportaciones favoritas.")
+      const data = error.response?.data;
+      const detail = [data?.aportacion, data?.tagged_user_ids, data?.text, data?.detail]
+        .map(value => (Array.isArray(value) ? value[0] : value))
+        .find(value => typeof value === 'string' && value);
+      Alert.alert('Error', detail || 'No se pudo publicar el comentario');
     } finally {
       setIsCreatingComment(false);
     }
@@ -518,10 +580,34 @@ const TaskDetailScreen = ({ route, navigation }) => {
     setEditingCommentId(comment.id);
     setCommentText(comment.text || comment.content || '');
     setReplyingTo(null);
+    setEditingAportacionId(comment.aportacion_info?.id ?? null);
+    setAttachedAportacion(comment.aportacion_info || null);
+    const tags = (comment.tagged_users || []).map(({ id, username }) => ({ id, username }));
+    setCommentTags(tags);
+    setEditingTagIds(tagIdsKey(tags));
   };
 
+  const cancelEditing = () => {
+    setEditingCommentId(null);
+    setEditingAportacionId(null);
+    setAttachedAportacion(null);
+    setCommentTags([]);
+    setEditingTagIds('');
+    setCommentText('');
+  };
+
+  const handleSelectAportacion = (favoriteTask) => {
+    setAttachedAportacion(toAportacionInfo(favoriteTask));
+    setAportacionPickerVisible(false);
+  };
+
+  const openAportacion = useCallback((info) => {
+    if (!info?.id || String(info.id) === String(taskId)) return;
+    navigation.push('TaskDetail', { taskId: info.id });
+  }, [navigation, taskId]);
+
   const handleLikeTask = async () => {
-    // âš¡ ACTUALIZACIÃ“N OPTIMISTA: Cambiamos el corazÃ³n y el conteo al instante
+    // ⚡ ACTUALIZACIÓN OPTIMISTA: Cambiamos el corazón y el conteo al instante
     setTask(prev => {
       if (!prev) return prev;
       const isLiked = prev.user_has_liked;
@@ -538,7 +624,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
       setTask(prev => prev ? { ...prev, user_has_liked: response.data.liked, likes_count: response.data.likes_count } : prev);
     } catch (error) {
       console.error('Error liking task:', error);
-      fetchTaskDetail(); // Revertimos descargando de nuevo si fallÃ³
+      fetchTaskDetail(); // Revertimos descargando de nuevo si falló
     }
   };
 
@@ -568,7 +654,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
       });
     };
 
-    // âš¡ ACTUALIZACIÃ“N OPTIMISTA
+    // ⚡ ACTUALIZACIÓN OPTIMISTA
     setComments(prev => updateCommentLike(prev, commentId));
 
     try {
@@ -582,7 +668,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
   const handleDeleteComment = (commentId) => {
     const executeDelete = async () => {
-      // âš¡ ACTUALIZACIÃ“N OPTIMISTA AL BORRAR
+      // ⚡ ACTUALIZACIÓN OPTIMISTA AL BORRAR
       const removeComment = (list) => {
         return list.filter(c => c.id !== commentId).map(c => {
           if (c.children) {
@@ -596,7 +682,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
       try {
         await api.delete(`comments/${commentId}/`);
-        if (Platform.OS !== 'web') Alert.alert("Ã‰xito", "Comentario eliminado.");
+        if (Platform.OS !== 'web') Alert.alert("Éxito", "Comentario eliminado.");
       } catch (error) {
         console.error("Error eliminando comentario:", error.response?.data || error.message);
         fetchComments(); // Revertir silenciosamente en caso de fallo
@@ -606,13 +692,13 @@ const TaskDetailScreen = ({ route, navigation }) => {
     };
 
     if (Platform.OS === 'web') {
-      if (window.confirm("Â¿EstÃ¡s seguro de que deseas eliminar este comentario de forma permanente?")) {
+      if (window.confirm("¿Estás seguro de que deseas eliminar este comentario de forma permanente?")) {
         executeDelete();
       }
     } else {
       Alert.alert(
         "Eliminar Comentario",
-        "Â¿EstÃ¡s seguro de que deseas eliminar este comentario de forma permanente?",
+        "¿Estás seguro de que deseas eliminar este comentario de forma permanente?",
         [
           { text: "Cancelar", style: "cancel" },
           { text: "Eliminar", style: "destructive", onPress: executeDelete }
@@ -625,10 +711,10 @@ const TaskDetailScreen = ({ route, navigation }) => {
     setReplyingTo(comment);
   };
 
-  // âš¡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA PRINCIPAL
-// âš¡ HELPER PARA EL NOMBRE DE LA TAREA PRINCIPAL
+  // ⚡ HELPER PARA EXTRAER EL NOMBRE DEL AUTOR DE LA TAREA PRINCIPAL
+// ⚡ HELPER PARA EL NOMBRE DE LA TAREA PRINCIPAL
   const getTaskAuthorName = () => {
-    if (!task) return 'AnÃ³nimo';
+    if (!task) return 'Anónimo';
     
     // 1. Intentamos el nombre real del usuario relacional
     if (task.user?.first_name) {
@@ -638,15 +724,15 @@ const TaskDetailScreen = ({ route, navigation }) => {
     if (task.username) {
       return task.username;
     }
-    // 3. Fallback al inicio del correo electrÃ³nico
+    // 3. Fallback al inicio del correo electrónico
     if (task.user?.email) {
       return task.user.email.split('@')[0];
     }
     
-    return 'AnÃ³nimo';
+    return 'Anónimo';
   };
 
-  // âš¡ HELPER PARA EL AVATAR DE LA TAREA PRINCIPAL
+  // ⚡ HELPER PARA EL AVATAR DE LA TAREA PRINCIPAL
   const getTaskAuthorAvatar = () => {
     if (!task) return 'https://ui-avatars.com/api/?name=A';
     
@@ -658,7 +744,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const taskOwnerId = task?.user?.id || task?.user_id || task?.user;
   const isTaskOwner = currentUserId && taskOwnerId && String(currentUserId) === String(taskOwnerId);
 
-  // âš¡ HELPER PARA EXTRAER EL AVATAR DEL AUTOR DE LA TAREA PRINCIPAL
+  // ⚡ HELPER PARA EXTRAER EL AVATAR DEL AUTOR DE LA TAREA PRINCIPAL
   // const getTaskAuthorAvatar = () => {
   //   if (!task) return 'https://ui-avatars.com/api/?name=A';
   //   const uri = task.user_image || task.user?.user_image;
@@ -702,7 +788,8 @@ const TaskDetailScreen = ({ route, navigation }) => {
       <ScrollView style={styles.content}>
         {/* LA TAREA PRINCIPAL */}
         <View style={styles.taskCard}>
-          {/* âš¡ AÃ‘ADIMOS EL HEADER CON EL NOMBRE Y AVATAR DEL AUTOR */}
+          <HiddenTaskBanner task={task} onPublished={() => refetchTask()} />
+          {/* ⚡ AÑADIMOS EL HEADER CON EL NOMBRE Y AVATAR DEL AUTOR */}
           <View style={styles.taskAuthorHeader}>
             <Image source={{ uri: getTaskAuthorAvatar() }} style={styles.taskAuthorAvatar} />
             <View style={{ flex: 1 }}>
@@ -715,14 +802,10 @@ const TaskDetailScreen = ({ route, navigation }) => {
                 textStyle={styles.taskAuthorName}
                 numberOfLines={1}
               />
-              {/* ✅ AÑADIDO: Mostrar el ícono de admin si corresponde */}
-              {(task.user?.is_staff || task.user?.is_superuser) && (
-                <Ionicons name="shield-checkmark" size={16} color="#4dabf7" style={{ marginLeft: 6 }} />
-              )}
               <Text style={styles.taskDate}>{moment(task.created_at).format('LL')}</Text>
             </View>
             
-            {/* âš¡ BOTÃ“N PARA ENVIAR MENSAJE DIRECTO AL CREADOR */}
+            {/* ⚡ BOTÓN PARA ENVIAR MENSAJE DIRECTO AL CREADOR */}
             {task.user?.id && currentUserId !== task.user?.id && (
               <TouchableOpacity 
                 style={styles.dmButton}
@@ -741,7 +824,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
           <View style={styles.taskInfo}>
             <Text style={styles.taskTitle}>{task.title}</Text>
-            <Text style={styles.taskDescription}>{task.description}</Text>
+            <LinkifiedText style={styles.taskDescription} text={task.description} />
 
             {Array.isArray(task.tagged_users) && task.tagged_users.length > 0 && (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
@@ -764,15 +847,16 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
             <MediaPreview uri={task.video || task.image} label="Publicación" onOpenReel={() => openMediaInReels(task.video)} />
 
+            {/* El enlace que la web guardaba aparte en cada bloque se muestra dentro de su descripción */}
             {[
               ...(Array.isArray(task.subtasks) ? task.subtasks.map((item) => ({ ...item, section: 'Consejo' })) : []),
               ...(Array.isArray(task.subfactores) ? task.subfactores.map((item) => ({ ...item, section: 'Factor' })) : []),
               ...(Array.isArray(task.subfuentes) ? task.subfuentes.map((item) => ({ ...item, section: 'Fuente' })) : []),
-            ].map((item, index) => (
+            ].map((item) => ({ ...item, description: withLegacyLink(item.description, item.link) })).map((item, index) => (
               <View key={item.id || `${item.section}-${index}`} style={styles.subtaskDetail}>
                 <Text style={styles.subtaskDetailSection}>{item.section}</Text>
                 {item.title ? <Text style={styles.subtaskDetailTitle}>{item.title}</Text> : null}
-                {item.description ? <Text style={styles.subtaskDetailDescription}>{item.description}</Text> : null}
+                {item.description ? <LinkifiedText style={styles.subtaskDetailDescription} text={item.description} /> : null}
                 <MediaPreview uri={item.video || item.image} label={item.section} onOpenReel={() => openMediaInReels(item.video)} />
               </View>
             ))}
@@ -789,7 +873,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
             </TouchableOpacity>
             <View style={styles.actionBtn}>
               <Ionicons name="chatbubble-outline" size={20} color="#999" />
-              {/* âš¡ USAMOS EL CONTEO TOTAL DEL BACKEND QUE INCLUYE HASTA LOS NIETOS */}
+              {/* ⚡ USAMOS EL CONTEO TOTAL DEL BACKEND QUE INCLUYE HASTA LOS NIETOS */}
               <Text style={styles.actionBtnText}>{task.comments_count || 0}</Text>
             </View>
             <TouchableOpacity style={styles.actionBtn} onPress={openShareModal}>
@@ -799,11 +883,11 @@ const TaskDetailScreen = ({ route, navigation }) => {
           </View>
         </View>
 
-        {/* SECCIÃ“N DE COMENTARIOS */}
+        {/* SECCIÓN DE COMENTARIOS */}
         <View style={styles.commentsSection}>
           <Text style={styles.sectionTitle}>Comentarios</Text>
           {comments.length === 0 ? (
-            <Text style={styles.noComments}>No hay comentarios aÃºn. Â¡SÃ© el primero!</Text>
+            <Text style={styles.noComments}>No hay comentarios aún. ¡Sé el primero!</Text>
           ) : (
             comments.map(comment => (
               <CommentItem 
@@ -812,8 +896,9 @@ const TaskDetailScreen = ({ route, navigation }) => {
                 onReply={onReplyPress} 
                 onLike={handleLikeComment}
                 onLikeLongPress={handleShowCommentLikes}
-                onDelete={handleDeleteComment} 
+                onDelete={handleDeleteComment}
                 onEdit={handleEditComment}
+                onOpenAportacion={openAportacion}
                 currentUserId={currentUserId}
                 expandedCommentIds={expandedCommentIds}
                 toggleExpand={toggleCommentExpansion}
@@ -856,14 +941,65 @@ const TaskDetailScreen = ({ route, navigation }) => {
       {editingCommentId && (
         <View style={styles.replyBanner}>
           <Text style={styles.replyBannerText}>Editando comentario</Text>
-          <TouchableOpacity onPress={() => { setEditingCommentId(null); setCommentText(''); }}>
+          <TouchableOpacity onPress={cancelEditing}>
             <Ionicons name="close-circle" size={20} color="#666" />
           </TouchableOpacity>
         </View>
       )}
 
+      {/* APORTACIÓN FAVORITA QUE SE VA A ADJUNTAR (COMENTARIO O RESPUESTA) */}
+      {attachedAportacion && (
+        <View style={styles.attachmentBar}>
+          <AportacionCard
+            info={attachedAportacion}
+            label={editingCommentId ? 'Aportación adjunta' : 'Vas a adjuntar'}
+            onRemove={() => setAttachedAportacion(null)}
+          />
+        </View>
+      )}
+
+      {/* PERSONAS ETIQUETADAS EN EL COMENTARIO */}
+      {commentTags.length > 0 && (
+        <View style={styles.tagsBar}>
+          <Text style={styles.tagsBarLabel}>Etiquetas:</Text>
+          {commentTags.map((user) => (
+            <TouchableOpacity
+              key={user.id}
+              style={styles.tagChip}
+              onPress={() => setCommentTags((prev) => prev.filter((item) => String(item.id) !== String(user.id)))}
+              accessibilityLabel={`Quitar etiqueta @${user.username}`}
+            >
+              <Text style={styles.tagChipText}>@{user.username}</Text>
+              <Ionicons name="close" size={14} color="#1971c2" />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       {/* INPUT DE COMENTARIO FIJO ABAJO */}
       <View style={styles.commentInputContainer}>
+        <TouchableOpacity
+          style={styles.attachBtn}
+          onPress={() => setTagPickerVisible(true)}
+          accessibilityLabel="Etiquetar personas"
+        >
+          <Ionicons
+            name={commentTags.length ? 'people' : 'person-add-outline'}
+            size={22}
+            color={commentTags.length ? '#1971c2' : '#4dabf7'}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.attachBtn}
+          onPress={() => setAportacionPickerVisible(true)}
+          accessibilityLabel="Adjuntar una de tus aportaciones favoritas"
+        >
+          <Ionicons
+            name={attachedAportacion ? 'star' : 'star-outline'}
+            size={22}
+            color={attachedAportacion ? '#f59f00' : '#4dabf7'}
+          />
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           placeholder={editingCommentId ? "Edita tu comentario..." : replyingTo ? "Escribe tu respuesta..." : "Escribe un comentario..."}
@@ -875,6 +1011,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
           style={[styles.sendBtn, isCreatingComment && { opacity: 0.5 }]} 
           onPress={handleAddComment}
           disabled={isCreatingComment}
+          accessibilityLabel="Publicar comentario"
         >
           {isCreatingComment ? (
             <ActivityIndicator size="small" color="#fff" />
@@ -903,6 +1040,15 @@ const TaskDetailScreen = ({ route, navigation }) => {
                 <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); openShareModal(); }}>
                   <Ionicons name="share-social-outline" size={20} color="#555" />
                   <Text style={styles.actionText}>Compartir</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionOption}
+                  onPress={() => { const target = task; setActionModalVisible(false); downloadTask(target); }}
+                  disabled={isDownloading}
+                  accessibilityLabel="Descargar imágenes y videos"
+                >
+                  <Ionicons name="download-outline" size={20} color="#555" />
+                  <Text style={styles.actionText}>{isDownloading ? 'Descargando…' : 'Descargar'}</Text>
                 </TouchableOpacity>
                 {task.user && currentUserId !== (task.user?.id || task.user) && (
                   <>
@@ -974,11 +1120,36 @@ const TaskDetailScreen = ({ route, navigation }) => {
         taskTitle={task?.title || 'esta publicación'}
         taskDescription={task?.description || ''}
       />
+
+      {/* SELECTOR DE PERSONAS PARA ETIQUETAR EN EL COMENTARIO */}
+      <UserTagPicker
+        visible={tagPickerVisible}
+        onClose={() => setTagPickerVisible(false)}
+        selected={commentTags}
+        onChange={setCommentTags}
+        excludeIds={currentUserId ? [currentUserId] : []}
+      />
+
+      {/* SELECTOR DE APORTACIÓN FAVORITA PARA EL COMENTARIO */}
+      <FavoriteAportacionPicker
+        visible={aportacionPickerVisible}
+        onClose={() => setAportacionPickerVisible(false)}
+        onSelect={handleSelectAportacion}
+        selectedId={attachedAportacion?.id}
+        excludeTaskId={taskId}
+      />
     </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
+  commentTags: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 },
+  commentTagsLabel: { fontSize: 12, color: '#868e96' },
+  commentTagName: { fontSize: 12, color: '#1971c2', fontWeight: '700' },
+  tagsBar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee' },
+  tagsBarLabel: { fontSize: 12, fontWeight: '700', color: '#555' },
+  tagChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: '#e7f5ff' },
+  tagChipText: { fontSize: 12, fontWeight: '700', color: '#1971c2' },
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
@@ -994,7 +1165,7 @@ const styles = StyleSheet.create({
   actionOptionDelete: { backgroundColor: "#ffe3e3" },
   actionText: { fontSize: 16, marginLeft: 14, color: "#333", fontWeight: "500" },
   
-  // âš¡ ESTILOS NUEVOS PARA EL AUTOR DE LA TAREA
+  // ⚡ ESTILOS NUEVOS PARA EL AUTOR DE LA TAREA
   taskAuthorHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, paddingBottom: 0, gap: 10 },
   taskAuthorAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#eee' },
   taskAuthorNameWrap: { flexShrink: 1 },
@@ -1043,6 +1214,7 @@ const styles = StyleSheet.create({
   commentLikeCount: { fontSize: 12, color: '#666' },
   
   commentText: { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 8 },
+  commentAportacion: { marginBottom: 10 },
   commentFooter: { flexDirection: 'row', gap: 16, alignItems: 'center' },
   replyActionText: { fontSize: 12, color: '#4dabf7', fontWeight: 'bold' },
   toggleRepliesBtn: { backgroundColor: '#f0f0f0', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
@@ -1052,7 +1224,9 @@ const styles = StyleSheet.create({
 
   replyBanner: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#e3f2fd', padding: 10, alignItems: 'center', borderTopWidth: 1, borderColor: '#b3e5fc' },
   replyBannerText: { fontSize: 13, color: '#333' },
+  attachmentBar: { paddingHorizontal: 12, paddingTop: 10, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee' },
   commentInputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', alignItems: 'flex-end', gap: 8 },
+  attachBtn: { width: 40, height: 45, justifyContent: 'center', alignItems: 'center' },
   input: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, minHeight: 45, maxHeight: 100 },
   sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' }
 });

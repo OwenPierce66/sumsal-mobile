@@ -8,6 +8,7 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { getImageUrl } from '../api';
 import ProgressControls from './ProgressControls';
 import TouchableUsername from '../components/TouchableUsername';
+import { NameWithBadges } from '../components/UserBadges';
 
 const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'regular'];
 const { buildPlaylists } = require('./reelUtils');
@@ -272,7 +273,7 @@ const ReelItemComponent = ({
                   navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) });
                 }}
               >
-                <Text style={styles.username}>@{userItem?.username || 'Usuario'}</Text>
+                <NameWithBadges userId={userItem?.id} style={styles.username} badgeSize={16}>@{userItem?.username || 'Usuario'}</NameWithBadges>
               </TouchableOpacity>
 
               {(() => { const entry = list[effPos] || null; return (

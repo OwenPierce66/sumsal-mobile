@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, TextInput, ActivityIndicator, Platform, KeyboardAvoidingView, ScrollView, Alert, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api, { getImageUrl } from '../api';
+import { NameWithBadges } from './UserBadges';
 
 const resolveFavoriteUserName = (user) => {
   if (!user) return 'Usuario';
@@ -232,7 +233,7 @@ const ShareModal = ({
                   <TouchableOpacity key={user?.id || favorite?.id || username} style={styles.favoriteRow} onPress={() => handleSendToFavorite(user)}>
                     <Image source={{ uri: avatar || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(username) }} style={styles.favoriteAvatar} />
                     <View style={styles.favoriteInfo}>
-                      <Text style={styles.favoriteName} numberOfLines={1}>{username}</Text>
+                      <NameWithBadges userId={user?.id} style={styles.favoriteName}>{username}</NameWithBadges>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color="#999" />
                   </TouchableOpacity>

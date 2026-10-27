@@ -10,6 +10,7 @@ import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
 import OfflineEmptyState from '../components/OfflineEmptyState';
 import { useIsOnline } from '../hooks/useIsOnline';
+import { useDownloadTask } from '../hooks/useDownloadTask';
 import { useReelsInfinite } from '../hooks/useApi';
 import { buildReelsFromPages } from '../utils/reelsPages';
 import TieredLikesModal from './TieredLikesModal';
@@ -214,6 +215,7 @@ const ReelsScreen = ({ route }) => {
   const [expandedDescriptions, setExpandedDescriptions] = useState({});
   const [viewStateById, setViewStateById] = useState({});
   const [actionModalVisible, setActionModalVisible] = useState(false);
+  const { downloadTask, isDownloading } = useDownloadTask();
   const [selectedActionTask, setSelectedActionTask] = useState(null);
   const [paused, setPaused] = useState(false);
   const [selectedReelId, setSelectedReelId] = useState(null);
@@ -955,6 +957,15 @@ const ReelsScreen = ({ route }) => {
                   <TouchableOpacity style={styles.actionOption} onPress={() => { setActionModalVisible(false); openShareModal(selectedActionTask); }}>
                     <Ionicons name='paper-plane-outline' size={20} color='#555' />
                     <Text style={styles.actionText}>Enviar o compartir</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.actionOption}
+                    onPress={() => { const target = selectedActionTask; setActionModalVisible(false); downloadTask(target); }}
+                    disabled={isDownloading}
+                    accessibilityLabel="Descargar imágenes y videos"
+                  >
+                    <Ionicons name="download-outline" size={20} color="#555" />
+                    <Text style={styles.actionText}>{isDownloading ? 'Descargando…' : 'Descargar'}</Text>
                   </TouchableOpacity>
                   {selectedActionTask.user && currentUserId !== selectedActionTask.user.id && (
                     <>

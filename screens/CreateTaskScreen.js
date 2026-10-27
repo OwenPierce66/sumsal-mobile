@@ -11,6 +11,7 @@ import { Image } from 'expo-image';
 import { Video } from 'expo-av';
 import { useCreateTaskCategories, useIsAdmin } from '@hooks/useApi';
 import { compressImage } from '../utils/compressImage';
+import { withLegacyLink } from '../utils/links';
 
 // ⚡ DICCIONARIO INTELIGENTE DE SUBTEMAS
 const PREDEFINED_SUBTEMAS = {
@@ -88,6 +89,8 @@ const CreateTaskScreen = ({ navigation, route }) => {
   const [isAdminUser, setIsAdminUser] = useState(false);
   const [isApproved, setIsApproved] = useState(false);
   const [loadingApprove, setLoadingApprove] = useState(false);
+  // Modo oculto: solo tú la ves en tu perfil, como vista previa, hasta publicarla.
+  const [isHidden, setIsHidden] = useState(false);
 
   const isPodcastTask = selectedCategories.some(
     category => category.trim().toLowerCase() === 'grabar podcast'
@@ -105,6 +108,7 @@ const CreateTaskScreen = ({ navigation, route }) => {
     setSelectedSubcategories([]);
     setManualSubcategories('');
     setTaggedUsers(Array.isArray(editTask.tagged_users) ? editTask.tagged_users : []);
+    setIsHidden(Boolean(editTask.is_hidden));
     setIsApproved(
       (editTask.categories || '').split(',').map(c => c.trim().toLowerCase()).includes('aprobada')
     );
@@ -116,7 +120,8 @@ const CreateTaskScreen = ({ navigation, route }) => {
       return blocks.map(block => ({
         id: block.id,
         title: block.title || '',
-        description: block.description || '',
+        // El enlace que la web guardaba aparte pasa a ser parte del texto de la descripción.
+        description: withLegacyLink(block.description, block.link),
         image: block.image || block.video || null,
         mediaType: block.video ? 'video' : block.image ? 'image' : null,
       }));
@@ -366,6 +371,7 @@ const CreateTaskScreen = ({ navigation, route }) => {
         updateFormData.append('description', description);
         updateFormData.append('pch', tema);
         updateFormData.append('categories', finalCategories.join(','));
+        updateFormData.append('is_hidden', isHidden ? 'true' : 'false');
 
         const appendEditBlocks = async (blocks, prefix) => {
           const activeBlocks = blocks.filter(block => block.title.trim() || block.description.trim() || block.image);
@@ -374,6 +380,9 @@ const CreateTaskScreen = ({ navigation, route }) => {
             if (block.id) updateFormData.append(`${prefix}[${index}][id]`, String(block.id));
             updateFormData.append(`${prefix}[${index}][title]`, block.title.trim());
             updateFormData.append(`${prefix}[${index}][description]`, block.description || '');
+            // El enlace antiguo ya quedó dentro de la descripción: se vacía el campo aparte
+            // para que no se muestre dos veces.
+            updateFormData.append(`${prefix}[${index}][link]`, '');
 
             if (!block.image || block.image.startsWith('http')) continue;
             let isVideo = block.mediaType === 'video';
@@ -414,6 +423,7 @@ const CreateTaskScreen = ({ navigation, route }) => {
     }
 
     formData.append('categories', finalCategories.join(','));
+    formData.append('is_hidden', isHidden ? 'true' : 'false');
     
     // Función asíncrona PRO: Respeta el await y convierte las imágenes
     const appendArrayToFormData = async (array, prefix) => {
@@ -468,7 +478,12 @@ const CreateTaskScreen = ({ navigation, route }) => {
         await syncTaskTags(createdTaskId);
       }
       
-      Alert.alert("¡Éxito!", "Aportación creada correctamente en Sumsal.");
+      Alert.alert(
+        "¡Éxito!",
+        isHidden
+          ? "Se guardó oculta en tu perfil. Solo tú la ves; publícala cuando quieras."
+          : "Aportación creada correctamente en Sumsal.",
+      );
       if (navigation.canGoBack()) {
         navigation.goBack();
       } else {
@@ -795,6 +810,34 @@ const CreateTaskScreen = ({ navigation, route }) => {
       {renderSection("Factores", subfactores, setSubfactores)}
       {renderSection("Fuentes", subfuentes, setSubfuentes)}
 
+      <View style={styles.sectionContainer}>
+        <Text style={styles.sectionTitle}>¿Cómo la quieres compartir?</Text>
+        <View style={styles.visibilityRow}>
+          {[
+            { hidden: false, icon: 'globe-outline', label: 'Publicar ahora' },
+            { hidden: true, icon: 'eye-off-outline', label: 'Solo en mi perfil (oculta)' },
+          ].map((option) => (
+            <TouchableOpacity
+              key={option.label}
+              style={[styles.visibilityOption, isHidden === option.hidden && styles.visibilityOptionActive]}
+              onPress={() => setIsHidden(option.hidden)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isHidden === option.hidden }}
+            >
+              <Ionicons name={option.icon} size={18} color={isHidden === option.hidden ? '#fff' : '#4dabf7'} />
+              <Text style={[styles.visibilityText, isHidden === option.hidden && styles.visibilityTextActive]}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={styles.visibilityHint}>
+          {isHidden
+            ? 'Nadie más la verá: aparece solo en tu perfil para que veas cómo quedaría. Publícala cuando quieras.'
+            : 'Todos podrán verla en el inicio, en reels y en tu perfil.'}
+        </Text>
+      </View>
+
       <TouchableOpacity 
         onPress={handleCreate} 
         style={[styles.submitBtn, loading && styles.submitBtnDisabled]} 
@@ -805,7 +848,7 @@ const CreateTaskScreen = ({ navigation, route }) => {
         ) : (
           <>
             <Ionicons name="send" size={20} color="#fff" />
-            <Text style={styles.submitBtnText}>{editTask ? 'GUARDAR CAMBIOS' : 'PUBLICAR ÉXITO'}</Text>
+            <Text style={styles.submitBtnText}>{editTask ? 'GUARDAR CAMBIOS' : isHidden ? 'GUARDAR OCULTA' : 'PUBLICAR ÉXITO'}</Text>
           </>
         )}
       </TouchableOpacity>
@@ -855,7 +898,13 @@ const styles = StyleSheet.create({
   addBtnText: { color: '#4dabf7', fontWeight: 'bold', fontSize: 14 },
   submitBtn: { backgroundColor: '#4dabf7', flexDirection: 'row', padding: 18, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginTop: 10, gap: 10, elevation: 3 },
   submitBtnDisabled: { backgroundColor: '#9bcbf5' },
-  submitBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, letterSpacing: 1 }
+  submitBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, letterSpacing: 1 },
+  visibilityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  visibilityOption: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, borderWidth: 1, borderColor: '#d0ebff', backgroundColor: '#fff' },
+  visibilityOptionActive: { backgroundColor: '#4dabf7', borderColor: '#4dabf7' },
+  visibilityText: { color: '#4dabf7', fontWeight: '700', fontSize: 13 },
+  visibilityTextActive: { color: '#fff' },
+  visibilityHint: { marginTop: 8, fontSize: 12, color: '#868e96' }
 });
 
 export default CreateTaskScreen;

@@ -363,8 +363,9 @@ export function useSharedTasksInfinite(filters = {}) {
 /**
  * Colección de favoritos (perfiles + tareas) de un usuario.
  * Si userId es null/undefined, trae la colección del usuario autenticado.
+ * `enabled: false` evita pedirla hasta que se necesite (p. ej. un selector cerrado).
  */
-export function useFavoritesCollection(userId) {
+export function useFavoritesCollection(userId, { enabled = true } = {}) {
   return useQuery({
     queryKey: ['favorites', userId ?? 'me'],
     queryFn: async () => {
@@ -376,6 +377,7 @@ export function useFavoritesCollection(userId) {
         visibility: res.data?.visibility || {},
       };
     },
+    enabled,
     staleTime: STALE_TIME,
     gcTime:    GC_TIME,
   });
@@ -630,4 +632,46 @@ export function useCreateTaskCategories(tema, isAdminUser) {
   });
 
   return { appCategories: appCats, myCategories: myCats };
+}
+
+// ─── Suscripciones ────────────────────────────────────────────────────────────
+
+/**
+ * Suscripción de un perfil: total que recibe al mes (en USD), insignia y la
+ * suscripción que yo le pago, si hay.
+ */
+export function useSubscriptionStatus(userId) {
+  return useQuery({
+    queryKey: ['subscriptionStatus', userId],
+    queryFn: async () => (await api.get(`subscriptions/status/${userId}/`)).data,
+    enabled: Boolean(userId),
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/** Las suscripciones que pago (mías o regaladas) y las que recibo. */
+export function useMySubscriptions() {
+  return useQuery({
+    queryKey: ['subscriptions'],
+    queryFn: async () => (await api.get('subscriptions/')).data,
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+// ─── Testimonios ──────────────────────────────────────────────────────────────
+
+/**
+ * Comentarios donde etiquetaron a `userId` y que aprobó como testimonio.
+ * Al dueño del perfil también le llegan los pendientes (`pending`).
+ */
+export function useUserTestimonials(userId) {
+  return useQuery({
+    queryKey: ['testimonials', userId],
+    queryFn: async () => (await api.get(`users/${userId}/testimonials/`)).data,
+    enabled: Boolean(userId),
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
 }

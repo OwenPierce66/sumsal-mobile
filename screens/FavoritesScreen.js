@@ -17,6 +17,7 @@ import {
   usePinFavorite,
   useReorderFavorites,
 } from '@hooks/useApi';
+import { NameWithBadges } from '@components/UserBadges';
 
 const getName = (user) => (
   user?.username
@@ -104,7 +105,7 @@ const FavoritesScreen = ({ navigation, route }) => {
         >
           <Image source={{ uri: getImageUrl(profile.user_image) }} style={styles.avatar} />
           <View style={styles.cardText}>
-            <Text style={styles.cardTitle}>{getName(profile)}</Text>
+            <NameWithBadges userId={profile.id} style={styles.cardTitle}>{getName(profile)}</NameWithBadges>
             <Text style={styles.cardSubtitle}>
               Perfil favorito · {isInTopFive(index) ? `Puesto ${index + 1} de 5` : 'Fuera del top 5'}
             </Text>
@@ -140,7 +141,7 @@ const FavoritesScreen = ({ navigation, route }) => {
           </View>
           <View style={styles.cardText}>
             <Text style={styles.cardTitle} numberOfLines={1}>{task.title || 'Tarea'}</Text>
-            <Text style={styles.creatorText}>Creada por {getName(task.user)}</Text>
+            <NameWithBadges userId={task.user?.id} style={styles.creatorText} badgeSize={12}>Creada por {getName(task.user)}</NameWithBadges>
             <Text style={styles.cardSubtitle} numberOfLines={2}>
               {task.description || 'Sin descripción'} · {isInTopFive(index) ? `Puesto ${index + 1} de 5` : 'Fuera del top 5'}
             </Text>
@@ -182,7 +183,7 @@ const FavoritesScreen = ({ navigation, route }) => {
           </View>
           {item.is_pinned ? <Ionicons name="pin" size={18} color="#845ef7" /> : null}
         </View>
-        <Text style={styles.creatorText}>Creada por {getName(task.user)}</Text>
+        <NameWithBadges userId={task.user?.id} style={styles.creatorText} badgeSize={12}>Creada por {getName(task.user)}</NameWithBadges>
         <Text style={styles.feedDescription} numberOfLines={4}>{task.description || 'Sin descripción'}</Text>
         {task.categories ? (
           <View style={styles.feedCategories}>
