@@ -21,6 +21,7 @@ import RecommendButton from '@components/RecommendButton';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import CategoryHierarchy from '@components/CategoryHierarchy';
 import ProfileSubscription from '@components/ProfileSubscription';
+import PetitionSupportStat from '@components/PetitionSupportStat';
 import HiddenTaskBanner from '@components/HiddenTaskBanner';
 import TestimonialCard from '@components/TestimonialCard';
 import { NameWithBadges } from '@components/UserBadges';
@@ -468,6 +469,7 @@ const ProfileScreen = ({ route, navigation }) => {
               <Ionicons name="share-social" size={16} color="#51cf66" />
               <Text style={styles.statText}>{item.share_count ?? 0}</Text>
             </View>
+            <PetitionSupportStat task={item} navigation={navigation} />
           </View>
         </View>
       </TouchableOpacity>
@@ -582,6 +584,7 @@ const ProfileScreen = ({ route, navigation }) => {
               <Ionicons name="share-social" size={16} color="#51cf66" />
               <Text style={styles.statText}>{item.share_count ?? 0}</Text>
             </View>
+            <PetitionSupportStat task={item} navigation={navigation} />
           </View>
         </View>
       </View>

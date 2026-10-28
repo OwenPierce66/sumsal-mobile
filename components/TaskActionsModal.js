@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getActionTaskInfo } from '@hooks/useTaskActions';
 import { useMe } from '@hooks/useApi';
 import { useDownloadTask } from '@hooks/useDownloadTask';
 import { setAccountActive } from '../utils/adminActions';
+import PetitionSupportSheet from './PetitionSupportSheet';
 
 /**
  * Menú de 3 puntos COMPLETO. Es el mismo para el feed, el detalle de tarea y el de tarea compartida.
@@ -12,7 +13,8 @@ import { setAccountActive } from '../utils/adminActions';
  * actionTask: tarea normal, o compartida marcada con `isSharedTask: true`.
  * handlers: { toggleFavorite, pinFavorite(kind), viewShares (opcional), directMessage, goToForum, toggleFollow, toggleProfileFavorite,
  *             edit, delete, approvePodcast, toggleVerified, toggleRecommended, toggleAppLike (opcional, superadmin) }
- * Siempre incluye "Descargar" (imágenes y videos de la aportación original).
+ * Siempre incluye "Descargar" (imágenes y videos de la aportación original) y, en peticiones,
+ * "Apoyar monetariamente" (para quien la creó y para cualquier otra persona).
  * extraOptions: nodo opcional con opciones adicionales propias de la pantalla (p. ej. invitación a podcast).
  */
 const TaskActionsModal = ({
@@ -30,6 +32,8 @@ const TaskActionsModal = ({
   const isOtherUser = Boolean(targetUser) && String(currentUserId) !== String(targetUser?.id || targetUser);
   const { data: me } = useMe();
   const { downloadTask, isDownloading } = useDownloadTask();
+  // La hoja de apoyo vive fuera del menú: el menú se cierra y la hoja se queda con la petición elegida.
+  const [supportTask, setSupportTask] = useState(null);
   const canSuspendAuthor = Boolean(me?.is_superuser) && isOtherUser && Boolean(targetUser?.id) && !targetUser?.is_superuser;
   const isFavorited = Boolean(sourceTask?.is_favorited);
   const isProfileFavorited = Boolean(targetUser?.is_favorited);
@@ -47,6 +51,7 @@ const TaskActionsModal = ({
   );
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
         <View style={styles.actionModalContainer}>
@@ -81,6 +86,15 @@ const TaskActionsModal = ({
                 <Ionicons name="download-outline" size={20} color="#555" />
                 <Text style={styles.actionText}>{isDownloading ? 'Descargando…' : 'Descargar'}</Text>
               </TouchableOpacity>
+              {isPetition ? (
+                <TouchableOpacity
+                  style={[styles.actionOption, styles.actionOptionSupport]}
+                  onPress={() => { setSupportTask(sourceTask); onClose?.(); }}
+                >
+                  <Ionicons name="cash-outline" size={20} color="#2f9e44" />
+                  <Text style={[styles.actionText, styles.actionTextSupport]}>Apoyar monetariamente</Text>
+                </TouchableOpacity>
+              ) : null}
 
               {isOtherUser && (
                 <>
@@ -182,6 +196,15 @@ const TaskActionsModal = ({
         </View>
       </TouchableOpacity>
     </Modal>
+    {supportTask ? (
+      <PetitionSupportSheet
+        visible
+        onClose={() => setSupportTask(null)}
+        task={supportTask}
+        isOwner={String(supportTask.user?.id || supportTask.user) === String(currentUserId)}
+      />
+    ) : null}
+    </>
   );
 };
 
@@ -200,6 +223,8 @@ const styles = StyleSheet.create({
   modalDragHandle: { width: 40, height: 4, backgroundColor: '#e0e0e0', borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
   actionOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12, marginBottom: 8, backgroundColor: '#f5f5f5' },
   actionOptionDelete: { backgroundColor: '#ffe3e3' },
+  actionOptionSupport: { backgroundColor: '#ebfbee' },
+  actionTextSupport: { color: '#2b8a3e', fontWeight: '700' },
   actionText: { fontSize: 16, marginLeft: 14, color: '#333', fontWeight: '500' },
 });
 

@@ -17,6 +17,8 @@ import ShareModal from '@components/ShareModal';
 import { AuthContext } from '@app';
 import ShareActionMenu from './ShareActionMenu';
 import TouchableUsername from '@components/TouchableUsername';
+import FollowHeart from '@components/FollowHeart';
+import PetitionSupportStat from '@components/PetitionSupportStat';
 import CategoryHierarchy from '@components/CategoryHierarchy';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import LinkifiedText from '@components/LinkifiedText';
@@ -1434,10 +1436,12 @@ const TasksScreen = ({ navigation, route }) => {
                     userImage={getImageUrl(task.user?.user_image)}
                     navigation={navigation}
                     textStyle={[styles.taskUser, { color: getUserStatusColor(task.user) }]}
+                    showHeart={false}
                   />
               </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(task.created_at).fromNow()}</Text>
               </View>
             </View>
+            <FollowHeart userId={task.user?.id} username={getAuthorName(task)} size={20} style={{ marginRight: 10 }} />
             <TouchableOpacity onPress={() => openActionModal({ ...task, isSharedTask: false })}>
               <Ionicons name="ellipsis-vertical" size={20} color="#999" />
             </TouchableOpacity>
@@ -1528,6 +1532,8 @@ const TasksScreen = ({ navigation, route }) => {
                 <Text style={styles.statText}>{shared.task?.share_count || 0}</Text>
               </TouchableOpacity>
             </View>
+
+            <PetitionSupportStat task={task} navigation={navigation} />
           </View>
         </View>
       </View>

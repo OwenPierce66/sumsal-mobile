@@ -156,3 +156,45 @@ it('por defecto se publica para todos y al editar respeta si estaba oculta', asy
   await pressText(renderer, 'GUARDAR CAMBIOS');
   expect(formValue(api.patch.mock.calls[0][1], 'is_hidden')).toBe('false');
 });
+
+describe('apoyo monetario al crear una petición', () => {
+  const { Linking } = require('react-native');
+  const byLabel = (renderer, label) => renderer.root.findAll((node) => node.props.accessibilityLabel === label && node.props.onPress)[0];
+
+  beforeEach(() => {
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    api.post.mockImplementation((path) => Promise.resolve(path === 'tasks/'
+      ? { data: { id: 'pet-1' } }
+      : { data: { support: { id: 's1', status: 'pending' }, checkout_url: 'https://checkout.stripe.com/c/cs_1' } }));
+  });
+  afterEach(() => Linking.openURL.mockRestore());
+
+  it('solo se ofrece en peticiones', async () => {
+    expect(textsOf(await renderScreen())).not.toContain('Apoyo monetario (opcional)');
+    act(() => mounted.unmount());
+    expect(textsOf(await renderScreen({ initialPch: 'peticiones' }))).toContain('Apoyo monetario (opcional)');
+  });
+
+  it('crea la petición y luego abre Stripe con el monto elegido', async () => {
+    const renderer = await renderScreen({ initialPch: 'peticiones' });
+    await type(renderer, '¿Qué objetivo quieres compartir?', 'Más parques');
+    await act(async () => { byLabel(renderer, 'Apoyar mi petición al crearla').props.onPress(); });
+    await act(async () => { renderer.root.findAll((node) => node.type === TextInput && node.props.accessibilityLabel === 'Monto del apoyo')[0].props.onChangeText('50'); });
+    await pressText(renderer, 'PUBLICAR ÉXITO');
+
+    expect(api.post.mock.calls.map(([path]) => path)).toEqual(['tasks/', 'tasks/pet-1/support/']);
+    expect(api.post.mock.calls[1][1]).toEqual({ amount: '50', currency: 'mxn' });
+    expect(Linking.openURL).toHaveBeenCalledWith('https://checkout.stripe.com/c/cs_1');
+  });
+
+  it('si el monto no alcanza el mínimo no crea nada', async () => {
+    const renderer = await renderScreen({ initialPch: 'peticiones' });
+    await type(renderer, '¿Qué objetivo quieres compartir?', 'Más parques');
+    await act(async () => { byLabel(renderer, 'Apoyar mi petición al crearla').props.onPress(); });
+    await act(async () => { renderer.root.findAll((node) => node.type === TextInput && node.props.accessibilityLabel === 'Monto del apoyo')[0].props.onChangeText('5'); });
+    await pressText(renderer, 'PUBLICAR ÉXITO');
+
+    expect(api.post).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith('Revisa el apoyo', 'El mínimo es $10.00 MXN.');
+  });
+});

@@ -32,12 +32,13 @@ export function parseAmount(text) {
   return Number(clean);
 }
 
-export function amountError(text, currencyCode) {
+/** `period`: lo que sigue al monto en el mensaje (" al mes"; vacío para un pago único). */
+export function amountError(text, currencyCode, period = ' al mes') {
   const currency = CURRENCIES[currencyCode];
   const amount = parseAmount(text);
   if (amount === null) return 'Escribe un monto válido (hasta 2 decimales).';
-  if (amount < currency.min) return `El mínimo es ${formatMoney(currency.min, currencyCode)} al mes.`;
-  if (amount > currency.max) return `El máximo es ${formatMoney(currency.max, currencyCode)} al mes.`;
+  if (amount < currency.min) return `El mínimo es ${formatMoney(currency.min, currencyCode)}${period}.`;
+  if (amount > currency.max) return `El máximo es ${formatMoney(currency.max, currencyCode)}${period}.`;
   return null;
 }
 

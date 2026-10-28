@@ -12,6 +12,10 @@ import { Video } from 'expo-av';
 import { useCreateTaskCategories, useIsAdmin } from '@hooks/useApi';
 import { compressImage } from '../utils/compressImage';
 import { withLegacyLink } from '../utils/links';
+import { isPetition } from '../utils/petitionSupport';
+import { CURRENCIES, amountError, formatMoney, subscriptionErrorMessage } from '../utils/subscriptions';
+import { openPetitionSupportCheckout } from '@hooks/usePetitionSupport';
+import SupportAmountFields from '@components/SupportAmountFields';
 
 // ⚡ DICCIONARIO INTELIGENTE DE SUBTEMAS
 const PREDEFINED_SUBTEMAS = {
@@ -91,6 +95,10 @@ const CreateTaskScreen = ({ navigation, route }) => {
   const [loadingApprove, setLoadingApprove] = useState(false);
   // Modo oculto: solo tú la ves en tu perfil, como vista previa, hasta publicarla.
   const [isHidden, setIsHidden] = useState(false);
+  // Apoyo monetario opcional al crear una petición: se paga en Stripe justo después de crearla.
+  const [supportOnCreate, setSupportOnCreate] = useState(false);
+  const [supportCurrency, setSupportCurrency] = useState('mxn');
+  const [supportAmountText, setSupportAmountText] = useState(String(CURRENCIES.mxn.recommended));
 
   const isPodcastTask = selectedCategories.some(
     category => category.trim().toLowerCase() === 'grabar podcast'
@@ -354,6 +362,11 @@ const CreateTaskScreen = ({ navigation, route }) => {
     if (!['consejos', 'peticiones', 'historias'].includes(tema)) {
       return Alert.alert('Falta elegir el tipo', 'Selecciona consejos, peticiones o historias.');
     }
+    const wantsSupport = !editTask && supportOnCreate && isPetition({ pch: tema });
+    const supportError = wantsSupport ? amountError(supportAmountText, supportCurrency, '') : null;
+    if (supportError) {
+      return Alert.alert('Revisa el apoyo', supportError);
+    }
 
     setLoading(true);
     const formData = new FormData();
@@ -495,6 +508,21 @@ const CreateTaskScreen = ({ navigation, route }) => {
           ? "Se guardó oculta en tu perfil. Solo tú la ves; publícala cuando quieras."
           : "Aportación creada correctamente en Sumsal.",
       );
+      if (wantsSupport && createdTaskId) {
+        // La petición ya existe: si el pago falla o se cancela, se puede apoyar después desde el menú de 3 puntos.
+        try {
+          await openPetitionSupportCheckout(createdTaskId, {
+            amount: supportAmountText.trim().replace(',', '.'),
+            currency: supportCurrency,
+          });
+        } catch (supportErr) {
+          Alert.alert(
+            'La petición se creó, pero no se pudo abrir el pago',
+            `${subscriptionErrorMessage(supportErr)}
+Puedes apoyarla después desde el menú de 3 puntos.`,
+          );
+        }
+      }
       if (navigation.canGoBack()) {
         navigation.goBack();
       } else {
@@ -851,6 +879,42 @@ const CreateTaskScreen = ({ navigation, route }) => {
       {renderSection("Factores", subfactores, setSubfactores)}
       {renderSection("Fuentes", subfuentes, setSubfuentes)}
 
+      {!editTask && isPetition({ pch: tema }) ? (
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Apoyo monetario (opcional)</Text>
+          <TouchableOpacity
+            style={styles.supportToggle}
+            onPress={() => setSupportOnCreate((value) => !value)}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: supportOnCreate }}
+            accessibilityLabel="Apoyar mi petición al crearla"
+          >
+            <Ionicons name={supportOnCreate ? 'checkbox' : 'square-outline'} size={22} color="#2f9e44" />
+            <Text style={styles.supportToggleText}>Apoyar mi petición al crearla</Text>
+          </TouchableOpacity>
+          {supportOnCreate ? (
+            <>
+              <SupportAmountFields
+                currency={supportCurrency}
+                amountText={supportAmountText}
+                onChangeCurrency={(code) => { setSupportCurrency(code); setSupportAmountText(String(CURRENCIES[code].recommended)); }}
+                onChangeAmount={setSupportAmountText}
+                error={amountError(supportAmountText, supportCurrency, '')}
+              />
+              <Text style={styles.visibilityHint}>
+                Al guardar se crea la petición y se abre Stripe para pagar
+                {amountError(supportAmountText, supportCurrency, '') ? '' : ` ${formatMoney(supportAmountText.replace(',', '.'), supportCurrency)}`}.
+                Lo que aportes suma al total recaudado.
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.visibilityHint}>
+              Tú y cualquier persona también pueden apoyarla después desde el menú de 3 puntos.
+            </Text>
+          )}
+        </View>
+      ) : null}
+
       <View style={styles.sectionContainer}>
         <Text style={styles.sectionTitle}>¿Cómo la quieres compartir?</Text>
         <View style={styles.visibilityRow}>
@@ -946,7 +1010,9 @@ const styles = StyleSheet.create({
   visibilityOptionActive: { backgroundColor: '#4dabf7', borderColor: '#4dabf7' },
   visibilityText: { color: '#4dabf7', fontWeight: '700', fontSize: 13 },
   visibilityTextActive: { color: '#fff' },
-  visibilityHint: { marginTop: 8, fontSize: 12, color: '#868e96' }
+  visibilityHint: { marginTop: 8, fontSize: 12, color: '#868e96' },
+  supportToggle: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
+  supportToggleText: { fontSize: 14, fontWeight: '700', color: '#2b8a3e' }
 });
 
 export default CreateTaskScreen;

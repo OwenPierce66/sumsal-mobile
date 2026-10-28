@@ -11,6 +11,8 @@ import Slider from '@react-native-community/slider';
 import { getImageUrl } from '@api';
 import TouchableUsername from '@components/TouchableUsername';
 import LinkifiedText from '@components/LinkifiedText';
+import FollowHeart from '@components/FollowHeart';
+import PetitionSupportStat from '@components/PetitionSupportStat';
 import { withLegacyLink } from '../utils/links';
 
 const TASK_VIDEO_AUTOPLAY_DELAY_MS = 500;
@@ -379,13 +381,15 @@ const TaskPostCard = ({
                 userImage={getImageUrl(task.user?.user_image)}
                 navigation={navigation}
                 textStyle={[styles.taskUser, { color: getUserStatusColor(task.user) }]}
+                showHeart={false}
               />
             </View>
             <Text style={{ fontSize: 12, color: '#999' }}>• {moment(task.created_at).fromNow()}</Text>
           </View>
         </View>
+        <FollowHeart userId={task.user?.id} username={getAuthorName(task)} size={20} style={styles.headerHeart} />
         {onOpenActions ? (
-          <TouchableOpacity onPress={() => onOpenActions(task)}>
+          <TouchableOpacity onPress={() => onOpenActions(task)} accessibilityLabel="Más opciones">
             <Ionicons name="ellipsis-vertical" size={20} color="#999" />
           </TouchableOpacity>
         ) : null}
@@ -438,6 +442,8 @@ const TaskPostCard = ({
               <Text style={styles.statText}>{shown.share_count || 0}</Text>
             </TouchableOpacity>
           </View>
+
+          <PetitionSupportStat task={task} navigation={navigation} />
         </View>
       </View>
     </View>
@@ -500,6 +506,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   taskHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  headerHeart: { marginRight: 10 },
   avatar: { width: 45, height: 45, borderRadius: 22.5, marginRight: 12, backgroundColor: '#eee' },
   taskTitle: { fontSize: 18, fontWeight: 'bold', color: '#000' },
   taskUser: { fontSize: 12, color: '#4dabf7', fontWeight: '600' },
