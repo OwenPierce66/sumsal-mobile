@@ -484,6 +484,13 @@ const TaskPostCard = ({
             </View>
           )}
 
+          {shown.citations_count ? (
+            <View style={styles.stat} accessibilityLabel={`Citada en ${shown.citations_count} comentarios`}>
+              <Ionicons name="attach" size={18} color="#868e96" />
+              <Text style={styles.statText}>{shown.citations_count}</Text>
+            </View>
+          ) : null}
+
           <PetitionSupportStat task={task} navigation={navigation} />
         </View>
       </View>

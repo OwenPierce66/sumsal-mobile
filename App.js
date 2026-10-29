@@ -88,6 +88,7 @@ import GroupDetailScreen from './screens/GroupDetailScreen';
 import GroupFormScreen from './screens/GroupFormScreen';
 import FollowListScreen from './screens/FollowListScreen';
 import AdminScreen from './screens/AdminScreen';
+import TopScreen from './screens/TopScreen';
 
 import { NotificationsProvider } from './contexts/NotificationsContext';
 
@@ -159,6 +160,27 @@ const MessagesStackNavigator = () => {
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
+    </Stack.Navigator>
+  );
+};
+
+// Pestaña Top: tu top 5 y lo más votado; desde ahí se abren perfiles y publicaciones.
+const TopStackNavigator = () => {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="TopMain" component={TopScreen} />
+      <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+      <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
+      <Stack.Screen name="UserProfile" component={ProfileScreen} />
+      <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+      <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
+      <Stack.Screen name="FollowList" component={FollowListScreen} />
+      <Stack.Screen name="Favorites" component={FavoritesScreen} />
+      <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} />
+      <Stack.Screen name="PetitionSupports" component={PetitionSupportsScreen} />
+      <Stack.Screen name="Groups" component={GroupsScreen} />
+      <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
+      <Stack.Screen name="GroupForm" component={GroupFormScreen} />
     </Stack.Navigator>
   );
 };
@@ -239,6 +261,7 @@ const AuthenticatedTabs = () => {
           const size = focused ? baseSize + 6 : baseSize;
           let iconName;
           if (route.name === 'Tasks') iconName = focused ? 'home' : 'home-outline';
+          else if (route.name === 'Top') iconName = focused ? 'trophy' : 'trophy-outline';
           else if (route.name === 'HomeTab') iconName = focused ? 'list' : 'list-outline';
           else if (route.name === 'Reels') iconName = focused ? 'videocam' : 'videocam-outline';
           else if (route.name === 'Stories') iconName = focused ? 'time' : 'time-outline';
@@ -268,6 +291,7 @@ const AuthenticatedTabs = () => {
       })}
     >
       <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Aportaciones' }} />
+      <Tab.Screen name="Top" component={TopStackNavigator} options={{ tabBarLabel: 'Top' }} />
       <Tab.Screen name="HomeTab" component={HomeStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
       <Tab.Screen name="Reels" component={ReelsScreen} options={{ tabBarLabel: 'Reels' }} />
       <Tab.Screen name="Messages" component={MessagesStackNavigator} options={{ tabBarLabel: 'Mensajes' }} />
@@ -313,6 +337,11 @@ const linking = {
               CreateTask: 'tasks/create',
               TaskDetail: 'tasks/:taskId',
               SharedTaskDetail: 'tasks/shared/:sharedTaskId'
+            }
+          },
+          Top: {
+            screens: {
+              TopMain: 'top',
             }
           },
           Messages: {

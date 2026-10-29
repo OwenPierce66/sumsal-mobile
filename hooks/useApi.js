@@ -308,6 +308,19 @@ export function useProfileSocial(userId) {
  * conteos (null si el dueño las ocultó), `hidden`, `public` (solo importa al dueño),
  * `is_recommended_by_me` y `my_comment`.
  */
+/**
+ * Actividad del perfil que su dueño decide si se ve: `kind` = likes | comments | verifications.
+ */
+export function useProfileActivity(userId, kind) {
+  return useQuery({
+    queryKey: ['profileActivity', userId, kind],
+    queryFn: async () => (await api.get(`users/${userId}/activity/`, { params: { kind } })).data,
+    enabled: Boolean(userId && kind),
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
 export function useUserRecommendations(userId) {
   return useQuery({
     queryKey: ['userRecommendations', userId],

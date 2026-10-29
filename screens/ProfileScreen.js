@@ -17,6 +17,7 @@ import { AuthContext } from '@app';
 import SideMenu from '@components/SideMenu';
 import ReportContentButton from '@components/ReportContentButton';
 import ProfileRecommendations from '@components/ProfileRecommendations';
+import ProfileActivity from '@components/ProfileActivity';
 import ProfileTopFive from '@components/ProfileTopFive';
 import RecommendButton from '@components/RecommendButton';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
@@ -42,10 +43,11 @@ import { useMyRelations } from '../hooks/useMyRelations';
 import TestimonialPost from '@components/TestimonialPost';
 import TaskActionsModal from '@components/TaskActionsModal';
 import useTaskActions from '@hooks/useTaskActions';
+import { profileShareLink, shareExternally } from '../utils/externalShare';
 
 // Controles opcionales del perfil (se guardan en el dispositivo; ocultos por defecto).
 const PROFILE_CONTROLS_KEY = 'profileControls';
-const DEFAULT_PROFILE_CONTROLS = { showFollowButton: false, showFilterAdd: false, showRecommendations: false };
+const DEFAULT_PROFILE_CONTROLS = { showFollowButton: false, showFilterAdd: false, showRecommendations: false, showActivity: false };
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
 
@@ -80,7 +82,7 @@ const ProfileScreen = ({ route, navigation }) => {
   const [testimonialActionTask, setTestimonialActionTask] = useState(null);
   const [visibleSections, setVisibleSections] = useState({});
   const [profileControls, setProfileControls] = useState(DEFAULT_PROFILE_CONTROLS);
-  const { showFollowButton, showFilterAdd, showRecommendations } = profileControls;
+  const { showFollowButton, showFilterAdd, showRecommendations, showActivity } = profileControls;
 
   useEffect(() => {
     let active = true;
@@ -92,6 +94,7 @@ const ProfileScreen = ({ route, navigation }) => {
           showFollowButton: saved?.showFollowButton === true,
           showFilterAdd: saved?.showFilterAdd === true,
           showRecommendations: saved?.showRecommendations === true,
+          showActivity: saved?.showActivity === true,
         });
       })
       .catch(() => {});
@@ -342,6 +345,11 @@ const ProfileScreen = ({ route, navigation }) => {
   const toggleRecommendations = () => {
     setProfileMenuVisible(false);
     updateProfileControls({ showRecommendations: !profileControls.showRecommendations });
+  };
+
+  const toggleActivity = () => {
+    setProfileMenuVisible(false);
+    updateProfileControls({ showActivity: !profileControls.showActivity });
   };
 
   const toggleFilterAdd = () => {
@@ -818,6 +826,20 @@ const ProfileScreen = ({ route, navigation }) => {
         </>
       ) : null}
 
+      {/* Me gusta, comentarios y verificaciones: cada uno se ve si su dueño lo muestra. */}
+      {showActivity ? (
+        <>
+          <View style={styles.divider} />
+          <ProfileActivity
+            userId={socialUserId}
+            username={user?.username}
+            isCurrentUser={isCurrentUser}
+            navigation={navigation}
+            onOpenProfile={openRecommendedProfile}
+          />
+        </>
+      ) : null}
+
       {ownerId ? (
         <ProfileSubscription
           userId={ownerId}
@@ -992,6 +1014,22 @@ const ProfileScreen = ({ route, navigation }) => {
             </TouchableOpacity>
               </>
             ) : null}
+            <TouchableOpacity
+              style={styles.profileMenuOption}
+              onPress={() => {
+                setProfileMenuVisible(false);
+                shareExternally({
+                  title: `${user?.username || 'Perfil'} en Aportaciones`,
+                  link: profileShareLink(socialUserId),
+                }).catch(() => {});
+              }}
+              disabled={!socialUserId}
+            >
+              <Ionicons name="paper-plane-outline" size={20} color="#4dabf7" />
+              <Text style={styles.profileMenuText}>
+                {isCurrentUser ? 'Compartir mi perfil en otras apps' : 'Compartir este perfil en otras apps'}
+              </Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.profileMenuOption} onPress={openForum} disabled={!socialUserId}>
               <Ionicons name="newspaper-outline" size={20} color="#4dabf7" />
               <Text style={styles.profileMenuText}>
@@ -1083,6 +1121,16 @@ const ProfileScreen = ({ route, navigation }) => {
               />
               <Text style={styles.profileMenuText}>
                 {showRecommendations ? 'Ocultar recomendaciones' : 'Mostrar recomendaciones'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.profileMenuOption} onPress={toggleActivity}>
+              <Ionicons
+                name={showActivity ? 'eye-off-outline' : 'pulse-outline'}
+                size={20}
+                color="#4dabf7"
+              />
+              <Text style={styles.profileMenuText}>
+                {showActivity ? 'Dejar de ver la actividad' : 'Ver actividad (me gusta, comentarios, verificaciones)'}
               </Text>
             </TouchableOpacity>
             {isSuperAdmin && !isCurrentUser && adminState ? (

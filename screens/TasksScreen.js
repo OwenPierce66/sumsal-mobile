@@ -226,6 +226,14 @@ const TasksScreen = ({ navigation, route }) => {
   const [taskToShare, setTaskToShare] = useState(null);
   const [taskShareDetails, setTaskShareDetails] = useState(null);
 
+  // Desde la pestaña Top: "ver todo" de un tipo de aportación con su periodo.
+  useEffect(() => {
+    if (!route?.params?.topicPch) return;
+    setTema(route.params.topicPch);
+    setSelectedSortBy(route.params.topicSortBy || 'top_month');
+    navigation.setParams({ topicPch: undefined, topicSortBy: undefined });
+  }, [navigation, route?.params?.topicPch, route?.params?.topicSortBy]);
+
   useEffect(() => {
     if (route?.params?.openSavedFilters) {
       setSavedFiltersModalVisible(true);

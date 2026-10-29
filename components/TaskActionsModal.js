@@ -11,6 +11,8 @@ import { useMyRelations } from '../hooks/useMyRelations';
 import useProfileActions from '../hooks/useProfileActions';
 import { taskCategories } from '../utils/relations';
 import { subItemTitle } from '../utils/aportaciones';
+import TaskStatsSheet from './TaskStatsSheet';
+import { shareExternally, taskShareLink } from '../utils/externalShare';
 
 const STORY_SECTIONS = [
   ['subtasks', 'Publicación'],
@@ -70,6 +72,8 @@ const TaskActionsModal = ({
   const { downloadTask, isDownloading } = useDownloadTask();
   // La hoja de apoyo vive fuera del menú: el menú se cierra y la hoja se queda con la petición elegida.
   const [supportTask, setSupportTask] = useState(null);
+  // Estadísticas de la publicación: también viven fuera del menú.
+  const [statsTaskId, setStatsTaskId] = useState(null);
   const [storyOptionsOpen, setStoryOptionsOpen] = useState(false);
   const [categoryPinsOpen, setCategoryPinsOpen] = useState(false);
   useEffect(() => {
@@ -222,6 +226,30 @@ const TaskActionsModal = ({
               ) : null}
               <TouchableOpacity
                 style={styles.actionOption}
+                onPress={() => {
+                  const target = sourceTask;
+                  onClose?.();
+                  shareExternally({
+                    title: target?.title,
+                    text: String(target?.description || '').slice(0, 200),
+                    link: taskShareLink(target?.id),
+                  }).catch(() => {});
+                }}
+                accessibilityLabel="Compartir en otras apps"
+              >
+                <Ionicons name="paper-plane-outline" size={20} color="#4dabf7" />
+                <Text style={styles.actionText}>Compartir en otras apps</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionOption}
+                onPress={() => { setStatsTaskId(sourceTask?.id || null); onClose?.(); }}
+                accessibilityLabel="Estadísticas"
+              >
+                <Ionicons name="stats-chart-outline" size={20} color="#4dabf7" />
+                <Text style={styles.actionText}>Estadísticas</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionOption}
                 onPress={() => { const target = sourceTask; onClose?.(); downloadTask(target); }}
                 disabled={isDownloading}
                 accessibilityLabel="Descargar imágenes y videos"
@@ -368,6 +396,9 @@ const TaskActionsModal = ({
         </View>
       </TouchableOpacity>
     </Modal>
+    {statsTaskId ? (
+      <TaskStatsSheet visible taskId={statsTaskId} onClose={() => setStatsTaskId(null)} />
+    ) : null}
     {supportTask ? (
       <PetitionSupportSheet
         visible

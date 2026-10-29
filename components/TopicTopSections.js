@@ -16,10 +16,16 @@ const TOPICS = [
   { pch: 'historias', title: 'Historias' },
 ];
 
-const TopicSection = ({ topic, navigation, onSelectTopic }) => {
+const PERIOD_LABELS = {
+  top_day: 'Más likes en las últimas 24 horas',
+  top_week: 'Más likes en los últimos 7 días',
+  top_month: 'Más likes en los últimos 30 días',
+};
+
+const TopicSection = ({ topic, navigation, onSelectTopic, sortBy }) => {
   const { data: tasks = [], isLoading, isError, refetch } = useTasks({
     pch: topic.pch,
-    sort_by: 'top_month',
+    sort_by: sortBy,
     page_size: 5,
   });
 
@@ -28,7 +34,7 @@ const TopicSection = ({ topic, navigation, onSelectTopic }) => {
       <View style={styles.sectionHeader}>
         <View>
           <Text style={styles.sectionTitle}>Top de {topic.title}</Text>
-          <Text style={styles.sectionSubtitle}>Más likes en los últimos 30 días</Text>
+          <Text style={styles.sectionSubtitle}>{PERIOD_LABELS[sortBy] || PERIOD_LABELS.top_month}</Text>
         </View>
         <TouchableOpacity
           onPress={() => onSelectTopic(topic.pch)}
@@ -81,7 +87,8 @@ const TopicSection = ({ topic, navigation, onSelectTopic }) => {
   );
 };
 
-const TopicTopSections = ({ navigation, onSelectTopic }) => (
+// `sortBy`: periodo del top (top_day, top_week o top_month).
+const TopicTopSections = ({ navigation, onSelectTopic, sortBy = 'top_month' }) => (
   <View style={styles.container}>
     {TOPICS.map(topic => (
       <TopicSection
@@ -89,6 +96,7 @@ const TopicTopSections = ({ navigation, onSelectTopic }) => (
         topic={topic}
         navigation={navigation}
         onSelectTopic={onSelectTopic}
+        sortBy={sortBy}
       />
     ))}
   </View>
