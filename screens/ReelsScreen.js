@@ -5,21 +5,21 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../App'; // ✅ IMPORTAMOS EL CONTEXTO
 import SideMenu from '../components/SideMenu';
-import api, { getImageUrl } from '../api';
+import api, { getImageUrl, subscribeRelationsChange } from '../api';
 import { Gesture, GestureDetector, Directions } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, runOnJS } from 'react-native-reanimated';
-import ShareModal from '../components/ShareModal';
 import FilterModal from '../components/FilterModal';
 import OfflineEmptyState from '../components/OfflineEmptyState';
 import { useIsOnline } from '../hooks/useIsOnline';
 import { useReelsInfinite } from '../hooks/useApi';
 import { buildReelsFromPages } from '../utils/reelsPages';
 import TieredLikesModal from './TieredLikesModal';
+import { makeTierCounts } from '../utils/likeTiers';
 import ReelItem from './ReelItem'; 
 import TaskActionsModal from '../components/TaskActionsModal';
 import useTaskActions from '../hooks/useTaskActions';
+import { optimisticRepost, repostFromResponse, repostSnapshot } from '../utils/repost';
 
-const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'regular'];
 const REELS_VIDEOS_ONLY_KEY = 'reels.videosOnly';
 
 // ✅ FIX: Se mueven las funciones de vuelta aquí para evitar el error de "Module not found".
@@ -40,26 +40,9 @@ const uniq = (arr) => {
 
 const { buildPlaylists, getFirstMediaAnywhere } = require('./reelUtils');
 
-const getUserIdFromTask = (task) => {
-  return task?.user?.profile?.id || task?.user?.profile_id || task?.user?.id || task?.user_id || null;
-};
+// Autor que se ve en el reel: en uno compartido, quien creó el contenido (no quien lo compartió).
+const getReelAuthorId = (reel) => (reel?.is_original ? reel?.user?.id : reel?.task?.user?.id) || null;
 
-const makeTierCounts = (usersArr = []) => {
-  const counts = TIER_ORDER.reduce((acc, t) => ({ ...acc, [t]: 0 }), { all: usersArr.length });
-  (usersArr || []).forEach((u) => {
-    const profile = u?.profile || u || {};
-    let key = 'regular';
-    if (profile.is_verified) {
-      key = 'verified';
-    } else if (profile.is_recommended) {
-      key = 'recommended';
-    }
-    if (counts[key] !== undefined) {
-      counts[key]++;
-    }
-  });
-  return counts;
-};
 const { height: windowHeight, width: windowWidth } = Dimensions.get('window');
 
 const getSharedByAvatarSrc = (t) => {
@@ -110,7 +93,7 @@ const getSharedByInfo = (t) => {
   };
 };
 
-const ReelRenderer = React.memo(({ item, index, activeIndex, isFocused, isMuted, paused, setPaused, selectedReelId, handleReelTap, isUIVisible, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, getSharedByInfo, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, toggleProfileLike, likeAnimation, navigation, toggleFavorite, openShareModal, handleRepost, handleShowShares, handleShowLikes, handleShowProfileLikes, openActionModal, tema, taskLikesById, taskSharesById, profileLikesById, pageHeight }) => {
+const ReelRenderer = React.memo(({ item, index, activeIndex, isFocused, isMuted, paused, setPaused, selectedReelId, handleReelTap, isUIVisible, expandedDescriptions, toggleDescription, viewStateById, sharedOpenById, toggleSharedBy, getSharedByInfo, cycleViewOnly, cycleClipWithinView, navigateClip, toggleLike, likeAnimation, navigation, toggleFavorite, handleRepost, handleShowLikes, handleShowFollowers, openActionModal, tema, taskLikesById, followersById, pageHeight }) => {
   const tapToPause = Gesture.Tap()
     .maxDuration(250)
     .onEnd((event, success) => {
@@ -137,24 +120,11 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isFocused, isMuted,
   );
 
   // ✅ LÓGICA DE ENRIQUECIMIENTO: Se mueve aquí para que cada item se actualice correctamente.
-  const enrichedItem = useMemo(() => {
-    const userId = getUserIdFromTask(item);
-    const profileLikesData = profileLikesById[userId];
-    const updatedProfile = { ...item.user?.profile };
-
-    if (profileLikesData?.status === 'ok') {
-      if (profileLikesData.counts?.all !== undefined) updatedProfile.likes_count = profileLikesData.counts.all;
-      if (profileLikesData.viewer_has_liked !== undefined) updatedProfile.viewer_has_liked = profileLikesData.viewer_has_liked;
-    }
-
-    return {
-      ...item,
-      user: { ...item.user, profile: updatedProfile },
-      taskLikes: taskLikesById[item.task?.id || item.id],
-      taskShares: taskSharesById[item.task?.id || item.id],
-      profileLikes: profileLikesData,
-    };
-  }, [item, taskLikesById, taskSharesById, profileLikesById]);
+  const enrichedItem = useMemo(() => ({
+    ...item,
+    taskLikes: taskLikesById[item.task?.id || item.id],
+    followers: followersById[getReelAuthorId(item)],
+  }), [item, taskLikesById, followersById]);
 
   return (
     // ✅ FIX: Se elimina el GestureDetector duplicado que causaba el error de sintaxis.
@@ -180,19 +150,14 @@ const ReelRenderer = React.memo(({ item, index, activeIndex, isFocused, isMuted,
         cycleClipWithinView={cycleClipWithinView}
         navigateClip={navigateClip}
         toggleLike={toggleLike}
-        toggleProfileLike={toggleProfileLike}
         likeAnimation={likeAnimation}
         navigation={navigation}
         toggleFavorite={toggleFavorite}
         handleRepost={handleRepost}
-        openShareModal={openShareModal}
-        handleShowShares={handleShowShares}
         handleShowLikes={handleShowLikes}
-        handleShowProfileLikes={handleShowProfileLikes}
+        handleShowFollowers={handleShowFollowers}
         openActionModal={openActionModal}
         taskLikesById={taskLikesById}
-        taskSharesById={taskSharesById}
-        profileLikesById={profileLikesById}
         tema={tema}
       />
       </View>
@@ -216,9 +181,6 @@ const ReelsScreen = ({ route }) => {
   const [likesModalUrl, setLikesModalUrl] = useState('');
   const [likesModalTitle, setLikesModalTitle] = useState('Usuarios');
   const [initialTier, setInitialTier] = useState('all');
-  const [shareModalVisible, setShareModalVisible] = useState(false);
-  const [taskToShare, setTaskToShare] = useState(null);
-  const [taskShareDetails, setTaskShareDetails] = useState(null);
   const [expandedDescriptions, setExpandedDescriptions] = useState({});
   const [viewStateById, setViewStateById] = useState({});
   const [actionModalVisible, setActionModalVisible] = useState(false);
@@ -275,10 +237,8 @@ const ReelsScreen = ({ route }) => {
 
   const [taskLikesById, setTaskLikesById] = useState({});
   const taskLikesCacheRef = useRef({});
-  const [taskSharesById, setTaskSharesById] = useState({});
-  const taskSharesCacheRef = useRef({});
-  const [profileLikesById, setProfileLikesById] = useState({});
-  const profileLikesCacheRef = useRef({});
+  const [followersById, setFollowersById] = useState({});
+  const followersCacheRef = useRef({});
   const handledMediaRequestRef = useRef(null);
   const getReelTaskId = useCallback((reel) => reel?.task?.id || reel?.id || null, []);
 
@@ -370,36 +330,22 @@ const ReelsScreen = ({ route }) => {
     }
   }, []);
 
-  const fetchTaskSharesSummary = useCallback(async (taskId, force = false) => {
-    if (!taskId || (taskSharesCacheRef.current[taskId]?.status === 'ok' && !force)) return;
-    taskSharesCacheRef.current[taskId] = { status: "loading" };
-    setTaskSharesById(prev => ({ ...prev, [taskId]: { status: "loading", counts: prev[taskId]?.counts || null, viewer_has_liked: prev[taskId]?.viewer_has_liked } }));
+  // Seguidores del autor por insignia (como los likes de la tarea): el total real y los números
+  // de colores. Mientras se recarga se conservan los anteriores para que no parpadeen.
+  const fetchFollowersSummary = useCallback(async (userId, force = false) => {
+    if (!userId || (followersCacheRef.current[userId]?.status && !force)) return;
+    followersCacheRef.current[userId] = { status: "loading" };
+    setFollowersById(prev => ({ ...prev, [userId]: { ...prev[userId], status: "loading" } }));
     try {
-      const { data } = await api.get(`tasks/${taskId}/users-who-shared/`);
-      const normalized = Array.isArray(data) ? data : data.results || [];
-      const counts = makeTierCounts(normalized);
-      taskSharesCacheRef.current[taskId] = { status: "ok" };
-      setTaskSharesById(prev => ({ ...prev, [taskId]: { status: "ok", counts } }));
+      const { data } = await api.get(`users/${userId}/followers/`);
+      const users = Array.isArray(data?.users) ? data.users : [];
+      // La lista llega recortada en perfiles muy seguidos: el total sale de `count`.
+      const counts = { ...makeTierCounts(users), all: data?.count ?? users.length };
+      followersCacheRef.current[userId] = { status: "ok" };
+      setFollowersById(prev => ({ ...prev, [userId]: { status: "ok", counts, viewerFollows: Boolean(data?.viewer_follows) } }));
     } catch (error) {
-      taskSharesCacheRef.current[taskId] = { status: "error" };
-      setTaskSharesById(prev => ({ ...prev, [taskId]: { status: "error", counts: null, viewer_has_liked: prev[taskId]?.viewer_has_liked } }));
-    }
-  }, []);
-
-  const fetchProfileLikesSummary = useCallback(async (profileId, force = false) => {
-    if (!profileId || (profileLikesCacheRef.current[profileId]?.status === 'ok' && !force)) return;
-    profileLikesCacheRef.current[profileId] = { status: "loading" };
-    setProfileLikesById(prev => ({ ...prev, [profileId]: { ...prev[profileId], status: "loading" } }));
-    try {
-      const { data } = await api.get(`profiles/${profileId}/likes/`);
-      const normalized = Array.isArray(data) ? data : data.results || [];
-      const counts = makeTierCounts(normalized);
-      const viewerHasLiked = data.viewer_has_liked === true;
-      profileLikesCacheRef.current[profileId] = { status: "ok" };
-      setProfileLikesById(prev => ({ ...prev, [profileId]: { status: "ok", counts, viewer_has_liked: viewerHasLiked } }));
-    } catch (error) {
-      profileLikesCacheRef.current[profileId] = { status: "error" };
-      setProfileLikesById(prev => ({ ...prev, [profileId]: { status: "error", counts: null } }));
+      followersCacheRef.current[userId] = { status: "error" };
+      setFollowersById(prev => ({ ...prev, [userId]: { ...prev[userId], status: "error" } }));
     }
   }, []);
 
@@ -409,16 +355,22 @@ const ReelsScreen = ({ route }) => {
       const taskId = reel.task?.id || reel.id;
       if (taskId) {
         fetchTaskLikesSummary(taskId);
-        fetchTaskSharesSummary(reel.id);
       }
-      const userId = getUserIdFromTask(reel);
-      if (userId) {
-        fetchProfileLikesSummary(userId);
-      }
+      fetchFollowersSummary(getReelAuthorId(reel));
     };
     prefetchDataForReel(reels[activeIndex]);
     prefetchDataForReel(reels[activeIndex + 1]);
-  }, [activeIndex, reels.length, fetchTaskLikesSummary, fetchTaskSharesSummary, fetchProfileLikesSummary]);
+  }, [activeIndex, reels.length, fetchTaskLikesSummary, fetchFollowersSummary]);
+
+  // Seguir / dejar de seguir (desde el corazón del reel, el menú o cualquier pantalla) recarga los
+  // seguidores por insignia, igual que dar like recarga los de la tarea. Los demás reels se
+  // vuelven a pedir cuando aparezcan.
+  const refreshFollowersRef = useRef(null);
+  refreshFollowersRef.current = () => {
+    followersCacheRef.current = {};
+    [reels[activeIndex], reels[activeIndex + 1]].forEach((reel) => fetchFollowersSummary(getReelAuthorId(reel), true));
+  };
+  useEffect(() => subscribeRelationsChange(() => refreshFollowersRef.current?.()), []);
 
   // Refresco en segundo plano al volver a la pantalla: solo si los datos están
   // viejos y no hay una carga en curso. Se usa un ref para que el callback sea
@@ -471,60 +423,6 @@ const ReelsScreen = ({ route }) => {
     }
   }, [reels, fetchTaskLikesSummary]);
 
-  const toggleProfileLike = useCallback(async (item) => {
-    const userId = getUserIdFromTask(item);
-    if (!userId) return;
-
-    // Guardamos el estado original para poder revertir en caso de error
-    const originalReels = [...reels];
-    const wasLiked = item.user?.profile?.viewer_has_liked ?? false;
-    const newLikedState = !wasLiked;
-    const increment = newLikedState ? 1 : -1;
-
-    // 1. Actualización Optimista: Modificamos el estado local al instante.
-    setReels(prevReels => prevReels.map(r => {
-      if (getUserIdFromTask(r) === userId) {
-        // Aseguramos que profile exista antes de intentar modificarlo
-        const profile = r.user?.profile || {};
-        const currentLikes = profile.likes_count ?? 0;
-        return { 
-          ...r, 
-          user: { 
-            ...r.user, 
-            profile: { 
-              ...profile,
-              viewer_has_liked: newLikedState, 
-              likes_count: currentLikes + increment 
-            } 
-          } 
-        };
-      }
-      return r;
-    }));
-
-    // 2. Llamada a la API en segundo plano.
-    try {
-      const response = await api.post(`profiles/${userId}/like/`);
-      const { liked, likes_count } = response.data;
-
-      // 3. Sincronización Silenciosa: Actualizamos con los datos reales del servidor.
-      setReels(prevReels => prevReels.map(r => {
-        if (getUserIdFromTask(r) === userId) {
-          const profile = r.user?.profile || {};
-          return { ...r, user: { ...r.user, profile: { ...profile, viewer_has_liked: liked, likes_count: likes_count } } };
-        }
-        return r;
-      }));
-
-      // Forzamos la actualización del cache para consistencia en otras pantallas.
-      delete profileLikesCacheRef.current[userId];
-      fetchProfileLikesSummary(userId, true);
-    } catch (error) {
-      // 4. Reversión: Si la API falla, restauramos el estado original.
-      setReels(originalReels);
-    }
-  }, [reels, fetchProfileLikesSummary]);
-
   const handleRepost = useCallback(async (item) => {
     const taskId = item.task?.id || item.id;
     const contentItem = item.is_original ? item : item.task;
@@ -532,45 +430,25 @@ const ReelsScreen = ({ route }) => {
     if (!taskId) return; // Salimos si no hay ID
     if (repostInFlightRef.current.has(taskId)) return;
     repostInFlightRef.current.add(taskId);
-    const original = {
-      user_has_reposted: Boolean(contentItem.user_has_reposted),
-      user_has_liked: Boolean(contentItem.user_has_liked),
-      likes_count: contentItem.likes_count || 0,
-      interaction_score: contentItem.interaction_score || 0,
-    };
-    const nextReposted = !original.user_has_reposted;
-    const updateTask = (userHasReposted, userHasLiked, likesCount, interactionScore) => {
+    const original = repostSnapshot(contentItem);
+    // La tarea puede venir sola o dentro de una compartida.
+    const updateTask = (patch) => {
       setReels(prevReels => prevReels.map(reel => {
         const current = reel.is_original ? reel : reel.task;
         if (!current || current.id !== taskId) return reel;
-        const updated = {
-          ...current,
-          user_has_reposted: userHasReposted,
-          user_has_liked: userHasLiked,
-          likes_count: likesCount,
-          interaction_score: interactionScore,
-        };
+        const updated = { ...current, ...patch };
         return reel.is_original ? updated : { ...reel, task: updated };
       }));
     };
-    const optimisticLiked = original.user_has_liked || nextReposted;
-    const optimisticLikesCount = original.likes_count + (!original.user_has_liked && nextReposted ? 1 : 0);
-    updateTask(nextReposted, optimisticLiked, optimisticLikesCount,
-      Math.max(0, original.interaction_score + (nextReposted ? 1 : -1)));
+    updateTask(optimisticRepost(original));
 
     try {
       const response = await api.post(`tasks/${taskId}/repost/`);
-      updateTask(
-        response.data.user_has_reposted,
-        response.data.user_has_liked,
-        response.data.likes_count,
-        response.data.interaction_score,
-      );
-      Alert.alert('Éxito', response.data.reposted ? '¡Publicación impulsada!' : 'Se quitó el impulso; el like se conserva.');
+      updateTask(repostFromResponse(response.data));
     } catch (error) {
-      console.error('Error reposting task:', error.response?.data || error.message);
+      console.error('Error al impulsar:', error.response?.data || error.message);
       Alert.alert('Error', 'No se pudo impulsar la publicación.');
-      updateTask(original.user_has_reposted, original.user_has_liked, original.likes_count, original.interaction_score);
+      updateTask(original);
     } finally {
       repostInFlightRef.current.delete(taskId);
     }
@@ -671,7 +549,10 @@ const ReelsScreen = ({ route }) => {
 
   const openActionModal = useCallback((task) => {
     // Un reel compartido trae el contenido en `task`: se marca como compartido para el menu completo
-    setSelectedActionTask(task && !task.is_original && task.task ? { ...task, isSharedTask: true } : task);
+    // Seguir / favoritos / top 5 apuntan a quien se ve en el reel: el autor del contenido.
+    setSelectedActionTask(task && !task.is_original && task.task
+      ? { ...task, isSharedTask: true, menuProfileUser: task.task.user || task.user }
+      : task);
     setActionModalVisible(true);
   }, [setSelectedActionTask, setActionModalVisible]);
 
@@ -682,7 +563,6 @@ const ReelsScreen = ({ route }) => {
     currentUserId,
     close: () => setActionModalVisible(false),
     refresh: () => refetchReels(),
-    onShare: (a) => openShareModal(a),
     onDeleted: (a) => {
       setReels(prev => prev.filter(t => t.id !== a?.id));
       refetchReels();
@@ -698,45 +578,6 @@ const ReelsScreen = ({ route }) => {
     } catch (error) {}
   }, []);
 
-  const openShareModal = useCallback((taskOrId) => {
-    const reelItem = typeof taskOrId === 'object'
-      ? taskOrId
-      : reels.find((item) => String(item.id) === String(taskOrId));
-    const sourceTask = reelItem?.task || reelItem || null;
-    setTaskToShare(sourceTask?.id || taskOrId);
-    setTaskShareDetails(sourceTask);
-    setShareModalVisible(true);
-  }, [reels]);
-  
-  const handleShareSuccess = useCallback((sharedTaskResponse) => {
-    if (!taskToShare) {
-      return;
-    }
-
-    const taskId = taskToShare; // El ID ya está guardado
-    
-    // Actualizamos el estado de reels para reflejar el nuevo contador.
-    setReels(prevReels => prevReels.map(reel => {
-      const contentItem = reel.is_original ? reel : reel.task;
-      if (contentItem && contentItem.id === taskId) {
-        // ✅ FIX: Usamos los valores que vienen del servidor para máxima consistencia
-        const newShareCount = sharedTaskResponse.task.share_count;
-        const newInteractionScore = sharedTaskResponse.task.interaction_score;
-
-        return reel.is_original
-          ? { ...reel, share_count: newShareCount, interaction_score: newInteractionScore }
-          : { ...reel, task: { ...reel.task, share_count: newShareCount, interaction_score: newInteractionScore } };
-      }
-      return reel;
-    }));
-
-    if (taskSharesCacheRef.current[taskId]) {
-      delete taskSharesCacheRef.current[taskId];
-    }
-    fetchTaskSharesSummary(taskId, true); // Forzamos la recarga del resumen de compartidos.
-    setTaskToShare(null); 
-  }, [taskToShare, fetchTaskSharesSummary]);
-
   const handleShowLikes = useCallback((taskId, tier = 'all') => {
     const url = `tasks/${taskId}/users-who-liked/`;
     setLikesModalUrl(url);
@@ -745,17 +586,10 @@ const ReelsScreen = ({ route }) => {
     setLikesModalVisible(true);
   }, []);
 
-  const handleShowShares = useCallback((taskId, tier = 'all') => {
-    const url = `tasks/${taskId}/users-who-shared/`;
-    setLikesModalUrl(url);
-    setLikesModalTitle('Compartido por');
-    setInitialTier(tier);
-    setLikesModalVisible(true);
-  }, []);
-
-  const handleShowProfileLikes = useCallback((userId, tier = 'all') => {
-    setLikesModalUrl(`profiles/${userId}/likes/`);
-    setLikesModalTitle('Likes del Perfil');
+  const handleShowFollowers = useCallback((userId, tier = 'all') => {
+    if (!userId) return;
+    setLikesModalUrl(`users/${userId}/followers/`);
+    setLikesModalTitle('Seguidores');
     setInitialTier(tier);
     setLikesModalVisible(true);
   }, []);
@@ -858,7 +692,7 @@ const ReelsScreen = ({ route }) => {
             <FlatList
               data={reels}
               ref={flatListRef}
-              renderItem={({ item, index }) => ( <ReelRenderer item={item} index={index} activeIndex={activeIndex} isFocused={isFocused} isMuted={isMuted} paused={paused} setPaused={setPaused} selectedReelId={selectedReelId} handleReelTap={handleReelTap} isUIVisible={isUIVisible} expandedDescriptions={expandedDescriptions} toggleDescription={toggleDescription} viewStateById={viewStateById} sharedOpenById={sharedOpenById} toggleSharedBy={toggleSharedBy} getSharedByInfo={stableGetSharedByInfo} cycleViewOnly={cycleViewOnly} cycleClipWithinView={cycleClipWithinView} navigateClip={navigateClip} toggleLike={toggleLike} toggleProfileLike={toggleProfileLike} likeAnimation={likeAnimation} navigation={navigation} toggleFavorite={toggleFavorite} handleRepost={handleRepost} openShareModal={openShareModal} handleShowShares={handleShowShares} handleShowLikes={handleShowLikes} handleShowProfileLikes={handleShowProfileLikes} openActionModal={openActionModal} tema={tema} taskLikesById={taskLikesById} taskSharesById={taskSharesById} profileLikesById={profileLikesById} pageHeight={pageHeight} /> )}
+              renderItem={({ item, index }) => ( <ReelRenderer item={item} index={index} activeIndex={activeIndex} isFocused={isFocused} isMuted={isMuted} paused={paused} setPaused={setPaused} selectedReelId={selectedReelId} handleReelTap={handleReelTap} isUIVisible={isUIVisible} expandedDescriptions={expandedDescriptions} toggleDescription={toggleDescription} viewStateById={viewStateById} sharedOpenById={sharedOpenById} toggleSharedBy={toggleSharedBy} getSharedByInfo={stableGetSharedByInfo} cycleViewOnly={cycleViewOnly} cycleClipWithinView={cycleClipWithinView} navigateClip={navigateClip} toggleLike={toggleLike} likeAnimation={likeAnimation} navigation={navigation} toggleFavorite={toggleFavorite} handleRepost={handleRepost} handleShowLikes={handleShowLikes} handleShowFollowers={handleShowFollowers} openActionModal={openActionModal} tema={tema} taskLikesById={taskLikesById} followersById={followersById} pageHeight={pageHeight} /> )}
               keyExtractor={(item) => item.id.toString()}
               pagingEnabled
               snapToInterval={pageHeight}
@@ -930,16 +764,6 @@ const ReelsScreen = ({ route }) => {
           initialTier={initialTier}
         />
 
-        <ShareModal
-          visible={shareModalVisible}
-          onClose={() => setShareModalVisible(false)}
-          taskId={taskToShare}
-          onShareSuccess={handleShareSuccess}
-          navigation={navigation}
-          taskTitle={taskShareDetails?.title || 'Publicación'}
-          taskDescription={taskShareDetails?.description || ''}
-        />
-        
         <TaskActionsModal
           visible={actionModalVisible}
           onClose={() => setActionModalVisible(false)}

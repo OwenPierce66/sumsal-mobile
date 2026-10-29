@@ -33,8 +33,10 @@ import TaskSharesModal from '@components/TaskSharesModal';
 import { getActionTaskInfo } from '@hooks/useTaskActions';
 import useTaskSharesFeed from '@hooks/useTaskSharesFeed';
 import StoriesBar from '@components/StoriesBar';
+import StoryRing from '@components/StoryRing';
 import TopicTopSections from '@components/TopicTopSections';
 import { dedupeFeedItems } from '../utils/feedItems';
+import { optimisticRepost, repostFromResponse, repostSnapshot } from '../utils/repost';
 
 
 const TasksScreen = ({ navigation, route }) => {
@@ -349,7 +351,7 @@ const TasksScreen = ({ navigation, route }) => {
     setSelectedActionTask(null);
   };
 
-  // Acción para "Repostear ahora"
+  // Impulsar (o quitar el impulso) desde la tarjeta o desde el menú de compartir.
   const handleRepost = useCallback(async (task) => {
     const taskToRepost = task || selectedActionTask;
     if (!taskToRepost) return;
@@ -358,22 +360,10 @@ const TasksScreen = ({ navigation, route }) => {
     if (!task) handleCloseShareActionMenu(); // Solo cerramos el menú si venimos de él
     if (!taskId || repostInFlightRef.current.has(taskId)) return;
     repostInFlightRef.current.add(taskId);
-    const currentTask = taskToRepost.isSharedTask ? taskToRepost.task : taskToRepost;
-    const original = {
-      user_has_reposted: Boolean(currentTask.user_has_reposted),
-      user_has_liked: Boolean(currentTask.user_has_liked),
-      likes_count: currentTask.likes_count || 0,
-      interaction_score: currentTask.interaction_score || 0,
-    };
-    const nextReposted = !original.user_has_reposted;
-    const updateTask = (userHasReposted, userHasLiked, likesCount, interactionScore) => {
-      const update = item => ({
-        ...item,
-        user_has_reposted: userHasReposted,
-        user_has_liked: userHasLiked,
-        likes_count: likesCount,
-        interaction_score: interactionScore,
-      });
+    const original = repostSnapshot(taskToRepost.isSharedTask ? taskToRepost.task : taskToRepost);
+    // La misma tarea puede estar en el feed, en la búsqueda y dentro de compartidas.
+    const updateTask = (patch) => {
+      const update = item => ({ ...item, ...patch });
       setTasks(prev => prev.map(item => item.id === taskId ? update(item) : item));
       setSearchTasks(prev => prev.map(item => item.id === taskId ? update(item) : item));
       const updateShared = item => item.task?.id === taskId
@@ -382,25 +372,15 @@ const TasksScreen = ({ navigation, route }) => {
       setSharedTasks(prev => prev.map(updateShared));
       setSearchSharedTasks(prev => prev.map(updateShared));
     };
-    const optimisticLiked = original.user_has_liked || nextReposted;
-    const optimisticLikesCount = original.likes_count + (!original.user_has_liked && nextReposted ? 1 : 0);
 
     try {
-      updateTask(nextReposted, optimisticLiked, optimisticLikesCount,
-        Math.max(0, original.interaction_score + (nextReposted ? 1 : -1)));
-
-      const response = await api.post(`/tasks/${taskId}/repost/`);
-      updateTask(
-        response.data.user_has_reposted,
-        response.data.user_has_liked,
-        response.data.likes_count,
-        response.data.interaction_score,
-      );
-      Alert.alert('Éxito', response.data.reposted ? '¡Publicación impulsada!' : 'Se quitó el impulso; el like se conserva.');
+      updateTask(optimisticRepost(original));
+      const response = await api.post(`tasks/${taskId}/repost/`);
+      updateTask(repostFromResponse(response.data));
     } catch (error) {
-      console.error("Error al repostear:", error.response?.data || error);
-      alert("Error al repostear. Inténtalo de nuevo."); 
-      updateTask(original.user_has_reposted, original.user_has_liked, original.likes_count, original.interaction_score);
+      console.error("Error al impulsar:", error.response?.data || error);
+      alert("No se pudo impulsar la publicación. Inténtalo de nuevo.");
+      updateTask(original);
     } finally {
       repostInFlightRef.current.delete(taskId);
     }
@@ -680,23 +660,6 @@ const TasksScreen = ({ navigation, route }) => {
     }
   };
 
-  const handleToggleFavorite = async () => {
-    if (!selectedActionTask) return;
-    try {
-      const taskId = selectedActionTask.isSharedTask ? selectedActionTask.task.id : selectedActionTask.id;
-      const isFav = selectedActionTask.isSharedTask ? !selectedActionTask.task.is_favorited : !selectedActionTask.is_favorited;
-      
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, is_favorited: isFav } : t));
-      setSharedTasks(prev => prev.map(s => s.task?.id === taskId ? { ...s, task: { ...s.task, is_favorited: isFav } } : s));
-      
-      await api.post("favoritos/agregar/", { task_id: taskId });
-    } catch (error) {
-      console.error("Error toggling favorite:", error);
-    } finally {
-      setActionModalVisible(false);
-    }
-  };
-
   // Aplica `patch` (p. ej. { is_following, is_favorited }) al usuario `perfilId`
   // en cada tarea/compartida que lo muestre, para que todos los menús coincidan.
   const patchUserEverywhere = (perfilId, patch) => {
@@ -946,8 +909,11 @@ const TasksScreen = ({ navigation, route }) => {
     setSearchLoading(true);
     try {
       if (searchScope !== 'tasks') {
+        // Con una categoría elegida, los perfiles también se filtran por ella (las de sus tareas).
         const directoryResponse = await api.get('search/directory/', {
-          params: { q: normalizedQuery, scope: searchScope },
+          params: searchCategory
+            ? { q: normalizedQuery, scope: searchScope, category: searchCategory }
+            : { q: normalizedQuery, scope: searchScope },
         });
         setSearchDirectoryProfiles(directoryResponse.data?.profiles || []);
       } else {
@@ -1393,7 +1359,7 @@ const TasksScreen = ({ navigation, route }) => {
     return (
       <View style={styles.taskCard}>
         <View style={styles.sharedByHeader}>
-          <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+          <View style={{flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6}}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <TouchableUsername
                 username={getSharerName(shared.shared_by)}
@@ -1406,6 +1372,7 @@ const TasksScreen = ({ navigation, route }) => {
             </View>
             <Text style={styles.sharedDate}>{moment(shared.created_at).fromNow()}</Text>
           </View>
+          <FollowHeart userId={shared.shared_by?.id} username={getSharerName(shared.shared_by)} style={styles.sharedByHeart} />
           <TouchableOpacity onPress={() => openActionModal({...shared, isSharedTask: true})}>
             <Ionicons name="ellipsis-vertical" size={20} color="#999" />
           </TouchableOpacity>
@@ -1413,19 +1380,21 @@ const TasksScreen = ({ navigation, route }) => {
 
         {shared.description ? (
           <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('SharedTaskDetail', { sharedTaskId: shared.id })}>
-            <LinkifiedText style={styles.sharedDescription} text={shared.description} />
+            <LinkifiedText style={styles.sharedDescription} text={shared.description} collapsedLines={3} />
           </TouchableOpacity>
         ) : null}
 
         <View style={styles.originalTaskCard}>
           <View style={styles.taskHeader}>
-            <Image 
-              source={{
-                uri:
-                  getImageUrl(task.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random',
-              }}
-              style={styles.avatar} 
-            />
+            <StoryRing userId={task.user?.id} size={38} navigation={navigation} style={styles.avatarWrap}>
+              <Image
+                source={{
+                  uri:
+                    getImageUrl(task.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random',
+                }}
+                style={[styles.avatar, styles.avatarInRing]}
+              />
+            </StoryRing>
             <View style={{ flex: 1 }}>
               <Text style={styles.taskTitle}>{task.title}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -1436,7 +1405,7 @@ const TasksScreen = ({ navigation, route }) => {
                     userImage={getImageUrl(task.user?.user_image)}
                     navigation={navigation}
                     textStyle={[styles.taskUser, { color: getUserStatusColor(task.user) }]}
-                    showHeart={false}
+                   
                   />
               </View><Text style={{ fontSize: 12, color: '#999' }}>• {moment(task.created_at).fromNow()}</Text>
               </View>
@@ -1448,7 +1417,7 @@ const TasksScreen = ({ navigation, route }) => {
           </View>
 
           <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.navigate('SharedTaskDetail', { sharedTaskId: shared.id })}>
-            <LinkifiedText style={styles.taskDescription} text={task.description} />
+            <LinkifiedText style={styles.taskDescription} text={task.description} collapsedLines={3} />
 
             {task.categories ? (
               <View style={styles.categoriesList}>
@@ -1499,8 +1468,12 @@ const TasksScreen = ({ navigation, route }) => {
         <View style={styles.taskFooter}>
           <View style={styles.statsContainer}>
             <TouchableOpacity style={styles.stat} onPress={() => handleRepost({ ...shared, isSharedTask: true })}>
-              <Ionicons name="trending-up-outline" size={18} color="#f59f00" />
-              <Text style={styles.statText}>{shared.task?.interaction_score || 0}</Text>
+              <Ionicons
+                name={shared.task?.user_has_reposted ? 'trending-up' : 'trending-up-outline'}
+                size={18}
+                color={shared.task?.user_has_reposted ? '#f59f00' : '#999'}
+              />
+              <Text style={styles.statText}>{shared.task?.reposts_count || 0}</Text>
             </TouchableOpacity>
 
             <View style={styles.stat}>
@@ -1563,6 +1536,7 @@ const TasksScreen = ({ navigation, route }) => {
         onLike={handleLikeTask}
         onShowLikes={handleShowTaskLikes}
         onPressComments={(task) => navigation.navigate('TaskDetail', { taskId: task.id })}
+        showTopComment
         onShare={handleOpenShareActionMenu}
         onShowShares={handleShowTaskShares}
         onShareSubItemToStory={handleShareSubItemToStory}
@@ -1663,7 +1637,7 @@ const TasksScreen = ({ navigation, route }) => {
         <View style={styles.header}>
           <View style={styles.headerIdentity}>
             <Text style={styles.headerTitle}>
-              {isTasksTab ? 'Tareas' : 'Inicio'}
+              {isTasksTab ? 'Tareas' : 'Aportaciones'}
             </Text>
           </View>
           <View style={styles.headerActions}>
@@ -1902,7 +1876,7 @@ const TasksScreen = ({ navigation, route }) => {
             <Text style={styles.visibilityHint}>Decide qué listas pueden ver otros usuarios.</Text>
             {[
               ['profiles', 'Perfiles favoritos', favoriteProfilesPublic, setFavoriteProfilesPublic],
-              ['tasks', 'Tareas favoritas', favoriteTasksPublic, setFavoriteTasksPublic],
+              ['tasks', 'Tareas guardadas y favoritas', favoriteTasksPublic, setFavoriteTasksPublic],
             ].map(([type, label, enabled, setEnabled]) => (
               <TouchableOpacity
                 key={type}
@@ -1969,7 +1943,6 @@ const TasksScreen = ({ navigation, route }) => {
         isAdmin={isAdmin}
         canEdit={canEditSelectedTask}
         handlers={{
-          toggleFavorite: handleToggleFavorite,
           pinFavorite: handlePinFavorite,
           share: () => { setActionModalVisible(false); handleOpenShareActionMenu(selectedActionTask); },
           viewShares: handleViewShares,
@@ -2035,8 +2008,9 @@ const styles = StyleSheet.create({
   headerIdentity: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerMenuButton: { padding: 2 },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#333' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerIconBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  // Buscar y filtro más juntos (y más cerca del +); el área para tocar sigue siendo de 40 de alto.
+  headerIconBtn: { width: 34, height: 40, justifyContent: 'center', alignItems: 'center' },
   createBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
   visibilityModal: { width: '88%', maxWidth: 420, padding: 20, borderRadius: 18, backgroundColor: '#fff' },
   visibilityTitle: { color: '#212529', fontSize: 18, fontWeight: '700', marginBottom: 6 },
@@ -2089,7 +2063,9 @@ const styles = StyleSheet.create({
     elevation: 2, // Para Android
   },
   taskHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  avatar: { width: 45, height: 45, borderRadius: 22.5, marginRight: 12, backgroundColor: '#eee' },
+  avatar: { width: 38, height: 38, borderRadius: 19, marginRight: 12, backgroundColor: '#eee' },
+  avatarWrap: { marginRight: 12 },
+  avatarInRing: { marginRight: 0 },
   taskTitle: { fontSize: 18, fontWeight: 'bold', color: '#000' },
   taskUser: { fontSize: 12, color: '#4dabf7', fontWeight: '600' },
   taskDescription: { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 8 },
@@ -2133,6 +2109,7 @@ const styles = StyleSheet.create({
   stat: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   statText: { fontSize: 13, color: '#666', fontWeight: '600' },
   sharedByHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  sharedByHeart: { marginRight: 10 },
   sharedByName: { fontSize: 14, fontWeight: 'bold', color: '#333' },
   sharedDate: { fontSize: 12, color: '#999' },
   sharedDescription: { fontSize: 13, color: '#555', marginBottom: 10 },

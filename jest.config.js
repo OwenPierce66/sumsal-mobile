@@ -14,6 +14,7 @@
     '^@contexts/(.*)$': '<rootDir>/contexts/$1',
     '^@hooks/(.*)$': '<rootDir>/hooks/$1',
   },
+  setupFiles: ['<rootDir>/jest.setup.js'],
   testPathIgnorePatterns: ['/node_modules/', '/android/', '/ios/', '/.expo/'],
   collectCoverageFrom: [
     'utils/**/*.js',

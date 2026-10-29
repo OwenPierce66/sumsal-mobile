@@ -34,7 +34,8 @@ const NOTIFICATION_COPY = {
   shared_task_like:             { icon: 'heart',             color: '#ff5d73', text: 'le dio me gusta a tu publicación compartida' },
   shared_task_comment_like:     { icon: 'heart',             color: '#ff5d73', text: 'le dio me gusta a tu comentario' },
   profile_like:                 { icon: 'heart-circle',      color: '#ff5d73', text: 'le dio me gusta a tu perfil' },
-  task_favorite:                { icon: 'bookmark',          color: '#f59f00', text: 'guardó tu tarea en favoritos' },
+  task_save:                    { icon: 'bookmark',          color: '#f59f00', text: 'guardó tu tarea' },
+  task_favorite:                { icon: 'star',              color: '#f59f00', text: 'agregó tu tarea a sus favoritos' },
   profile_favorite:             { icon: 'star',              color: '#f59f00', text: 'agregó tu perfil a favoritos' },
   user_follow:                  { icon: 'person-add',       color: '#4dabf7', text: 'empezó a seguirte' },
   favorite_pin:                 { icon: 'pin',               color: '#845ef7', text: 'te colocó entre sus 5 favoritos' },
@@ -52,10 +53,20 @@ const NOTIFICATION_COPY = {
   task_approved:                { icon: 'checkmark-circle',  color: '#51cf66', text: 'Tu aportación fue aprobada ✅' },
   subscription_gift:            { icon: 'gift',              color: '#51cf66', text: 'te regaló una suscripción 🎁' },
   comment_tag:                  { icon: 'pricetags',         color: '#845ef7', text: 'te etiquetó en un comentario. ¿Lo muestras en tu perfil como testimonio?' },
+  profile_testimonial:          { icon: 'chatbox-ellipses',  color: '#845ef7', text: 'escribió un testimonio en tu perfil. ¿Lo muestras?' },
+  testimonial_approved:         { icon: 'chatbox-ellipses',  color: '#845ef7', text: 'mostró tu testimonio en su perfil.' },
+  group_join_request:           { icon: 'person-add',        color: '#4dabf7', text: 'pidió unirse a tu grupo' },
+  group_join_approved:          { icon: 'people',            color: '#2f9e44', text: 'aceptó tu solicitud: ya estás en el grupo' },
+  group_admin:                  { icon: 'shield-checkmark',  color: '#845ef7', text: 'te nombró admin del grupo' },
+  group_post_pending:           { icon: 'hourglass',         color: '#e67700', text: 'publicó en tu grupo y espera tu aprobación' },
+  group_post_approved:          { icon: 'checkmark-circle',  color: '#2f9e44', text: 'aprobó tu publicación en el grupo' },
+  group_post_rejected:          { icon: 'close-circle',      color: '#e03131', text: 'rechazó tu publicación en el grupo' },
   petition_support:             { icon: 'cash',              color: '#2f9e44', text: 'apoyó monetariamente tu petición 💵' },
   petition_top_month:          { icon: 'trending-up',       color: '#f59f00', text: 'Una petición entró al top 5 mensual' },
   forum_post_like:              { icon: 'heart',             color: '#ff5d73', text: 'le dio me gusta a tu publicación del foro' },
   forum_reply:                  { icon: 'arrow-undo',        color: '#4dabf7', text: 'respondió a tu comentario del foro' },
+  forum_tag:                    { icon: 'pricetag',          color: '#845ef7', text: 'te etiquetó en el foro' },
+  shared_comment_tag:           { icon: 'pricetag',          color: '#845ef7', text: 'te etiquetó en un comentario' },
   direct_message:               { icon: 'mail',              color: '#4dabf7', text: 'te envió un mensaje' },
   direct_message_reply:         { icon: 'return-up-back',    color: '#4dabf7', text: 'respondió a tu mensaje' },
   direct_message_like:          { icon: 'heart',             color: '#ff5d73', text: 'le dio me gusta a tu mensaje' },
@@ -74,7 +85,14 @@ const getActorName = (n) => {
 
 const getNotificationType = (n) => n?.notification_type || n?.type || 'notification';
 
-const getActionText = (n) => NOTIFICATION_COPY[getNotificationType(n)]?.text || 'interactuó con tu contenido';
+const getActionText = (n) => {
+  const type = getNotificationType(n);
+  // Anclar una tarea (en el top 5 general o en el de una categoría) no es anclar tu perfil.
+  if (type === 'favorite_pin' && (n?.target_type || n?.data?.target_type) === 'task') {
+    return n?.data?.category ? `colocó tu tarea en su top 5 de ${n.data.category}` : 'colocó tu tarea en su top 5';
+  }
+  return NOTIFICATION_COPY[type]?.text || 'interactuó con tu contenido';
+};
 
 const getNotificationText = (n) => {
   if (n?.message || n?.text) return n.message || n.text;
@@ -208,6 +226,15 @@ const NotificationsScreen = ({ navigation }) => {
         break;
       case 'task':
         navigation.navigate('TaskDetail', { taskId: target.id });
+        break;
+      case 'testimonial':
+        // Un testimonio escrito en mi perfil: mis testimonios, donde decido si se muestra.
+        navigation.getParent()?.navigate('Profile', {
+          screen: 'ProfileMain', params: { initialView: 'testimonials' },
+        });
+        break;
+      case 'group':
+        navigation.navigate('GroupDetail', { groupId: target.id });
         break;
       case 'shared_task':
         navigation.navigate('SharedTaskDetail', { sharedTaskId: target.id });
@@ -417,7 +444,7 @@ const NotificationsScreen = ({ navigation }) => {
           {detail ? (
             <Text style={styles.notificationDetail} numberOfLines={2}>{detail}</Text>
           ) : null}
-          {type === 'comment_tag' && item.data?.testimonial_id ? (
+          {(type === 'comment_tag' || type === 'profile_testimonial') && item.data?.testimonial_id ? (
             testimonialAnswers[item.data.testimonial_id] ? (
               <Text style={styles.testimonialDone}>
                 {testimonialAnswers[item.data.testimonial_id] === 'approved'

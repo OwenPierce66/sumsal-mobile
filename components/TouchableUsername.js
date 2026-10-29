@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Text, Pressable, Modal, View, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../api';
-import FollowHeart from './FollowHeart';
 import UserBadges from './UserBadges';
 
 const TouchableUsername = ({
@@ -16,7 +15,6 @@ const TouchableUsername = ({
   disabled = false,
   numberOfLines = 1,
   showBadges = true,
-  showHeart = true,
 }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [isLikedProfile, setIsLikedProfile] = useState(false);
@@ -108,9 +106,9 @@ const TouchableUsername = ({
        style={({ pressed }) => [style, pressed && { opacity: 0.7 }]}
      >
        <View style={styles.nameRow}>
+         {/* El corazón de seguir va aparte, al otro extremo de la fila (ver FollowHeart). */}
          <Text style={[styles.username, textStyle, styles.nameText]} numberOfLines={numberOfLines}>
            {username || 'Usuario'}
-           {showHeart ? <FollowHeart inline userId={userId} username={username} size={16} /> : null}
          </Text>
          {showBadges ? (
            <UserBadges userId={userId} size={StyleSheet.flatten([styles.username, textStyle]).fontSize} />

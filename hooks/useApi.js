@@ -16,7 +16,7 @@
 
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
-import api from '@api';
+import api, { UPLOAD_TIMEOUT_MS } from '@api';
 import { getNextPageNumber, mapPostsPages, removePostFromPages } from '../utils/postsPages';
 import { getNextOffset, flattenCommentPages, getRemainingComments } from '../utils/commentsPages';
 
@@ -359,11 +359,12 @@ export function useProfileCategories(userId, isMe, ownerId) {
  * Colección de tareas favoritas del usuario.
  * Solo se lanza cuando enabled=true (al abrir el menú de favoritos).
  */
-export function useFavoritesFeed(enabled = false) {
+export function useFavoritesFeed(enabled = false, userId = null) {
   return useQuery({
-    queryKey: ['favoritesFeed'],
+    // Sin userId: mis favoritos. Con userId: los de otro perfil (vacío si los tiene privados).
+    queryKey: ['favoritesFeed', userId ?? 'me'],
     queryFn: async () => {
-      const res = await api.get('favorites/collection/');
+      const res = await api.get(userId ? `favorites/collection/${userId}/` : 'favorites/collection/');
       const tasks = Array.isArray(res.data?.tasks)
         ? res.data.tasks.map((item) => item.task).filter(Boolean)
         : [];
@@ -410,7 +411,11 @@ export function useFavoritesCollection(userId, { enabled = true } = {}) {
       const res = await api.get(endpoint);
       return {
         profiles: Array.isArray(res.data?.profiles) ? res.data.profiles : [],
+        // Favoritas (con su top 5); `saved`: guardadas que no son favoritas.
         tasks:    Array.isArray(res.data?.tasks)    ? res.data.tasks    : [],
+        saved:    Array.isArray(res.data?.saved)    ? res.data.saved    : [],
+        // Top 5 por categoría: { categoría: [id de favorito, ...] } en orden.
+        category_pins: res.data?.category_pins || {},
         visibility: res.data?.visibility || {},
       };
     },
@@ -443,6 +448,20 @@ export function useReorderFavorites(userId) {
   });
 }
 
+/**
+ * Top 5 para el perfil: perfiles anclados, tareas ancladas y el top 5 de cada categoría.
+ * Sin userId: el propio. De otro perfil solo llega lo que su dueño tiene público.
+ */
+export function useFavoritesTop(userId, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: ['favoritesTop', userId ?? 'me'],
+    queryFn: async () => (await api.get(userId ? `favorites/top/${userId}/` : 'favorites/top/')).data,
+    enabled,
+    staleTime: STALE_TIME,
+    gcTime: GC_TIME,
+  });
+}
+
 // ─── Foro ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -450,12 +469,15 @@ export function useReorderFavorites(userId) {
  * El backend devuelve 10 por página (StandardPagination); antes solo se leía
  * la primera, por lo que los posts más antiguos nunca eran visibles.
  */
-export function usePostsInfinite(userId = null) {
+export function usePostsInfinite(userId = null, category = '') {
+  // Foro de un usuario y/o de una categoría ("Tema,Subtema"), como el filtro de las tareas.
+  const filters = {};
+  if (userId) filters.user = userId;
+  if (category) filters.category = category;
   return useInfiniteQuery({
-    queryKey: userId ? ['posts', { user: userId }] : ['posts'],
+    queryKey: Object.keys(filters).length ? ['posts', filters] : ['posts'],
     queryFn: async ({ pageParam = 1 }) => {
-      const params = { page: pageParam };
-      if (userId) params.user = userId;
+      const params = { page: pageParam, ...filters };
       const res = await api.get('posts/', { params });
       return res.data;
     },
@@ -473,14 +495,27 @@ export function usePostsInfinite(userId = null) {
 export function usePostMutations() {
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['posts'] });
+  // Los cambios optimistas llegan a todas las listas del foro (general, de un usuario, por categoría).
+  const updateAll = (updater) => {
+    const previous = queryClient.getQueriesData({ queryKey: ['posts'] });
+    queryClient.setQueriesData({ queryKey: ['posts'] }, updater);
+    return previous;
+  };
+  const restore = (previous) => (previous || []).forEach(([key, data]) => queryClient.setQueryData(key, data));
 
   const createPost = useMutation({
-    mutationFn: ({ title, content }) => api.post('posts/', { title, content }),
+    // `body`: JSON o FormData (si el post lleva foto o video).
+    mutationFn: (body) => (typeof FormData !== 'undefined' && body instanceof FormData
+      ? api.post('posts/', body, { timeout: UPLOAD_TIMEOUT_MS })
+      : api.post('posts/', body)),
     onSuccess: invalidate,
   });
 
   const editPost = useMutation({
-    mutationFn: ({ id, title, content }) => api.patch(`posts/${id}/`, { title, content }),
+    mutationFn: ({ id, title, content, categories }) => api.patch(
+      `posts/${id}/`,
+      categories === undefined ? { title, content } : { title, content, categories },
+    ),
     onSuccess: invalidate,
   });
 
@@ -488,11 +523,9 @@ export function usePostMutations() {
     mutationFn: (postId) => api.delete(`posts/${postId}/`),
     onMutate: async (postId) => {
       await queryClient.cancelQueries({ queryKey: ['posts'] });
-      const prev = queryClient.getQueryData(['posts']);
-      queryClient.setQueryData(['posts'], (old) => removePostFromPages(old, postId));
-      return { prev };
+      return { prev: updateAll((old) => removePostFromPages(old, postId)) };
     },
-    onError: (_err, _vars, ctx) => queryClient.setQueryData(['posts'], ctx?.prev),
+    onError: (_err, _vars, ctx) => restore(ctx?.prev),
     onSuccess: invalidate,
   });
 
@@ -500,8 +533,7 @@ export function usePostMutations() {
     mutationFn: (postId) => api.post(`posts/${postId}/like/`),
     onMutate: async (postId) => {
       await queryClient.cancelQueries({ queryKey: ['posts'] });
-      const prev = queryClient.getQueryData(['posts']);
-      queryClient.setQueryData(['posts'], (old) =>
+      const prev = updateAll((old) =>
         mapPostsPages(old, (p) =>
           p.id === postId
             ? { ...p, has_liked: !p.has_liked, likes_count: p.likes_count + (p.has_liked ? -1 : 1) }
@@ -510,9 +542,9 @@ export function usePostMutations() {
       );
       return { prev };
     },
-    onError: (_err, _vars, ctx) => queryClient.setQueryData(['posts'], ctx?.prev),
+    onError: (_err, _vars, ctx) => restore(ctx?.prev),
     onSuccess: (data, postId) => {
-      queryClient.setQueryData(['posts'], (old) =>
+      updateAll((old) =>
         mapPostsPages(old, (p) =>
           p.id === postId
             ? { ...p, likes_count: data.data.likes_count, has_liked: data.data.liked }
@@ -691,10 +723,21 @@ export function useSubscriptionStatus(userId) {
 }
 
 /** Las suscripciones que pago (mías o regaladas) y las que recibo. */
-export function useMySubscriptions() {
+/** Sin userId: mis suscripciones. Con userId: las de otro perfil, solo lectura. */
+export function useMySubscriptions(userId = null) {
   return useQuery({
-    queryKey: ['subscriptions'],
-    queryFn: async () => (await api.get('subscriptions/')).data,
+    queryKey: userId ? ['subscriptions', 'user', userId] : ['subscriptions'],
+    queryFn: async () => (await api.get(userId ? `subscriptions/users/${userId}/` : 'subscriptions/')).data,
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/** Apoyos a peticiones (los que dio y los que recibieron sus peticiones): míos, o de `userId`. */
+export function useMyPetitionSupports(userId = null) {
+  return useQuery({
+    queryKey: ['petitionSupports', userId ?? 'me'],
+    queryFn: async () => (await api.get(userId ? `petition-supports/users/${userId}/` : 'petition-supports/')).data,
     staleTime: 60 * 1000,
     gcTime: GC_TIME,
   });
@@ -712,6 +755,60 @@ export function useUserTestimonials(userId) {
     queryFn: async () => (await api.get(`users/${userId}/testimonials/`)).data,
     enabled: Boolean(userId),
     staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+// ─── Grupos ───────────────────────────────────────────────────────────────────
+
+/** Lista de grupos. `{ mine: true }`: a los que pertenezco. `{ q }`: buscar por nombre o descripción. */
+export function useGroups({ mine = false, q = '' } = {}) {
+  return useQuery({
+    queryKey: ['groups', mine ? 'mine' : 'all', q],
+    queryFn: async () => (await api.get('groups/', { params: { ...(mine ? { mine: 1 } : {}), ...(q ? { q } : {}) } })).data,
+    staleTime: 30 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/** Un grupo con sus admins, mi rol y, si soy admin, cuánto espera revisión. */
+export function useGroup(groupId) {
+  return useQuery({
+    queryKey: ['group', String(groupId)],
+    queryFn: async () => (await api.get(`groups/${groupId}/`)).data,
+    enabled: Boolean(groupId),
+    staleTime: 30 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
+ * Publicaciones de un grupo, paginadas. `pending`: las que esperan revisión
+ * (los admins ven todas; un integrante, solo las suyas pendientes o rechazadas).
+ */
+export function useGroupTasks(groupId, { pending = false, enabled = true, category = '' } = {}) {
+  return useInfiniteQuery({
+    // `category`: filtro por categoría y subcategorías ("Tema,Subtema"), como el feed.
+    queryKey: ['groupTasks', String(groupId), pending ? 'pending' : 'approved', ...(category ? [category] : [])],
+    queryFn: async ({ pageParam = 1 }) => (
+      await api.get(`groups/${groupId}/tasks/${pending ? 'pending/' : ''}`, {
+        params: category ? { page: pageParam, category } : { page: pageParam },
+      })
+    ).data,
+    getNextPageParam: getNextPageNumber,
+    enabled: Boolean(groupId) && enabled,
+    staleTime: 30 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/** Integrantes activos, o con `status: 'pending'` las solicitudes para entrar (solo admins). */
+export function useGroupMembers(groupId, { status = 'active', enabled = true } = {}) {
+  return useQuery({
+    queryKey: ['groupMembers', String(groupId), status],
+    queryFn: async () => (await api.get(`groups/${groupId}/members/`, { params: { status } })).data,
+    enabled: Boolean(groupId) && enabled,
+    staleTime: 30 * 1000,
     gcTime: GC_TIME,
   });
 }

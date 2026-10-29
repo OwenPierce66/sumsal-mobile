@@ -6,13 +6,17 @@ import moment from 'moment';
 import 'moment/locale/es';
 import { getImageUrl } from '@api';
 import TouchableUsername from './TouchableUsername';
+import FollowHeart from './FollowHeart';
+import ContentActionsButton from './ContentActionsMenu';
 
 /**
- * Un testimonio: comentario donde etiquetaron a la persona del perfil.
+ * Un testimonio que viene de un comentario donde etiquetaron a la persona del perfil
+ * (los escritos en el perfil son publicaciones: ver TestimonialPost).
  * Su dueño ve también los pendientes y decide si se muestran.
  */
-const TestimonialCard = ({ testimonial, navigation, isOwner = false, onAnswer }) => {
-  const { author = {}, comment = {}, task = {}, status } = testimonial;
+const TestimonialCard = ({ testimonial, navigation, isOwner = false, onAnswer, currentUserId }) => {
+  const { author = {}, comment = {}, status } = testimonial;
+  const task = testimonial.task || {};
   const avatar = getImageUrl(author.image || author.user_image);
   const isPending = status === 'pending';
 
@@ -41,6 +45,14 @@ const TestimonialCard = ({ testimonial, navigation, isOwner = false, onAnswer })
           <Text style={styles.date}>{moment(testimonial.created_at).locale('es').fromNow()}</Text>
         </View>
         <Ionicons name="chatbox-ellipses" size={18} color="#845ef7" />
+        <FollowHeart userId={author.id} username={author.username} size={18} />
+        <ContentActionsButton
+          accessibilityLabel="Más opciones del testimonio"
+          author={author}
+          currentUserId={currentUserId}
+          navigation={navigation}
+          report={{ targetType: 'comment', targetId: comment.id }}
+        />
       </View>
 
       <Text style={styles.text}>“{comment.text}”</Text>

@@ -83,7 +83,8 @@ export const authInterceptorController = {
 // Cualquier escritura exitosa sobre estas rutas avisa a los suscriptores
 // (hooks/useMyRelations) para refrescar los corazones junto a cada nombre.
 // ─────────────────────────────────────────────────────────────────────────────
-const RELATION_WRITE_PATH = /(\/|^)(follow|pfavoritos\/agregar|favorites\/pin|block)\/?(\?|$)/;
+// Escrituras que cambian relaciones con perfiles o tareas (seguir, favoritos, guardar, anclar...).
+const RELATION_WRITE_PATH = /(\/|^)(follow|pfavoritos\/agregar|favoritos\/agregar|favorites\/pin|favorites\/category-pin|favorites\/collection|tasks\/[^/]+\/save|block)\/?(\?|$)/;
 const relationsListeners = new Set();
 
 export const subscribeRelationsChange = (listener) => {
@@ -194,9 +195,10 @@ api.interceptors.response.use(
     }
 
     // Fallo de red en una ESCRITURA (POST/PATCH/PUT/DELETE): avisar al usuario.
-    // Las lecturas no avisan: se sirven desde la caché persistida.
+    // Las lecturas no avisan: se sirven desde la caché persistida. Tampoco las consultas
+    // que van por POST (`readOnly`, p. ej. users/in-category/).
     const method = String(originalRequest?.method || 'get').toLowerCase();
-    if (method !== 'get' && isNetworkError(error)) {
+    if (method !== 'get' && !originalRequest?.readOnly && isNetworkError(error)) {
       emitOfflineWrite();
     }
 

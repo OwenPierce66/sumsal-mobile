@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
 import TouchableUsername from '../components/TouchableUsername';
+import FollowHeart from '../components/FollowHeart';
 
 const TIER_ORDER = ['all', 'verified', 'recommended', 'app', 'sub_red', 'sub_green', 'regular'];
 
@@ -68,6 +69,7 @@ const UsersListModal = ({ visible, onClose, apiUrl, title = "Usuarios", navigati
         style={styles.usernameContainer}
         textStyle={styles.username}
       />
+      <FollowHeart userId={item.id} username={item.username} size={18} />
     </View>
   );
 

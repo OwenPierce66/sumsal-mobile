@@ -17,6 +17,7 @@ import { AuthContext } from '@app';
 import SideMenu from '@components/SideMenu';
 import ReportContentButton from '@components/ReportContentButton';
 import ProfileRecommendations from '@components/ProfileRecommendations';
+import ProfileTopFive from '@components/ProfileTopFive';
 import RecommendButton from '@components/RecommendButton';
 import PersonalCategoryFilter from '@components/PersonalCategoryFilter';
 import CategoryHierarchy from '@components/CategoryHierarchy';
@@ -33,9 +34,14 @@ import {
   useProfileCategories,
   useFavoritesFeed,
   useUserTestimonials,
-  useStories,
 } from '@hooks/useApi';
-import { STORY_WINDOW_MS, getStoryMedia, parseCreatedAtMs } from './Stories24hScreen';
+import StoryRing from '../components/StoryRing';
+import { subItemTitle } from '../utils/aportaciones';
+import FollowHeart from '@components/FollowHeart';
+import { useMyRelations } from '../hooks/useMyRelations';
+import TestimonialPost from '@components/TestimonialPost';
+import TaskActionsModal from '@components/TaskActionsModal';
+import useTaskActions from '@hooks/useTaskActions';
 
 // Controles opcionales del perfil (se guardan en el dispositivo; ocultos por defecto).
 const PROFILE_CONTROLS_KEY = 'profileControls';
@@ -65,7 +71,13 @@ const ProfileScreen = ({ route, navigation }) => {
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [showFavoriteFeed, setShowFavoriteFeed] = useState(false);
   const [favoriteFeedEnabled, setFavoriteFeedEnabled] = useState(false);
-  const [viewMode, setViewMode] = useState('compact');
+  // `initialView: 'testimonials'` abre directo los testimonios (p. ej. desde una notificación).
+  const [viewMode, setViewMode] = useState(route?.params?.initialView || 'compact');
+  useEffect(() => {
+    if (route?.params?.initialView) setViewMode(route.params.initialView);
+  }, [route?.params?.initialView]);
+  // Menú de 3 puntos de un testimonio (es una publicación más).
+  const [testimonialActionTask, setTestimonialActionTask] = useState(null);
   const [visibleSections, setVisibleSections] = useState({});
   const [profileControls, setProfileControls] = useState(DEFAULT_PROFILE_CONTROLS);
   const { showFollowButton, showFilterAdd, showRecommendations } = profileControls;
@@ -106,26 +118,20 @@ const ProfileScreen = ({ route, navigation }) => {
     refetch: refetchSocial,
   } = useProfileSocial(socialUserId);
   const [followUpdating, setFollowUpdating] = useState(false);
+  // El corazón (seguir/favorito/anclar) y los botones de abajo muestran la misma relación.
+  const { ready: relationsReady, getState: getRelationState, refresh: refreshRelations } = useMyRelations();
+  // Anclado = está en tu top 5 de perfiles favoritos.
+  const profileRelation = !isCurrentUser && relationsReady && socialUserId ? getRelationState(socialUserId) : null;
+  const isPinnedProfile = profileRelation === 'pinned';
+  const isFavoriteProfile = profileRelation ? ['favorite', 'pinned'].includes(profileRelation) : !!socialStats?.is_favorited;
+  const isFollowingProfile = profileRelation ? profileRelation !== 'none' : !!socialStats?.is_following;
+  const syncRelations = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
+    refreshRelations();
+  }, [queryClient, refreshRelations]);
 
   // ownerId: el ID real del usuario para pasarlo a las categorías
   const ownerId = isCurrentUser ? me?.id : userId;
-
-  // ── Historia activa (aro en el avatar, como en otras redes) ───────────────
-  // Misma consulta y filtros que StoriesBar: comparten caché con Inicio.
-  const { data: storiesData } = useStories();
-  const activeStoryId = useMemo(() => {
-    if (!ownerId) return null;
-    const now = Date.now();
-    let first = null;
-    (Array.isArray(storiesData) ? storiesData : []).forEach((story) => {
-      const storyUserId = story?.user?.id || story?.user_id;
-      if (!storyUserId || String(storyUserId) !== String(ownerId) || !getStoryMedia(story)) return;
-      const createdMs = parseCreatedAtMs(story) || 0;
-      if (createdMs && now - createdMs > STORY_WINDOW_MS) return;
-      if (!first || createdMs < first.createdMs) first = { id: story.id, createdMs };
-    });
-    return first?.id ?? null;
-  }, [storiesData, ownerId]);
 
   // ── Tareas ────────────────────────────────────────────────────────────────
   const tasksParams = useMemo(
@@ -163,15 +169,42 @@ const ProfileScreen = ({ route, navigation }) => {
   const {
     data: favoriteFeedTasks = [],
     isLoading: favoriteFeedLoading,
-  } = useFavoritesFeed(favoriteFeedEnabled);
+  } = useFavoritesFeed(favoriteFeedEnabled, isCurrentUser ? null : userId);
 
-  // ── Testimonios (comentarios donde lo etiquetaron y que aprobó) ──────────
+  // ── Testimonios: publicaciones escritas en su perfil (pch "testimonios") o comentarios
+  // donde lo etiquetaron. La persona del perfil decide cuáles se muestran.
   const { data: testimonialsData, refetch: refetchTestimonials } = useUserTestimonials(ownerId);
   const showTestimonials = viewMode === 'testimonials' && !showFavoriteFeed;
-  const testimonials = useMemo(
-    () => [...(testimonialsData?.pending ?? []), ...(testimonialsData?.testimonials ?? [])],
-    [testimonialsData]
+  // Los que yo escribí en este perfil y aún no se muestran (esperando o no aprobados).
+  const myTestimonialIds = useMemo(
+    () => new Set((testimonialsData?.mine ?? []).map((item) => String(item.id))),
+    [testimonialsData],
   );
+  const testimonials = useMemo(() => {
+    const list = [
+      ...(testimonialsData?.mine ?? []),
+      ...(testimonialsData?.pending ?? []),
+      ...(testimonialsData?.testimonials ?? []),
+    ];
+    // En el perfil de otra persona, arriba: escribirle un testimonio.
+    if (testimonialsData?.can_write) list.unshift(WRITE_TESTIMONIAL_ITEM);
+    return list;
+  }, [testimonialsData]);
+  // Escribir un testimonio es crear una publicación (sin elegir PCH) para este perfil.
+  const writeTestimonial = () => {
+    setProfileMenuVisible(false);
+    setShowFavoriteFeed(false);
+    setViewMode('testimonials');
+    navigation.navigate('CreateTask', { testimonialFor: { id: ownerId, username: user?.username } });
+  };
+  const testimonialActions = useTaskActions({
+    navigation,
+    actionTask: testimonialActionTask,
+    currentUserId: me?.id,
+    close: () => setTestimonialActionTask(null),
+    refresh: () => refetchTestimonials(),
+    onDeleted: () => refetchTestimonials(),
+  });
   const approvedCount = testimonialsData?.testimonials?.length ?? 0;
   const pendingCount = testimonialsData?.pending?.length ?? 0;
 
@@ -190,8 +223,10 @@ const ProfileScreen = ({ route, navigation }) => {
     useCallback(() => {
       if (isCurrentUser) refetchMe();
       refetchTasks();
+      // Al volver de escribir o editar un testimonio.
+      refetchTestimonials();
       if (socialUserId) refetchSocial();
-    }, [isCurrentUser, refetchMe, refetchTasks, refetchSocial, socialUserId])
+    }, [isCurrentUser, refetchMe, refetchTasks, refetchTestimonials, refetchSocial, socialUserId])
   );
 
   // ── Acciones ──────────────────────────────────────────────────────────────
@@ -225,6 +260,7 @@ const ProfileScreen = ({ route, navigation }) => {
           : prev.favorited_by_count,
       } : prev);
       queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
+      refreshRelations();
     } catch {
       Alert.alert('Error', 'No se pudo actualizar el seguimiento. Inténtalo de nuevo.');
     } finally {
@@ -247,6 +283,22 @@ const ProfileScreen = ({ route, navigation }) => {
     navigation.navigate('Favorites', isCurrentUser ? undefined : { userId: socialUserId });
   };
 
+  // Anclar en el top 5 (lo agrega a favoritos y lo sigue si faltaba). Quitarlo lo deja
+  // en favoritos, en el puesto 6 (el sexto sube a su lugar).
+  const setProfilePinned = async (pinned) => {
+    if (!socialUserId || followUpdating) return;
+    setFollowUpdating(true);
+    try {
+      await api.post('favorites/pin/', { type: 'profile', target_id: socialUserId, is_pinned: pinned });
+      syncRelations();
+    } catch {
+      Alert.alert('Error', pinned ? 'No se pudo anclar en el top 5.' : 'No se pudo quitar del top 5. Inténtalo de nuevo.');
+    } finally {
+      setFollowUpdating(false);
+    }
+  };
+  const unpinProfile = () => setProfilePinned(false);
+
   // Perfil favorito: el endpoint alterna (201 agregado / 204 quitado) y no devuelve contadores.
   const toggleFavoriteProfile = async () => {
     if (!socialUserId || !socialStats || followUpdating) return;
@@ -265,6 +317,7 @@ const ProfileScreen = ({ route, navigation }) => {
         favorited_by_count: Math.max(0, (prev.favorited_by_count || 0) + (isFavorited ? 1 : -1)),
       } : prev);
       queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
+      refreshRelations();
     } catch {
       Alert.alert('Error', 'No se pudo actualizar el perfil favorito. Inténtalo de nuevo.');
     } finally {
@@ -355,6 +408,16 @@ const ProfileScreen = ({ route, navigation }) => {
 
   const handleCategorySelect = (category) => {
     setSelectedCategory(category);
+  };
+
+  // Mismo destino que "Ir al foro" del menú de las tareas: el foro filtrado a este perfil.
+  const openForum = () => {
+    setProfileMenuVisible(false);
+    if (!socialUserId) return;
+    navigation.navigate('Forum', {
+      screen: 'ForumMain',
+      params: { userId: socialUserId, userName: user?.username || user?.first_name || 'usuario' },
+    });
   };
 
   const openFavoriteFeed = () => {
@@ -545,15 +608,7 @@ const ProfileScreen = ({ route, navigation }) => {
                   key={sub.id || `${currentSec}-${idx}`}
                   style={[styles.subItem, { width: detailItemWidth }]}
                 >
-                  <Text style={styles.subItemEyebrow}>
-                    {currentSec === 'subtasks'
-                      ? 'APORTACIÓN'
-                      : currentSec === 'subfactores'
-                      ? 'FACTOR'
-                      : 'FUENTE'}{' '}
-                    {idx + 1}
-                  </Text>
-                  {sub.title ? <Text style={styles.subItemTitle}>{sub.title}</Text> : null}
+                  {subItemTitle(sub) ? <Text style={styles.subItemTitle}>{subItemTitle(sub)}</Text> : null}
                   {sub.description ? (
                     <Text style={styles.subItemDesc}>{sub.description}</Text>
                   ) : null}
@@ -594,20 +649,13 @@ const ProfileScreen = ({ route, navigation }) => {
   const renderHeader = () => (
     <View style={styles.profileHeader}>
       <View style={styles.profileInfoContainer}>
-        <TouchableOpacity
-          style={styles.profileAvatarWrap}
-          activeOpacity={activeStoryId ? 0.8 : 1}
-          disabled={!activeStoryId}
-          onPress={() => navigation.navigate('Stories', { openStoryId: activeStoryId })}
-          accessibilityRole={activeStoryId ? 'button' : undefined}
-          accessibilityLabel={activeStoryId ? 'Ver historia' : undefined}
-        >
+        {/* Aro de historia: azul si hay algo sin ver, gris si ya la viste, nada si no subió. */}
+        <StoryRing userId={ownerId} size={70} navigation={navigation} style={styles.profileAvatarWrap}>
           <Image
             source={{ uri: getImageUrl(user?.user_image || user?.profile?.user_image) }}
             style={styles.profileAvatar}
           />
-          {activeStoryId ? <View pointerEvents="none" style={styles.profileStoryRing} /> : null}
-        </TouchableOpacity>
+        </StoryRing>
         <View style={styles.profileTextContainer}>
           <NameWithBadges userId={ownerId} style={styles.profileName} badgeSize={20} numberOfLines={2}>
             {user?.first_name
@@ -713,7 +761,19 @@ const ProfileScreen = ({ route, navigation }) => {
               </Text>
             )}
           </TouchableOpacity>
-          {showFollowButton ? (
+          {isPinnedProfile ? (
+          // Anclado en tu top 5: este lugar sirve para sacarlo (queda en el puesto 6).
+          <TouchableOpacity
+            style={[styles.followButton, styles.followingButton, styles.pinnedButton]}
+            onPress={unpinProfile}
+            disabled={followUpdating}
+            accessibilityRole="button"
+            accessibilityLabel="Quitar del top 5"
+          >
+            <Ionicons name="pin" size={14} color="#845ef7" />
+            <Text style={[styles.followButtonText, styles.pinnedButtonText]}>Quitar del top 5</Text>
+          </TouchableOpacity>
+          ) : showFollowButton ? (
           <TouchableOpacity
             style={[
               styles.followButton,
@@ -737,6 +797,14 @@ const ProfileScreen = ({ route, navigation }) => {
           <ReportContentButton targetType="user" targetId={socialUserId} />
         </View>
       ) : null}
+
+      {/* Top 5: perfiles y tareas ancladas (en general y por categoría). */}
+      <ProfileTopFive
+        userId={socialUserId}
+        isCurrentUser={isCurrentUser}
+        navigation={navigation}
+        onOpenProfile={openRecommendedProfile}
+      />
 
       {showRecommendations ? (
         <>
@@ -763,7 +831,7 @@ const ProfileScreen = ({ route, navigation }) => {
       <View style={styles.sectionTitleRow}>
         <Text style={styles.sectionTitle}>
           {showFavoriteFeed
-            ? 'Tareas favoritas'
+            ? (isCurrentUser ? 'Tareas favoritas' : `Favoritos de ${user?.username || ''}`)
             : showTestimonials
             ? (isCurrentUser ? 'Mis testimonios' : `Testimonios de ${user?.username || ''}`)
             : isCurrentUser
@@ -806,6 +874,15 @@ const ProfileScreen = ({ route, navigation }) => {
           />
         )}
         <Text style={styles.topBarTitle}>Perfil</Text>
+        {!isCurrentUser && socialUserId ? (
+          <FollowHeart
+            userId={socialUserId}
+            username={user?.username}
+            size={24}
+            style={styles.profileHeartButton}
+            onChange={syncRelations}
+          />
+        ) : null}
         <TouchableOpacity
           onPress={() => setProfileMenuVisible(true)}
           style={styles.profileMenuButton}
@@ -868,6 +945,26 @@ const ProfileScreen = ({ route, navigation }) => {
               style={styles.profileMenuOption}
               onPress={() => {
                 setProfileMenuVisible(false);
+                navigation.navigate('PetitionSupports');
+              }}
+            >
+              <Ionicons name="cash-outline" size={20} color="#2f9e44" />
+              <Text style={styles.profileMenuText}>Mis apoyos a peticiones</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileMenuOption}
+              onPress={() => {
+                setProfileMenuVisible(false);
+                navigation.navigate('Groups');
+              }}
+            >
+              <Ionicons name="people-circle-outline" size={20} color="#4dabf7" />
+              <Text style={styles.profileMenuText}>Mis grupos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileMenuOption}
+              onPress={() => {
+                setProfileMenuVisible(false);
                 setLanguageModalVisible(true);
               }}
             >
@@ -893,6 +990,66 @@ const ProfileScreen = ({ route, navigation }) => {
                   : 'Usar mi filtro en toda la app'}
               </Text>
             </TouchableOpacity>
+              </>
+            ) : null}
+            <TouchableOpacity style={styles.profileMenuOption} onPress={openForum} disabled={!socialUserId}>
+              <Ionicons name="newspaper-outline" size={20} color="#4dabf7" />
+              <Text style={styles.profileMenuText}>
+                {isCurrentUser ? 'Ir a mi foro' : `Ir al foro de ${user?.username || 'este perfil'}`}
+              </Text>
+            </TouchableOpacity>
+            {!isCurrentUser ? (
+              <>
+                {/* Relación con este perfil: lo mismo que el corazón y los botones de abajo. */}
+                <TouchableOpacity
+                  style={styles.profileMenuOption}
+                  onPress={() => { setProfileMenuVisible(false); toggleFollow(); }}
+                >
+                  <Ionicons name={isFollowingProfile ? 'person-remove-outline' : 'person-add-outline'} size={20} color="#4dabf7" />
+                  <Text style={styles.profileMenuText}>{isFollowingProfile ? 'Dejar de seguir' : 'Seguir'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.profileMenuOption}
+                  onPress={() => { setProfileMenuVisible(false); toggleFavoriteProfile(); }}
+                >
+                  <Ionicons name={isFavoriteProfile ? 'star' : 'star-outline'} size={20} color="#f59f00" />
+                  <Text style={styles.profileMenuText}>{isFavoriteProfile ? 'Quitar de favoritos' : 'Agregar a favoritos'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.profileMenuOption}
+                  onPress={() => { setProfileMenuVisible(false); setProfilePinned(!isPinnedProfile); }}
+                >
+                  <Ionicons name={isPinnedProfile ? 'pin' : 'pin-outline'} size={20} color="#845ef7" />
+                  <Text style={styles.profileMenuText}>{isPinnedProfile ? 'Quitar del top 5' : 'Anclar en mi top 5'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.profileMenuOption} onPress={writeTestimonial}>
+                  <Ionicons name="chatbox-ellipses-outline" size={20} color="#845ef7" />
+                  <Text style={styles.profileMenuText}>Escribir un testimonio</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.profileMenuOption} onPress={openFavoriteFeed}>
+                  <Ionicons name="star-outline" size={20} color="#f59f00" />
+                  <Text style={styles.profileMenuText}>Favoritos de {user?.username || 'este perfil'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.profileMenuOption}
+                  onPress={() => {
+                    setProfileMenuVisible(false);
+                    navigation.navigate('Subscriptions', { userId, username: user?.username });
+                  }}
+                >
+                  <Ionicons name="card-outline" size={20} color="#2f9e44" />
+                  <Text style={styles.profileMenuText}>Suscripciones de {user?.username || 'este perfil'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.profileMenuOption}
+                  onPress={() => {
+                    setProfileMenuVisible(false);
+                    navigation.navigate('PetitionSupports', { userId, username: user?.username });
+                  }}
+                >
+                  <Ionicons name="cash-outline" size={20} color="#2f9e44" />
+                  <Text style={styles.profileMenuText}>Apoyos a peticiones de {user?.username || 'este perfil'}</Text>
+                </TouchableOpacity>
               </>
             ) : null}
             {isCurrentUser ? (
@@ -1088,14 +1245,41 @@ const ProfileScreen = ({ route, navigation }) => {
           keyExtractor={(item) => item.id?.toString()}
           renderItem={
             showTestimonials
-              ? ({ item }) => (
+              ? ({ item }) => (item.isWriteAction ? (
+                  <TouchableOpacity
+                    style={styles.writeTestimonial}
+                    onPress={writeTestimonial}
+                    accessibilityRole="button"
+                    accessibilityLabel="Escribir un testimonio"
+                  >
+                    <Ionicons name="create-outline" size={20} color="#845ef7" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.writeTestimonialTitle}>
+                        Escribir un testimonio para {user?.username || 'este perfil'}
+                      </Text>
+                      {testimonials.length === 1 ? (
+                        <Text style={styles.writeTestimonialHint}>Aún no tiene testimonios. ¡Sé la primera persona!</Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                ) : item.kind === 'task' ? (
+                  <TestimonialPost
+                    testimonial={item}
+                    navigation={navigation}
+                    isOwner={isCurrentUser}
+                    isMine={myTestimonialIds.has(String(item.id))}
+                    onAnswer={answerTestimonial}
+                    onOpenActions={setTestimonialActionTask}
+                  />
+                ) : (
                   <TestimonialCard
                     testimonial={item}
                     navigation={navigation}
                     isOwner={isCurrentUser}
                     onAnswer={answerTestimonial}
+                    currentUserId={me?.id}
                   />
-                )
+                ))
               : viewMode === 'detailed' ? renderDetailedTask : renderTask
           }
           ListHeaderComponent={renderHeader}
@@ -1112,9 +1296,15 @@ const ProfileScreen = ({ route, navigation }) => {
             <Text style={styles.emptyText}>
               {showTestimonials
                 ? isCurrentUser
-                  ? 'Aún no tienes testimonios. Cuando alguien te etiquete en un comentario, podrás mostrarlo aquí.'
+                  ? 'Aún no tienes testimonios. Cuando alguien escriba uno en tu perfil o te etiquete en un comentario, podrás mostrarlo aquí.'
                   : 'Este perfil aún no tiene testimonios.'
-                : 'Aún no has publicado nada.'}
+                : showFavoriteFeed
+                ? isCurrentUser
+                  ? 'Aún no guardas tareas en favoritos.'
+                  : 'No hay favoritos para ver: aún no guarda ninguno o los tiene privados.'
+                : isCurrentUser
+                ? 'Aún no has publicado nada.'
+                : 'Este perfil aún no ha publicado nada.'}
             </Text>
           }
           ListFooterComponent={
@@ -1124,9 +1314,22 @@ const ProfileScreen = ({ route, navigation }) => {
           }
         />
       )}
+
+      <TaskActionsModal
+        visible={Boolean(testimonialActionTask)}
+        onClose={() => setTestimonialActionTask(null)}
+        actionTask={testimonialActionTask}
+        currentUserId={me?.id}
+        isAdmin={Boolean(sessionUser?.is_staff || sessionUser?.is_superuser)}
+        canEdit={Boolean(testimonialActionTask) && String(testimonialActionTask?.user?.id) === String(me?.id)}
+        handlers={testimonialActions}
+      />
     </View>
   );
 };
+
+// Primer elemento de la lista de testimonios en el perfil de otra persona.
+const WRITE_TESTIMONIAL_ITEM = { id: '__write_testimonial__', isWriteAction: true };
 
 // ─── Estilos ──────────────────────────────────────────────────────────────────
 
@@ -1136,6 +1339,7 @@ const styles = StyleSheet.create({
   backBtn: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 34, zIndex: 10 },
   topBarTitle: { fontSize: 20, fontWeight: '800', color: '#333' },
   profileMenuButton: { position: 'absolute', right: 16, top: Platform.OS === 'ios' ? 50 : 34, padding: 4 },
+  profileHeartButton: { position: 'absolute', right: 52, top: Platform.OS === 'ios' ? 50 : 34, padding: 4 },
   sideMenuButton: { position: 'absolute', left: 16, top: Platform.OS === 'ios' ? 50 : 34, zIndex: 10 },
   profileMenuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: Platform.OS === 'ios' ? 92 : 76, paddingRight: 12 },
   profileMenuCard: { backgroundColor: '#fff', borderRadius: 12, padding: 6, minWidth: 220, elevation: 6 },
@@ -1181,12 +1385,10 @@ const styles = StyleSheet.create({
   followingButton: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#4dabf7' },
   followButtonText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   followingButtonText: { color: '#4dabf7' },
+  pinnedButton: { flexDirection: 'row', alignItems: 'center', gap: 5, borderColor: '#845ef7' },
+  pinnedButtonText: { color: '#845ef7' },
   profileAvatar: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#eee' },
-  profileAvatarWrap: { width: 70, height: 70, marginRight: 15 },
-  profileStoryRing: {
-    position: 'absolute', top: -5, left: -5, width: 80, height: 80, borderRadius: 40,
-    borderWidth: 3, borderColor: '#4dabf7',
-  },
+  profileAvatarWrap: { marginRight: 15 },
   profileTextContainer: { flex: 1 },
   profileName: { fontSize: 22, fontWeight: 'bold', color: '#333' },
   profileEmail: { fontSize: 14, color: '#666', marginTop: 4 },
@@ -1218,6 +1420,12 @@ const styles = StyleSheet.create({
   stat: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statText: { fontSize: 13, color: '#666', fontWeight: '600' },
   emptyText: { textAlign: 'center', color: '#999', marginTop: 30, marginHorizontal: 24, fontSize: 15, fontStyle: 'italic' },
+  writeTestimonial: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginBottom: 12, padding: 14,
+    borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#b197fc', backgroundColor: '#f8f5ff',
+  },
+  writeTestimonialTitle: { color: '#5f3dc4', fontSize: 15, fontWeight: '700' },
+  writeTestimonialHint: { color: '#868e96', fontSize: 12, marginTop: 2 },
 });
 
 export default ProfileScreen;

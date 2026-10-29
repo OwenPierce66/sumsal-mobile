@@ -14,6 +14,9 @@ import { Image } from 'expo-image';
 import { useQuery } from '@tanstack/react-query';
 import api, { getImageUrl } from '@api';
 import TouchableUsername from '@components/TouchableUsername';
+import FollowHeart from '@components/FollowHeart';
+import CategoryFilterBar from '@components/CategoryFilterBar';
+import { useProfileCategoryFilter } from '@hooks/useCategoryFilter';
 
 const getName = (user) => (
   user?.username
@@ -48,6 +51,9 @@ const FollowListScreen = ({ navigation, route }) => {
   });
 
   const users = data?.users ?? [];
+  // Filtro por categoría y subcategorías: las de cada perfil son las de sus tareas.
+  const byCategory = useProfileCategoryFilter(users);
+  const shownUsers = byCategory.items;
   // `count` es el total real; `visible_count` (solo favoritedBy) los que se pueden listar.
   const total = data?.visible_count ?? data?.count ?? users.length;
   const hiddenCount = data?.visible_count != null ? Math.max(0, (data.count ?? 0) - data.visible_count) : 0;
@@ -86,6 +92,7 @@ const FollowListScreen = ({ navigation, route }) => {
           <Text style={styles.cardSubtitle} numberOfLines={1}>{fullName}</Text>
         ) : null}
       </View>
+      <FollowHeart userId={item.id} username={getName(item)} />
     </View>
     );
   };
@@ -102,6 +109,7 @@ const FollowListScreen = ({ navigation, route }) => {
         </View>
         <View style={{ width: 32 }} />
       </View>
+      <CategoryFilterBar value={byCategory.category} onChange={byCategory.setCategory} style={styles.filterBar} />
 
       {isLoading ? (
         <ActivityIndicator size="large" color="#4dabf7" style={styles.loader} />
@@ -111,19 +119,25 @@ const FollowListScreen = ({ navigation, route }) => {
         </TouchableOpacity>
       ) : (
         <FlatList
-          data={users}
+          data={shownUsers}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
-          ListHeaderComponent={users.length > 0 || hiddenCount > 0 ? (
+          ListHeaderComponent={byCategory.active ? (
+            byCategory.loading ? null : (
+              <Text style={styles.count}>{`${shownUsers.length} de ${users.length} con esta categoría`}</Text>
+            )
+          ) : users.length > 0 || hiddenCount > 0 ? (
             <Text style={styles.count}>
               {users.length > 0 ? `${total} ${total === 1 ? 'persona' : 'personas'}` : ''}
               {hiddenCount > 0 ? `${users.length > 0 ? ' · ' : ''}${hiddenCount} ${hiddenCount === 1 ? 'oculta' : 'ocultas'} por privacidad` : ''}
             </Text>
           ) : null}
-          ListEmptyComponent={(
-            <Text style={styles.empty}>{emptyText}</Text>
+          ListEmptyComponent={byCategory.loading ? (
+            <ActivityIndicator color="#4dabf7" style={styles.loader} />
+          ) : (
+            <Text style={styles.empty}>{byCategory.active ? 'Nadie de esta lista tiene esa categoría.' : emptyText}</Text>
           )}
         />
       )}
@@ -143,6 +157,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   backButton: { width: 32 },
+  filterBar: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f1f3f5' },
   headerCenter: { flex: 1, alignItems: 'center' },
   headerTitle: { color: '#212529', fontSize: 18, fontWeight: '700' },
   headerSubtitle: { color: '#868e96', fontSize: 12, marginTop: 2 },

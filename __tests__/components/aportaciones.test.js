@@ -87,7 +87,7 @@ describe('FavoriteAportacionPicker', () => {
     mockUseFavoritesCollection.mockReturnValue({ data: { tasks: [] }, isLoading: false, isError: false, refetch });
     const renderer = renderPicker();
 
-    expect(textsOf(renderer)).toContain('Aún no tienes aportaciones favoritas');
+    expect(textsOf(renderer)).toContain('Aún no tienes aportaciones guardadas');
   });
 
   it('no pide nada mientras está cerrado', () => {

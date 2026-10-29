@@ -12,7 +12,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
 import TouchableUsername from '@components/TouchableUsername';
+import FollowHeart from '@components/FollowHeart';
+import { CommentAttachMenu } from '@components/CommentAttachments';
+import { TagChips } from '@components/MessageExtras';
+import FavoriteAportacionPicker from '@components/FavoriteAportacionPicker';
+import UserTagPicker from '@components/UserTagPicker';
 import { useMe } from '@hooks/useApi';
+import { getMediaExtension, getAssetMimeType, isVideoAsset } from '../utils/mediaUpload';
 import {
   LANGUAGE_NAMES,
   LIVE_PREVIEW_IDLE,
@@ -42,35 +48,6 @@ const TASK_SHARE_PREFIX = '↪ Publicación compartida:';
 
 const CHAT_PAGE_SIZE = 30;
 
-const getMediaExtension = (mimeType, fallback = 'bin') => {
-  const mime = String(mimeType || '').toLowerCase();
-  if (mime.includes('mp4')) return 'mp4';
-  if (mime.includes('quicktime')) return 'mov';
-  if (mime.includes('webm')) return 'webm';
-  if (mime.includes('jpeg')) return 'jpg';
-  if (mime.includes('png')) return 'png';
-  return fallback;
-};
-
-const getAssetMimeType = (asset) => {
-  const declaredMime = String(asset?.mimeType || '').toLowerCase();
-  if (declaredMime) return declaredMime;
-
-  const uriMimeMatch = String(asset?.uri || '').match(/^data:([^;,]+)/i);
-  return uriMimeMatch?.[1]?.toLowerCase() || '';
-};
-
-const isVideoAsset = (asset) => {
-  const uri = String(asset?.uri || '').toLowerCase();
-  const name = String(asset?.fileName || asset?.name || '').toLowerCase();
-  const mimeType = getAssetMimeType(asset);
-  return asset?.type === 'video'
-    || mimeType.startsWith('video/')
-    || /^video\//.test(String(asset?.type || '').toLowerCase())
-    || uri.startsWith('data:video/')
-    || /\.(mp4|mov|avi|mkv|webm|m4v)(\?|$)/i.test(name)
-    || /\.(mp4|mov|avi|mkv|webm|m4v)(\?|$)/i.test(uri);
-};
 
 const buildSharedContentContextLine = (context) => {
   if (!context) return '';
@@ -366,6 +343,10 @@ const ChatDetailScreen = ({ route, navigation }) => {
   const [loading,     setLoading]     = useState(true);
   // currentUser ahora viene de React Query en lugar de api.get('users/me/')
   const { data: currentUser } = useMe();
+  // Clip: compartir una publicación guardada, etiquetar (menciones @) o adjuntar foto o video.
+  const [chatTags, setChatTags] = useState([]);
+  const [aportacionPickerVisible, setAportacionPickerVisible] = useState(false);
+  const [tagPickerVisible, setTagPickerVisible] = useState(false);
   
   // Secondary features state
   const [selectedImage, setSelectedImage] = useState(null);
@@ -732,7 +713,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
   };
 
   const handleSend = async () => {
-    if (!newMessage.trim() && !selectedImage && !storyReplyContext) return;
+    if (!newMessage.trim() && !selectedImage && !storyReplyContext && !chatTags.length) return;
     
     try {
       if (editingMessageId) {
@@ -758,7 +739,9 @@ const ChatDetailScreen = ({ route, navigation }) => {
       const contextLine = hasSharedContentContext
         ? buildSharedContentContextLine(storyReplyContext)
         : '';
-      const plainMessage = newMessage.trim();
+      // Las personas etiquetadas van como menciones al inicio del mensaje.
+      const mentions = chatTags.map((user) => `@${user.username}`).join(' ');
+      const plainMessage = [mentions, newMessage.trim()].filter(Boolean).join(' ');
       const finalMessageContent = hasSharedContentContext
         ? (plainMessage ? `${contextLine}\n${plainMessage}` : contextLine)
         : plainMessage;
@@ -815,6 +798,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
 
       setNewMessage('');
       setSelectedImage(null);
+      setChatTags([]);
       setReplyTo(null);
       setStoryReplyContext(null);
     } catch (error) {
@@ -970,6 +954,12 @@ const ChatDetailScreen = ({ route, navigation }) => {
         </View>
       )}
 
+      {chatTags.length ? (
+        <View style={styles.chatTagsBar}>
+          <TagChips users={chatTags} onRemove={(user) => setChatTags((prev) => prev.filter((item) => String(item.id) !== String(user.id)))} />
+        </View>
+      ) : null}
+
       {/* Selected Image Indicator */}
       {selectedImage && (
         <View style={styles.selectedImageContainer}>
@@ -1015,23 +1005,45 @@ const ChatDetailScreen = ({ route, navigation }) => {
       })() : null}
 
       <View style={styles.inputContainer}>
-        <TouchableOpacity style={styles.attachBtn} onPress={pickImage}>
-          <Ionicons name="add" size={24} color="#4dabf7" />
-        </TouchableOpacity>
-        
+        <CommentAttachMenu
+          onPickAportacion={() => setAportacionPickerVisible(true)}
+          onTag={() => setTagPickerVisible(true)}
+          onPickMedia={pickImage}
+          active={Boolean(selectedImage || storyReplyContext?.taskId || chatTags.length)}
+          mediaDisabled={Boolean(editingMessageId)}
+        />
+
         <TextInput
           style={styles.input}
           placeholder="Escribe un mensaje..."
           value={newMessage}
           onChangeText={setNewMessage}
           multiline
+          numberOfLines={Platform.OS === 'web' ? 1 : undefined}
         />
         <TouchableOpacity 
-          style={[styles.sendBtn, (!newMessage.trim() && !selectedImage && !storyReplyContext) && { backgroundColor: '#ccc' }]} 
+          style={[styles.sendBtn, (!newMessage.trim() && !selectedImage && !storyReplyContext && !chatTags.length) && { backgroundColor: '#ccc' }]} 
           onPress={handleSend}
-          disabled={!newMessage.trim() && !selectedImage && !storyReplyContext}
+          disabled={!newMessage.trim() && !selectedImage && !storyReplyContext && !chatTags.length}
         >
           <Ionicons name="send" size={18} color="#fff" />
+
+      <FavoriteAportacionPicker
+        visible={aportacionPickerVisible}
+        onClose={() => setAportacionPickerVisible(false)}
+        onSelect={(task) => {
+          // Se manda como una publicación compartida en el chat (la tarjeta que ya existe).
+          setStoryReplyContext({ taskId: task.id, taskTitle: task.title, taskType: 'task' });
+          setAportacionPickerVisible(false);
+        }}
+      />
+      <UserTagPicker
+        visible={tagPickerVisible}
+        onClose={() => setTagPickerVisible(false)}
+        selected={chatTags}
+        onChange={setChatTags}
+        excludeIds={currentUser?.id ? [currentUser.id] : []}
+      />
 
       <Modal
         visible={isMessageMenuVisible}
@@ -1165,6 +1177,7 @@ const ChatDetailScreen = ({ route, navigation }) => {
                       textStyle={styles.userName}
                     />
                   </View>
+                  <FollowHeart userId={item.id} username={item.username} size={18} style={styles.memberFollowHeart} />
                   
                   {canManage && item.id !== currentUser.id && (
                     <View style={{flexDirection: 'row', gap: 5}}>
@@ -1362,9 +1375,10 @@ const styles = StyleSheet.create({
   removeImageBtn: { position: 'absolute', top: 5, left: 75, backgroundColor: '#fff', borderRadius: 12 },
 
   inputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', alignItems: 'flex-end', gap: 10 },
-  attachBtn: { width: 40, height: 45, justifyContent: 'center', alignItems: 'center' },
-  input: { flex: 1, backgroundColor: '#f0f0f0', borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, minHeight: 45, maxHeight: 100, fontSize: 15 },
-  sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
+  chatTagsBar: { paddingHorizontal: 12, paddingTop: 6, backgroundColor: '#fff' },
+  // Del alto del clip y del botón de enviar (36); crece si escribes varias líneas.
+  input: { flex: 1, backgroundColor: '#f0f0f0', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, minHeight: 36, maxHeight: 100, fontSize: 15 },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
 
   messageMenuOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.42)' },
   messageMenu: { backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 10, paddingBottom: Platform.OS === 'ios' ? 34 : 20 },
@@ -1384,6 +1398,7 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
   groupInfoSubtitle: { fontSize: 16, fontWeight: '600', color: '#666', marginBottom: 10 },
   userRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  memberFollowHeart: { marginHorizontal: 8 },
   userAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12 },
   userName: { fontSize: 16, color: '#333', fontWeight: '500', flex: 1 },
   removeBtn: { backgroundColor: '#ffecec', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },

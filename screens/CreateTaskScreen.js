@@ -70,11 +70,19 @@ const tagStyles = StyleSheet.create({
 
 const CreateTaskScreen = ({ navigation, route }) => {
   const editTask = route?.params?.task || null;
+  // Publicar dentro de un grupo: la de un integrante espera a que un admin la apruebe.
+  const groupId = editTask ? null : route?.params?.groupId || null;
+  const groupName = route?.params?.groupName || 'el grupo';
+  const groupIsAdmin = Boolean(route?.params?.groupIsAdmin);
+  // Testimonio en el perfil de otra persona: una publicación más (pch "testimonios") que no
+  // es una de las 3 PCH; esa persona decide si se muestra. Al editar viene en la tarea.
+  const testimonialFor = route?.params?.testimonialFor || editTask?.testimonial_for_info || null;
+  const testimonialName = testimonialFor?.username || 'esta persona';
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   // Al crear (no editar), respeta el PCH que estaba activo en TasksScreen
-  const [tema, setTema] = useState(route?.params?.initialPch || editTask?.pch || '');
+  const [tema, setTema] = useState(testimonialFor ? 'testimonios' : (route?.params?.initialPch || editTask?.pch || ''));
   const [availableCategories, setAvailableCategories] = useState([]);
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [manualCategories, setManualCategories] = useState('');
@@ -359,7 +367,7 @@ const CreateTaskScreen = ({ navigation, route }) => {
     if (!title.trim()) {
       return Alert.alert("Falta información", "El título principal es obligatorio.");
     }
-    if (!['consejos', 'peticiones', 'historias'].includes(tema)) {
+    if (!testimonialFor && !['consejos', 'peticiones', 'historias'].includes(tema)) {
       return Alert.alert('Falta elegir el tipo', 'Selecciona consejos, peticiones o historias.');
     }
     const wantsSupport = !editTask && supportOnCreate && isPetition({ pch: tema });
@@ -448,7 +456,9 @@ const CreateTaskScreen = ({ navigation, route }) => {
     }
 
     formData.append('categories', finalCategories.join(','));
-    formData.append('is_hidden', isHidden ? 'true' : 'false');
+    formData.append('is_hidden', isHidden && !groupId && !testimonialFor ? 'true' : 'false');
+    if (groupId) formData.append('group', groupId);
+    if (testimonialFor) formData.append('testimonial_for', String(testimonialFor.id));
     
     // Función asíncrona PRO: Respeta el await y convierte las imágenes
     const appendArrayToFormData = async (array, prefix) => {
@@ -502,11 +512,18 @@ const CreateTaskScreen = ({ navigation, route }) => {
         await syncTaskTags(createdTaskId);
       }
       
+      const groupStatus = createResponse?.data?.group_status;
       Alert.alert(
-        "¡Éxito!",
-        isHidden
-          ? "Se guardó oculta en tu perfil. Solo tú la ves; publícala cuando quieras."
-          : "Aportación creada correctamente en Sumsal.",
+        testimonialFor ? 'Testimonio enviado' : groupStatus === 'pending' ? 'Enviada al grupo' : "¡Éxito!",
+        testimonialFor
+          ? `${testimonialName} decide si lo muestra en su perfil. Te avisaremos cuando lo haga.`
+          : groupStatus === 'pending'
+          ? `Un admin de ${groupName} la revisará. Cuando la apruebe se publicará y te avisaremos.`
+          : groupStatus === 'approved'
+            ? `Publicada en ${groupName}.`
+            : isHidden
+              ? "Se guardó oculta en tu perfil. Solo tú la ves; publícala cuando quieras."
+              : "Aportación creada correctamente en Sumsal.",
       );
       if (wantsSupport && createdTaskId) {
         // La petición ya existe: si el pago falla o se cancela, se puede apoyar después desde el menú de 3 puntos.
@@ -628,23 +645,52 @@ Puedes apoyarla después desde el menú de 3 puntos.`,
         <Text style={styles.goBackText}>Regresar</Text>
       </TouchableOpacity>
 
+      {testimonialFor ? (
+        <View style={styles.groupBanner}>
+          <Ionicons name="chatbox-ellipses" size={20} color="#845ef7" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.groupBannerTitle}>Testimonio para @{testimonialName}</Text>
+            <Text style={styles.groupBannerText}>
+              Es una publicación como cualquier aportación. Se verá en su perfil cuando lo apruebe
+              {editTask ? '; si lo cambias, vuelve a decidir.' : '.'}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      {groupId ? (
+        <View style={styles.groupBanner}>
+          <Ionicons name="people" size={20} color="#4dabf7" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.groupBannerTitle}>Publicando en {groupName}</Text>
+            <Text style={styles.groupBannerText}>
+              {groupIsAdmin
+                ? 'Eres admin: se publica al instante.'
+                : 'Un admin del grupo la revisará antes de que se vea.'}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.mainBlock}>
         <TextInput 
           style={styles.mainTitleInput} 
           value={title} 
           onChangeText={setTitle} 
-          placeholder="¿Qué objetivo quieres compartir?" 
+          placeholder={testimonialFor ? `¿Qué quieres decir de ${testimonialName}?` : '¿Qué objetivo quieres compartir?'} 
           placeholderTextColor="#999"
         />
         <TextInput 
           style={styles.mainDescInput} 
           value={description} 
           onChangeText={setDescription} 
-          placeholder="Agrega una descripción general (opcional)..." 
+          placeholder={testimonialFor ? 'Escribe tu testimonio...' : 'Agrega una descripción general (opcional)...'} 
           multiline
           placeholderTextColor="#aaa"
         />
         
+        {testimonialFor ? null : (
+        <>
         <Text style={styles.pchLabel}>Tipo de aportación (obligatorio)</Text>
         <View style={styles.temaContainer}>
           {['consejos', 'peticiones', 'historias'].map(t => (
@@ -659,6 +705,8 @@ Puedes apoyarla después desde el menú de 3 puntos.`,
             </TouchableOpacity>
           ))}
         </View>
+        </>
+        )}
       </View>
 
       <View style={tagStyles.container}>
@@ -875,9 +923,14 @@ Puedes apoyarla después desde el menú de 3 puntos.`,
         </>
       )}
 
-      {renderSection("Aportaciones", subtasks, setSubtasks)}
-      {renderSection("Factores", subfactores, setSubfactores)}
-      {renderSection("Fuentes", subfuentes, setSubfuentes)}
+      {/* Un testimonio es solo su texto: sin Aportaciones/Factores/Fuentes. */}
+      {testimonialFor ? null : (
+        <>
+          {renderSection("Aportaciones", subtasks, setSubtasks)}
+          {renderSection("Factores", subfactores, setSubfactores)}
+          {renderSection("Fuentes", subfuentes, setSubfuentes)}
+        </>
+      )}
 
       {!editTask && isPetition({ pch: tema }) ? (
         <View style={styles.sectionContainer}>
@@ -915,6 +968,7 @@ Puedes apoyarla después desde el menú de 3 puntos.`,
         </View>
       ) : null}
 
+      {groupId || testimonialFor ? null : (
       <View style={styles.sectionContainer}>
         <Text style={styles.sectionTitle}>¿Cómo la quieres compartir?</Text>
         <View style={styles.visibilityRow}>
@@ -939,9 +993,10 @@ Puedes apoyarla después desde el menú de 3 puntos.`,
         <Text style={styles.visibilityHint}>
           {isHidden
             ? 'Nadie más la verá: aparece solo en tu perfil para que veas cómo quedaría. Publícala cuando quieras.'
-            : 'Todos podrán verla en el inicio, en reels y en tu perfil.'}
+            : 'Todos podrán verla en Aportaciones, en reels y en tu perfil.'}
         </Text>
       </View>
+      )}
 
       <TouchableOpacity 
         onPress={handleCreate} 
@@ -953,7 +1008,9 @@ Puedes apoyarla después desde el menú de 3 puntos.`,
         ) : (
           <>
             <Ionicons name="send" size={20} color="#fff" />
-            <Text style={styles.submitBtnText}>{editTask ? 'GUARDAR CAMBIOS' : isHidden ? 'GUARDAR OCULTA' : 'PUBLICAR ÉXITO'}</Text>
+            <Text style={styles.submitBtnText}>
+              {editTask ? 'GUARDAR CAMBIOS' : testimonialFor ? 'ENVIAR TESTIMONIO' : groupId ? (groupIsAdmin ? 'PUBLICAR EN EL GRUPO' : 'ENVIAR AL GRUPO') : isHidden ? 'GUARDAR OCULTA' : 'PUBLICAR ÉXITO'}
+            </Text>
           </>
         )}
       </TouchableOpacity>
@@ -965,6 +1022,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5', padding: 16 },
   goBackBtn: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, paddingHorizontal: 5 },
   goBackText: { fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 8 },
+  groupBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, marginBottom: 16, borderRadius: 16, backgroundColor: '#e7f5ff' },
+  groupBannerTitle: { fontSize: 15, fontWeight: '800', color: '#1971c2' },
+  groupBannerText: { fontSize: 12, color: '#495057', marginTop: 2 },
   mainBlock: { backgroundColor: '#fff', borderRadius: 20, padding: 20, marginBottom: 20, elevation: 4 },
   mainTitleInput: { fontSize: 20, fontWeight: 'bold', borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10, marginBottom: 10, color: '#333' },
   mainDescInput: { fontSize: 15, color: '#666', minHeight: 60, marginBottom: 15 },

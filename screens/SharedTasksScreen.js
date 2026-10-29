@@ -15,12 +15,14 @@ import moment from 'moment';
 import { getImageUrl } from '@api';
 import { Image } from 'expo-image';
 import TouchableUsername from '@components/TouchableUsername';
+import FollowHeart from '@components/FollowHeart';
 import LikesListModal from '@components/LikesListModal';
 import ShareModal from '@components/ShareModal';
 import TaskActionsModal from '@components/TaskActionsModal';
 import { FeedVideoVisibilityContext, TaskSections } from '@components/TaskPostCard';
 import useTaskActions from '@hooks/useTaskActions';
 import { useSharedTasksInfinite, useLikeSharedTask, useMe, useIsAdmin } from '@hooks/useApi';
+import CategoryFilterBar from '@components/CategoryFilterBar';
 
 moment.locale('es');
 
@@ -34,6 +36,8 @@ const SharedTasksScreen = ({ navigation }) => {
   const [taskToShare,       setTaskToShare]       = useState(null);
   const [actionTask,        setActionTask]        = useState(null);
   const [visibleSections,   setVisibleSections]   = useState({});
+  // Filtro por categoría y subcategorías ("Tema,Subtema"), como el feed.
+  const [category,          setCategory]          = useState('');
 
   // ─── Autoplay de videos por visibilidad (igual que el feed) ──────────────────
   const listRef = useRef(null);
@@ -67,7 +71,7 @@ const SharedTasksScreen = ({ navigation }) => {
     fetchNextPage,
     refetch,
     isFetching,
-  } = useSharedTasksInfinite({});
+  } = useSharedTasksInfinite(category ? { category } : {});
 
   const likeMutation = useLikeSharedTask();
 
@@ -155,6 +159,7 @@ const SharedTasksScreen = ({ navigation }) => {
             <Text style={styles.sharedBySubtext}>compartió una tarea</Text>
           </View>
           <Text style={styles.sharedDate}>{moment(item.created_at).fromNow()}</Text>
+          <FollowHeart userId={item.shared_by?.id} username={getUserName(item.shared_by)} />
           <TouchableOpacity onPress={() => setActionTask({ ...item, isSharedTask: true })}>
             <Ionicons name="ellipsis-vertical" size={20} color="#999" />
           </TouchableOpacity>
@@ -182,6 +187,7 @@ const SharedTasksScreen = ({ navigation }) => {
                 numberOfLines={1}
               />
             </View>
+            <FollowHeart userId={task.user?.id || task.user_id} username={getUserName(task.user)} />
             <TouchableOpacity onPress={() => setActionTask({ ...task, isSharedTask: false })}>
               <Ionicons name="ellipsis-vertical" size={20} color="#999" />
             </TouchableOpacity>
@@ -243,7 +249,8 @@ const SharedTasksScreen = ({ navigation }) => {
     );
   };
 
-  if (isLoading && sharedTasks.length === 0) {
+  // Al cambiar de categoría la barra del filtro sigue visible mientras carga.
+  if (isLoading && sharedTasks.length === 0 && !category) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color="#4dabf7" style={{ marginTop: 50 }} />
@@ -256,6 +263,7 @@ const SharedTasksScreen = ({ navigation }) => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Compartidas</Text>
       </View>
+      <CategoryFilterBar value={category} onChange={setCategory} style={styles.filterBar} />
 
       <FeedVideoVisibilityContext.Provider value={videoVisibility}>
       <FlatList
@@ -270,7 +278,7 @@ const SharedTasksScreen = ({ navigation }) => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
         ListEmptyComponent={
           !isLoading ? (
-            <Text style={styles.emptyText}>No hay tareas compartidas</Text>
+            <Text style={styles.emptyText}>{category ? 'No hay compartidas con esa categoría' : 'No hay tareas compartidas'}</Text>
           ) : null
         }
         ListFooterComponent={
@@ -312,6 +320,7 @@ const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: '#FEF6F5' },
   header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   headerTitle:  { fontSize: 24, fontWeight: '800', color: '#333' },
+  filterBar:    { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   listContent:  { paddingHorizontal: 12, paddingVertical: 10 },
   card:         { backgroundColor: '#fff', marginBottom: 16, borderRadius: 20, padding: 16, elevation: 4 },
   sharedByHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10 },

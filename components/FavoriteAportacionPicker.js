@@ -7,6 +7,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { getImageUrl } from '@api';
 import { useFavoritesCollection } from '@hooks/useApi';
+import CategoryFilterBar from './CategoryFilterBar';
+import { categoryPath, filterByCategoryPath } from '../utils/categoryFilter';
+import { taskCategories } from '../utils/relations';
 import {
   PCH_LABELS,
   PCH_ICONS,
@@ -24,12 +27,14 @@ const PCH_FILTERS = [
 ];
 
 /**
- * Hoja para elegir una de mis aportaciones favoritas y adjuntarla a un
- * comentario. Las ancladas (top 5) salen primero, como en Favoritos.
+ * Hoja para elegir una de mis aportaciones guardadas y adjuntarla a un
+ * comentario. Primero las favoritas (las ancladas en el top 5 arriba) y luego el resto de guardadas.
  */
 const FavoriteAportacionPicker = ({ visible, onClose, onSelect, selectedId, excludeTaskId }) => {
   const [query, setQuery] = useState('');
   const [pch, setPch] = useState('');
+  // Categoría y subcategorías ("Tema,Subtema"): solo las que hay en tus guardadas.
+  const [category, setCategory] = useState('');
   const { data, isLoading, isError, refetch } = useFavoritesCollection(null, { enabled: visible });
 
   // Al abrir se refresca (pudo agregar favoritas en otra pantalla); al cerrar se limpia.
@@ -39,14 +44,19 @@ const FavoriteAportacionPicker = ({ visible, onClose, onSelect, selectedId, excl
     } else {
       setQuery('');
       setPch('');
+      setCategory('');
     }
   }, [visible, refetch]);
 
   const favorites = useMemo(
-    () => toFavoriteAportaciones(data?.tasks, excludeTaskId),
+    () => toFavoriteAportaciones([...(data?.tasks || []), ...(data?.saved || [])], excludeTaskId),
     [data, excludeTaskId],
   );
-  const results = useMemo(() => filterAportaciones(favorites, { query, pch }), [favorites, query, pch]);
+  const savedCategories = useMemo(() => categoryPath(favorites.flatMap((task) => taskCategories(task))), [favorites]);
+  const results = useMemo(
+    () => filterByCategoryPath(filterAportaciones(favorites, { query, pch }), category),
+    [favorites, query, pch, category],
+  );
 
   const renderItem = ({ item }) => {
     const thumbnail = getImageUrl(getTaskThumbnail(item));
@@ -93,7 +103,7 @@ const FavoriteAportacionPicker = ({ visible, onClose, onSelect, selectedId, excl
     emptyState = (
       <View style={styles.empty}>
         <Ionicons name="cloud-offline-outline" size={36} color="#adb5bd" />
-        <Text style={styles.emptyTitle}>No se pudieron cargar tus favoritas</Text>
+        <Text style={styles.emptyTitle}>No se pudieron cargar tus guardadas</Text>
         <TouchableOpacity style={styles.retryBtn} onPress={() => refetch()}>
           <Text style={styles.retryText}>Reintentar</Text>
         </TouchableOpacity>
@@ -102,10 +112,10 @@ const FavoriteAportacionPicker = ({ visible, onClose, onSelect, selectedId, excl
   } else if (favorites.length === 0) {
     emptyState = (
       <View style={styles.empty}>
-        <Ionicons name="star-outline" size={36} color="#adb5bd" />
-        <Text style={styles.emptyTitle}>Aún no tienes aportaciones favoritas</Text>
+        <Ionicons name="bookmark-outline" size={36} color="#adb5bd" />
+        <Text style={styles.emptyTitle}>Aún no tienes aportaciones guardadas</Text>
         <Text style={styles.emptyHint}>
-          Abre el menú ⋮ de una aportación y elige “Agregar a favoritos” para poder adjuntarla aquí.
+          Abre el menú ⋮ de una aportación y elige “Guardar” para poder adjuntarla aquí.
         </Text>
       </View>
     );
@@ -113,7 +123,7 @@ const FavoriteAportacionPicker = ({ visible, onClose, onSelect, selectedId, excl
     emptyState = (
       <View style={styles.empty}>
         <Ionicons name="search-outline" size={36} color="#adb5bd" />
-        <Text style={styles.emptyTitle}>Ninguna favorita coincide</Text>
+        <Text style={styles.emptyTitle}>Ninguna guardada coincide</Text>
       </View>
     );
   }
@@ -134,8 +144,8 @@ const FavoriteAportacionPicker = ({ visible, onClose, onSelect, selectedId, excl
           <View style={styles.handle} />
           <View style={styles.header}>
             <View style={styles.headerText}>
-              <Text style={styles.title}>Adjuntar aportación favorita</Text>
-              <Text style={styles.subtitle}>Acompaña tu comentario con una de tus favoritas.</Text>
+              <Text style={styles.title}>Adjuntar aportación guardada</Text>
+              <Text style={styles.subtitle}>Acompaña tu comentario con una de tus guardadas (las favoritas primero).</Text>
             </View>
             <TouchableOpacity onPress={onClose} accessibilityLabel="Cerrar">
               <Ionicons name="close" size={24} color="#333" />
@@ -173,6 +183,14 @@ const FavoriteAportacionPicker = ({ visible, onClose, onSelect, selectedId, excl
                   </TouchableOpacity>
                 ))}
               </View>
+              {savedCategories.length ? (
+                <CategoryFilterBar
+                  value={category}
+                  onChange={setCategory}
+                  onlyNames={savedCategories}
+                  style={styles.categoryBar}
+                />
+              ) : null}
             </>
           ) : null}
 
@@ -193,6 +211,7 @@ const FavoriteAportacionPicker = ({ visible, onClose, onSelect, selectedId, excl
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
+  categoryBar: { marginHorizontal: -12 },
   sheet: {
     height: '78%',
     backgroundColor: '#fff',

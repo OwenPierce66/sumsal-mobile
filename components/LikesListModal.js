@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import api, { getImageUrl } from '../api';
 import TouchableUsername from './TouchableUsername';
+import FollowHeart from './FollowHeart';
 
 const LikesListModal = ({ visible, onClose, apiUrl, title = "Le gusta a", navigation }) => {
   const [users, setUsers] = useState([]);
@@ -64,6 +65,7 @@ const LikesListModal = ({ visible, onClose, apiUrl, title = "Le gusta a", naviga
                       style={styles.userNameContainer}
                       textStyle={styles.userName}
                     />
+                    <FollowHeart userId={userId} username={displayName} size={18} />
                   </View>
                 );
               }}

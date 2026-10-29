@@ -1,14 +1,17 @@
 /**
- * Relaciones del usuario con otros perfiles (seguidos, favoritos, anclados).
+ * Relaciones del usuario con otros perfiles (seguidos, favoritos, anclados) y con
+ * tareas (guardadas, favoritas, top 5 general y por categoría, "solo para mí").
  *
  * Una sola consulta (`users/me/relations/`) alimenta el corazón junto a cada
- * nombre de usuario de la app, así no hace falta que cada lista/serializer
- * traiga el estado y todos los nombres se actualizan a la vez.
+ * nombre de usuario y el menú de 3 puntos de cada tarea, así no hace falta que cada
+ * lista/serializer traiga el estado y todo se actualiza a la vez.
  */
 import { useCallback, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api, { subscribeRelationsChange } from '../api';
-import { toRelationSets, relationStateFor, applyRelationState } from '../utils/relations';
+import {
+  toRelationSets, relationStateFor, applyRelationState, toTaskSets, taskStateFor, applyTaskState,
+} from '../utils/relations';
 
 export const MY_RELATIONS_KEY = ['myRelations'];
 
@@ -24,6 +27,12 @@ export const useMyRelations = () => {
     syncSubscribed = true;
     subscribeRelationsChange(() => {
       queryClient.invalidateQueries({ queryKey: MY_RELATIONS_KEY });
+      // Contadores y botones del perfil (Seguir / favoritos / top 5).
+      queryClient.invalidateQueries({ queryKey: ['profileSocial'] });
+      // Listas de favoritos y guardadas, y el top 5 del perfil.
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
+      queryClient.invalidateQueries({ queryKey: ['favoritesFeed'] });
+      queryClient.invalidateQueries({ queryKey: ['favoritesTop'] });
     });
   }, [queryClient]);
 
@@ -34,11 +43,18 @@ export const useMyRelations = () => {
   });
 
   const relations = useMemo(() => (data ? toRelationSets(data) : null), [data]);
+  const taskSets = useMemo(() => (data ? toTaskSets(data) : null), [data]);
 
   const getState = useCallback((userId) => relationStateFor(relations, userId), [relations]);
+  const getTaskState = useCallback((taskId) => taskStateFor(taskSets, taskId), [taskSets]);
 
   const setStateLocally = useCallback((userId, nextState) => {
     queryClient.setQueryData(MY_RELATIONS_KEY, (prev) => applyRelationState(prev, userId, nextState));
+  }, [queryClient]);
+
+  /** `patch`: campos que cambian ({ saved, favorite, pinned, private, categories }). */
+  const setTaskStateLocally = useCallback((taskId, patch) => {
+    queryClient.setQueryData(MY_RELATIONS_KEY, (prev) => applyTaskState(prev, taskId, patch));
   }, [queryClient]);
 
   const refresh = useCallback(
@@ -46,5 +62,5 @@ export const useMyRelations = () => {
     [queryClient],
   );
 
-  return { ready: !!relations, getState, setStateLocally, refresh };
+  return { ready: !!relations, getState, setStateLocally, getTaskState, setTaskStateLocally, refresh };
 };

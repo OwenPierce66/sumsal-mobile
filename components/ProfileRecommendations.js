@@ -8,6 +8,8 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import api, { getImageUrl } from '@api';
 import { useUserRecommendations } from '@hooks/useApi';
+import CategoryFilterBar from '@components/CategoryFilterBar';
+import { useProfileCategoryFilter } from '@hooks/useCategoryFilter';
 
 /**
  * Sección de recomendaciones del perfil (se muestra desde el menú de 3 puntos).
@@ -68,9 +70,11 @@ const ProfileRecommendations = ({ userId, isCurrentUser, currentUserId, onOpenPr
     }
   };
 
-  if (!userId) return null;
-
   const items = tab === 'received' ? data?.received : data?.given;
+  // Filtro por categoría: las de cada persona son las de sus tareas.
+  const byCategory = useProfileCategoryFilter(items, (item) => item.user?.id);
+
+  if (!userId) return null;
   const emptyText = tab === 'received'
     ? (isCurrentUser ? 'Aún nadie te ha recomendado.' : 'Aún nadie ha recomendado a esta persona.')
     : (isCurrentUser ? 'Aún no has recomendado a nadie.' : 'Esta persona aún no ha recomendado a nadie.');
@@ -123,8 +127,15 @@ const ProfileRecommendations = ({ userId, isCurrentUser, currentUserId, onOpenPr
               </TouchableOpacity>
             ))}
           </View>
+          {items?.length ? (
+            <CategoryFilterBar value={byCategory.category} onChange={byCategory.setCategory} style={styles.filterBar} />
+          ) : null}
 
-          {items?.length ? items.map((item) => {
+          {byCategory.loading ? <ActivityIndicator style={styles.loader} color="#4dabf7" /> : null}
+          {byCategory.active && !byCategory.loading && items?.length && !byCategory.items.length ? (
+            <Text style={styles.emptyText}>Nadie de esta lista tiene esa categoría.</Text>
+          ) : null}
+          {items?.length ? byCategory.items.map((item) => {
             const person = item.user || {};
             const name = person.username || [person.first_name, person.last_name].filter(Boolean).join(' ') || 'Usuario';
             const isSelf = currentUserId != null && String(person.id) === String(currentUserId);
@@ -190,6 +201,7 @@ const styles = StyleSheet.create({
   errorText: { color: '#d9480f', fontSize: 12 },
   hiddenText: { color: '#868e96', fontSize: 13, paddingVertical: 8 },
   tabs: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  filterBar: { marginHorizontal: -12, marginBottom: 4 },
   tab: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: '#f1f3f5' },
   tabActive: { backgroundColor: '#d0ebff' },
   tabText: { color: '#666', fontSize: 13, fontWeight: '600' },

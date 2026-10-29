@@ -19,7 +19,8 @@ export const getActionTaskInfo = (actionTask, currentUserId) => {
   if (!actionTask) return {};
   const isShared = Boolean(actionTask.isSharedTask);
   const sourceTask = isShared ? actionTask.task : actionTask;
-  const targetUser = isShared ? actionTask.shared_by : actionTask.user;
+  // `menuProfileUser`: la persona que se ve en pantalla (en reels, el autor del contenido compartido).
+  const targetUser = actionTask.menuProfileUser || (isShared ? actionTask.shared_by || actionTask.user : actionTask.user);
   const ownerRaw = isShared
     ? actionTask.shared_by?.id
     : actionTask.user?.id || actionTask.user_id || actionTask.user;
@@ -44,18 +45,6 @@ export default function useTaskActions({
 }) {
   const info = getActionTaskInfo(actionTask, currentUserId);
   const { isShared, sourceTask, targetUser } = info;
-
-  const toggleFavorite = useCallback(async () => {
-    if (!sourceTask?.id) return;
-    try {
-      await api.post('favoritos/agregar/', { task_id: sourceTask.id });
-      await refresh?.();
-    } catch (error) {
-      console.error('Error toggling favorite:', error);
-    } finally {
-      close?.();
-    }
-  }, [sourceTask?.id, refresh, close]);
 
   const pinFavorite = useCallback(async (kind) => {
     const target = kind === 'profile' ? targetUser : sourceTask;
@@ -214,7 +203,6 @@ export default function useTaskActions({
   }, [actionTask, isShared, close, onDeleted]);
 
   return {
-    toggleFavorite,
     pinFavorite,
     share,
     directMessage,

@@ -94,3 +94,12 @@ export function toAportacionInfo(task) {
     username: getTaskAuthor(task) || null,
   };
 }
+
+/**
+ * Título real de una publicación/factor/fuente. Al crear sin título se guardaba
+ * "Elemento N" de relleno (el backend lo exige): ese no se muestra.
+ */
+export const subItemTitle = (sub) => {
+  const title = String(sub?.title || '').trim();
+  return /^elemento \d+$/i.test(title) ? '' : title;
+};

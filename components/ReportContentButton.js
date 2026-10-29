@@ -12,10 +12,14 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import api from '@api';
 
-const ReportContentButton = ({ targetType, targetId, color = '#868e96', size = 21 }) => {
-  const [visible, setVisible] = useState(false);
+/** Ventana para reportar un contenido (también se abre desde los menús de 3 puntos). */
+export const ReportContentModal = ({ visible, onClose, targetType, targetId }) => {
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const close = () => {
+    setReason('');
+    onClose?.();
+  };
 
   const submit = async () => {
     const normalizedReason = reason.trim();
@@ -30,8 +34,7 @@ const ReportContentButton = ({ targetType, targetId, color = '#868e96', size = 2
         target_id: String(targetId),
         reason: normalizedReason,
       });
-      setVisible(false);
-      setReason('');
+      close();
       Alert.alert('Reporte enviado', 'El equipo de moderación revisará el contenido.');
     } catch (error) {
       Alert.alert('No se pudo reportar', error.response?.data?.detail || 'Inténtalo de nuevo.');
@@ -43,6 +46,56 @@ const ReportContentButton = ({ targetType, targetId, color = '#868e96', size = 2
   if (!targetId) return null;
 
   return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={close}
+    >
+      <View style={styles.overlay}>
+        <View style={styles.dialog}>
+          <Text style={styles.title}>Reportar contenido</Text>
+          <Text style={styles.description}>Cuéntanos qué debería revisar moderación.</Text>
+          <TextInput
+            value={reason}
+            onChangeText={setReason}
+            style={styles.input}
+            placeholder="Describe el motivo"
+            multiline
+            maxLength={1000}
+            textAlignVertical="top"
+            accessibilityLabel="Motivo del reporte"
+          />
+          <View style={styles.actions}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={close}
+              disabled={submitting}
+            >
+              <Text style={styles.cancelText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.submitButton}
+              onPress={submit}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.submitText}>Enviar reporte</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const ReportContentButton = ({ targetType, targetId, color = '#868e96', size = 21 }) => {
+  const [visible, setVisible] = useState(false);
+  if (!targetId) return null;
+  return (
     <>
       <TouchableOpacity
         onPress={() => setVisible(true)}
@@ -52,49 +105,7 @@ const ReportContentButton = ({ targetType, targetId, color = '#868e96', size = 2
       >
         <Ionicons name="flag-outline" size={size} color={color} />
       </TouchableOpacity>
-      <Modal
-        visible={visible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setVisible(false)}
-      >
-        <View style={styles.overlay}>
-          <View style={styles.dialog}>
-            <Text style={styles.title}>Reportar contenido</Text>
-            <Text style={styles.description}>Cuéntanos qué debería revisar moderación.</Text>
-            <TextInput
-              value={reason}
-              onChangeText={setReason}
-              style={styles.input}
-              placeholder="Describe el motivo"
-              multiline
-              maxLength={1000}
-              textAlignVertical="top"
-              accessibilityLabel="Motivo del reporte"
-            />
-            <View style={styles.actions}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setVisible(false)}
-                disabled={submitting}
-              >
-                <Text style={styles.cancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.submitButton}
-                onPress={submit}
-                disabled={submitting}
-              >
-                {submitting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.submitText}>Enviar reporte</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <ReportContentModal visible={visible} onClose={() => setVisible(false)} targetType={targetType} targetId={targetId} />
     </>
   );
 };

@@ -7,10 +7,13 @@ import { Image } from 'expo-image';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { getImageUrl } from '../api';
 import ProgressControls from './ProgressControls';
+import ExpandableText from '../components/ExpandableText';
 import TouchableUsername from '../components/TouchableUsername';
+import FollowHeart from '../components/FollowHeart';
+import { useMyRelations } from '../hooks/useMyRelations';
+import { TIER_KEYS, TIER_META, followersShown, getTierKey } from '../utils/likeTiers';
 import { NameWithBadges } from '../components/UserBadges';
 
-const TIER_ORDER = ['app', 'recommended', 'verified', 'sub_red', 'sub_green', 'regular'];
 const { buildPlaylists } = require('./reelUtils');
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
@@ -40,12 +43,9 @@ const ReelItemComponent = ({
   navigation,
   toggleFavorite,
   handleRepost,
-  openShareModal,
-  handleShowShares,
   handleShowLikes,
-  handleShowProfileLikes,
+  handleShowFollowers,
   openActionModal,
-  toggleProfileLike,
   tema,
 }) => {
   // ✅ FIX: Se mueven las definiciones al principio para evitar errores de "undefined".
@@ -96,24 +96,30 @@ const ReelItemComponent = ({
     [item]
   );
 
-  // Usamos el `enrichedItem` que ya tiene los datos de likes de perfil actualizados
-  const profileLikesCount = enrichedItem.user?.profile?.likes_count ?? 0; // Ya estaba bien
-  const viewerHasLikedProfile = enrichedItem.user?.profile?.viewer_has_liked ?? false;
+  // Seguidores del autor (el "like" del perfil). El total se ajusta al momento al seguir / dejar de
+  // seguir; los números por insignia llegan al recargarse, como los likes de la tarea.
+  const { ready: relationsReady, getState: getRelationState } = useMyRelations();
+  const relationNow = relationsReady && userItem?.id ? getRelationState(userItem.id) : null;
+  const followers = enrichedItem.followers;
+  const followersCount = followersShown({ summary: followers, author: userItem, relation: relationNow });
+  // El corazón de seguir no sale si solo lo sigues (ni en tu propio reel). Sin corazón, el contador
+  // (y en pausa sus números por insignia) sube junto al avatar; con corazón, distancia normal.
+  const followHeartVisible = Boolean(relationNow) && relationNow !== 'following';
 
+  // Color del borde del avatar según la insignia del autor (la misma regla que los números y la lista).
   const userTier = useMemo(() => {
-      // ✅ Leemos el perfil directamente del `enrichedItem` que ya tiene los datos actualizados
-      const currentProfile = enrichedItem.user?.profile || {};
-      if (currentProfile.is_verified) return { key: 'verified', color: '#4dabf7' };
-      if (currentProfile.is_recommended) return { key: 'recommended', color: '#f59f00' }; // Naranja para recomendados
-      return { key: 'regular', color: '#fff' };
-  }, [enrichedItem.user?.profile]);
+      const key = getTierKey(userItem);
+      return { key, color: key === 'regular' || key === 'app' ? '#fff' : TIER_META[key].color };
+  }, [userItem]);
 
   const renderTierDigits = (counts, targetId, handler) => {
     if (!counts) return null;
-    return TIER_ORDER.map(key => {
+    // Un número por insignia, del color de esa insignia (el mismo que en la lista).
+    return TIER_KEYS.map(key => {
       const n = counts[key] || 0;
       if (!n) return null;
-      const meta = { color: key === 'verified' ? '#4dabf7' : key === 'recommended' ? '#f59f00' : 'grey' };
+      // La insignia de la App es negra: sobre el fondo oscuro del reel va en blanco.
+      const meta = { color: key === 'app' ? '#fff' : TIER_META[key].color };
       return (
         <TouchableOpacity key={key} onPress={() => handler(targetId, key)}>
           <Text style={[styles.tierText, { color: meta.color }]}>
@@ -173,6 +179,7 @@ const ReelItemComponent = ({
                   shouldPlay={isActive && !paused && rawState.pos === clipIdx}
                   isLooping
                   isMuted={isMuted}
+                  progressUpdateIntervalMillis={250}
                   onPlaybackStatusUpdate={(status) => { if (rawState.pos === clipIdx) { setPlaybackStatus(status); } }}
                 />
               )}
@@ -188,6 +195,7 @@ const ReelItemComponent = ({
               shouldPlay={isActive && !paused} // ✅ Usamos la prop `paused` directamente
               isLooping
               isMuted={isMuted}
+              progressUpdateIntervalMillis={250}
               onPlaybackStatusUpdate={setPlaybackStatus}
             />
           </View>
@@ -205,6 +213,7 @@ const ReelItemComponent = ({
               <View style={styles.bottomSection} pointerEvents="box-none">
               {sharedByInfo && (
                 <View style={styles.sharedByContainer}>
+                  <View style={styles.sharedByTopRow}>
                   <TouchableOpacity
                     style={styles.sharedByRow}
                     onPress={() => {
@@ -233,6 +242,9 @@ const ReelItemComponent = ({
                       />
                     )}
                   </TouchableOpacity>
+                  {/* Corazón de seguir a quien compartió, al otro extremo de la fila. */}
+                  <FollowHeart userId={sharedByInfo.userId} username={sharedByInfo.name} size={16} style={styles.sharedByHeart} iconStyle={styles.followHeartGlow} />
+                  </View>
                   {sharedByInfo && sharedByInfo.favoriteSharersCount > 0 && !isSharedOpen && (
                     <Text style={styles.favoriteSharerIndicator}>
                       <Ionicons name="heart" size={10} color="#ff6b6b" /> {sharedByInfo.favoriteSharersCount}
@@ -274,21 +286,35 @@ const ReelItemComponent = ({
               </TouchableOpacity>
 
               {(() => { const entry = list[effPos] || null; return (
-              <TouchableOpacity onPress={() => toggleDescription(item.id)} activeOpacity={0.8}>
+              <View>
                 {effMode !== 'main' && (
                   <Text style={styles.title} numberOfLines={1}>{entry?.item?.title || viewLabel}</Text>
                 )}
                 {effMode === 'main' ? (
                   <>
                     <Text style={styles.title} numberOfLines={1}>{contentItem.title}</Text>
-                    <Text style={styles.description} numberOfLines={expandedDescriptions[item.id] ? undefined : 2}>
-                      {entry?.groupIndex != null && entry?.item?.description ? `${contentItem.description} • ${entry.item.description}` : contentItem.description}
-                    </Text>
+                    <ExpandableText
+                      lines={3}
+                      expanded={!!expandedDescriptions[item.id]}
+                      onToggle={() => toggleDescription(item.id)}
+                      toggleStyle={styles.seeMore}
+                      renderText={(lines) => (
+                        <Text style={styles.description} numberOfLines={lines}>
+                          {entry?.groupIndex != null && entry?.item?.description ? `${contentItem.description} • ${entry.item.description}` : contentItem.description}
+                        </Text>
+                      )}
+                    />
                   </>
                 ) : (
-                  <Text style={styles.description} numberOfLines={expandedDescriptions[item.id] ? undefined : 2}>{entry?.item?.description}</Text>
+                  <ExpandableText
+                    lines={3}
+                    expanded={!!expandedDescriptions[item.id]}
+                    onToggle={() => toggleDescription(item.id)}
+                    toggleStyle={styles.seeMore}
+                    renderText={(lines) => <Text style={styles.description} numberOfLines={lines}>{entry?.item?.description}</Text>}
+                  />
                 )}
-              </TouchableOpacity>
+              </View>
               );})()}
 
               {contentItem.categories ? (
@@ -303,31 +329,36 @@ const ReelItemComponent = ({
               </View>
 
               <View style={styles.rightSection}>
-              <TouchableOpacity 
-                style={styles.iconButton} 
-                onPress={() => {
-                  navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) });
-                }}
-                onLongPress={() => {
-                  handleShowProfileLikes(userItem?.id);
-                }}
-              > 
-                <Image source={{ uri: getImageUrl(userItem?.user_image) || 'https://ui-avatars.com/api/?name=User' }} style={[styles.avatar, { borderColor: userTier.color }]} contentFit="cover" />
+              <View style={[styles.iconButton, !followHeartVisible && styles.avatarWithoutHeart]}>
                 <TouchableOpacity
-                  style={styles.followBtn}
-                  onPress={(e) => { e.stopPropagation(); toggleProfileLike(item); }}
+                  onPress={() => {
+                    navigation.navigate('UserProfile', { userId: userItem?.id, userName: userItem?.username, userAvatar: getImageUrl(userItem?.user_image) });
+                  }}
+                  onLongPress={() => {
+                    handleShowFollowers(userItem?.id);
+                  }}
                 >
-                  {/* Usamos el estado de like del perfil enriquecido */}
-                  <Ionicons name={viewerHasLikedProfile ? "heart" : "heart-outline"} size={12} color={viewerHasLikedProfile ? "#ff004f" : "#fff"} />
+                  <Image source={{ uri: getImageUrl(userItem?.user_image) || 'https://ui-avatars.com/api/?name=User' }} style={[styles.avatar, { borderColor: userTier.color }]} contentFit="cover" />
                 </TouchableOpacity>
-              </TouchableOpacity>
+                {/* Corazón de seguir (el mismo de las tarjetas): gris si no lo sigues, negro en favoritos y morado
+                    en tu top 5. Va fuera del botón del avatar para que el toque no abra el perfil. */}
+                {followHeartVisible ? (
+                  <FollowHeart userId={userItem?.id} username={userItem?.username} size={16} style={styles.followBtn} iconStyle={styles.followHeartGlow} />
+                ) : null}
+              </View>
 
-              <TouchableOpacity style={styles.iconButton} onLongPress={() => handleShowProfileLikes(userItem?.id, 'all')}>
-                <Text style={styles.iconText}>{profileLikesCount}</Text>
-                {/* ✅ FIX: Añadimos una guarda para evitar el crash si enrichedItem.profileLikes es undefined */}
-                {paused && enrichedItem.profileLikes && enrichedItem.profileLikes.status === 'ok' && enrichedItem.profileLikes.counts && (
-                  <TouchableOpacity onPress={() => handleShowProfileLikes(item.user?.id, 'all')}>
-                    <View style={[styles.tierCountersVertical, { zIndex: 20, marginBottom: -34 }]}>{renderTierDigits(enrichedItem.profileLikes.counts, userItem?.id, handleShowProfileLikes)}</View>
+              <TouchableOpacity
+                style={[styles.iconButton, paused && styles.followersButtonPaused]}
+                onPress={() => handleShowFollowers(userItem?.id, 'all')}
+                onLongPress={() => handleShowFollowers(userItem?.id, 'all')}
+                accessibilityLabel={`${followersCount} seguidores`}
+              >
+                <Text style={styles.iconText}>{followersCount}</Text>
+                {/* En pausa: seguidores por insignia, como los likes de la tarea. Ocupan su lugar (no se enciman sobre
+                    el ícono de cambiar de PCH): quedan con la misma separación de abajo y, sin corazón, junto al avatar. */}
+                {paused && followers?.counts?.all > 0 && (
+                  <TouchableOpacity onPress={() => handleShowFollowers(userItem?.id, 'all')}>
+                    <View style={styles.tierCountersVertical}>{renderTierDigits(followers.counts, userItem?.id, handleShowFollowers)}</View>
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -372,18 +403,7 @@ const ReelItemComponent = ({
               {/* ✅ CONTADOR DE IMPULSOS (REPOST) */}
               <TouchableOpacity style={[styles.iconButton, { marginBottom: 12 }]} onPress={() => handleRepost(contentItem)}>
                 <Ionicons name={contentItem.user_has_reposted ? "trending-up" : "trending-up-outline"} size={24} color={contentItem.user_has_reposted ? "#f59f00" : "white"} />
-                <Text style={styles.iconText}>{contentItem.interaction_score || 0}</Text>
-              </TouchableOpacity>
-
-              {/* ✅ CONTADOR DE COMPARTIDOS */}
-              <TouchableOpacity style={[styles.iconButton, { marginBottom: paused && enrichedItem.taskShares?.status === 'ok' ? 4 : 12 }]} onPress={() => openShareModal(contentItem)} onLongPress={() => handleShowShares(contentItem.id, 'all')}>
-                <Ionicons name="arrow-redo" size={24} color="white" />
-                <Text style={styles.iconText}>{contentItem.share_count || 0}</Text>
-                {paused && enrichedItem.taskShares && enrichedItem.taskShares.status === 'ok' && enrichedItem.taskShares.counts && (
-                  <TouchableOpacity onPress={() => handleShowShares(contentItem.id, 'all')}>
-                     <View style={styles.tierCountersVertical}>{renderTierDigits(enrichedItem.taskShares.counts, contentItem?.id, handleShowShares)}</View>
-                  </TouchableOpacity>
-                )}
+                <Text style={styles.iconText}>{contentItem.reposts_count || 0}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.iconButton} onPress={() => openActionModal(item)}>
@@ -396,8 +416,14 @@ const ReelItemComponent = ({
         </>
       ) : null}
 
-      {/* ✅ FIX DEFINITIVO: Solo mostramos los controles si estamos en pausa Y si ya tenemos una duración válida. */}
-      {isActive && paused && currentEntry?.type === 'video' && playbackStatus.durationMillis > 0 && <ProgressControls status={playbackStatus} onSeek={(value) => videoRefs.current[effPos]?.current?.setPositionAsync(value)} />}
+      {/* Barra de progreso pegada abajo, siempre visible en videos (se engrosa en pausa o al arrastrar). */}
+      {isActive && currentEntry?.type === 'video' && playbackStatus.durationMillis > 0 && (
+        <ProgressControls
+          status={playbackStatus}
+          paused={paused}
+          onSeek={(value) => videoRefs.current[effPos]?.current?.setPositionAsync(value)}
+        />
+      )}
 
       <Animated.View style={[styles.likeAnimation, heartStyle, { pointerEvents: 'none' }]}>
         <Ionicons name="heart" size={100} color="white" />
@@ -413,7 +439,9 @@ const styles = StyleSheet.create({
   video: { ...StyleSheet.absoluteFillObject },
   image: { ...StyleSheet.absoluteFillObject },
   sharedByContainer: { padding: 10, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12, marginBottom: 10, pointerEvents: 'auto' },
-  sharedByRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sharedByTopRow: { flexDirection: 'row', alignItems: 'center' },
+  sharedByRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  sharedByHeart: { marginLeft: 'auto', paddingLeft: 10 },
   sharedByAvatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#eee' },
   sharedByLabel: { flexShrink: 1 },
   sharedByName: { color: '#fff', fontWeight: 'bold', fontSize: 13, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
@@ -422,19 +450,30 @@ const styles = StyleSheet.create({
   sharedByDescription: { color: '#fff', fontSize: 13, marginTop: 4, textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
   pausedSharedByLabel: { marginBottom: 6, alignSelf: 'flex-start', backgroundColor: 'rgba(0,0,0,0.35)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, pointerEvents: 'auto' },
   pausedSharedByText: { color: '#fff', fontSize: 12, fontWeight: '700', textShadow: '1px 1px 3px rgba(0,0,0,0.7)' },
-  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingBottom: Platform.OS === 'ios' ? 90 : 70, zIndex: 1, pointerEvents: 'box-none' },
-  publicationRow: { flexDirection: 'row', alignItems: 'flex-end', width: '100%', paddingHorizontal: 10 },
+  // La información queda justo encima de la barra de progreso (que va pegada al borde inferior).
+  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', paddingBottom: 18, zIndex: 1, pointerEvents: 'box-none' },
+  publicationRow: { flexDirection: 'row', alignItems: 'flex-end', width: '100%', paddingLeft: 10, paddingRight: 2 },
   bottomSection: { flex: 1, minWidth: 0, padding: 10, paddingRight: 16, justifyContent: 'flex-end' },
   userInfo: { marginBottom: 10, pointerEvents: 'auto' },
   username: { color: '#fff', fontSize: 16, fontWeight: 'bold', textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
   title: { color: '#fff', fontSize: 15, fontWeight: '600', marginBottom: 6, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
-  description: { color: '#fff', fontSize: 14, marginBottom: 12, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
+  description: { color: '#fff', fontSize: 14, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
+  seeMore: { color: '#fff', opacity: 0.85, marginBottom: 12, textShadow: '1px 1px 4px rgba(0, 0, 0, 0.75)' },
   categoriesScroll: { flexDirection: 'row', marginBottom: 5 },
   categoryBadge: { backgroundColor: 'rgba(0,0,0,0.4)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginRight: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
   categoryText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  rightSection: { width: 58, flexShrink: 0, paddingBottom: 0, alignItems: 'center', justifyContent: 'flex-end' },
+  rightSection: { width: 50, flexShrink: 0, paddingBottom: 0, alignItems: 'center', justifyContent: 'flex-end' },
   avatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#fff' },
-  followBtn: { position: 'absolute', bottom: -5, backgroundColor: 'rgba(0,0,0,0.6)', width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
+  followBtn: { position: 'absolute', bottom: -10, justifyContent: 'center', alignItems: 'center', padding: 0 },
+  // Sin corazón debajo del avatar, el contador de seguidores sube un poco.
+  avatarWithoutHeart: { marginBottom: 4 },
+  // En pausa, sus números por insignia quedan más pegados al ícono de cambiar de PCH.
+  followersButtonPaused: { marginBottom: 8 },
+  // Brillo claro alrededor del corazón para que el negro (favorito) se vea sobre videos oscuros.
+  followHeartGlow: Platform.select({
+    web: { textShadow: '0px 0px 3px rgba(255,255,255,0.9)' },
+    default: { textShadowColor: 'rgba(255,255,255,0.9)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 3 },
+  }),
   iconButton: { alignItems: 'center', marginBottom: 12, pointerEvents: 'auto' },
   iconText: { color: '#fff', fontSize: 10, marginTop: 3, fontWeight: '600', textShadow: '1px 1px 3px rgba(0,0,0,0.5)' },
   iconTextSmall: { color: '#fff', fontSize: 9, marginTop: 3, fontWeight: '600', textShadow: '1px 1px 3px rgba(0,0,0,0.5)' }, // ✅ Nuevo estilo para el badge

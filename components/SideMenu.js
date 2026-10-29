@@ -72,7 +72,7 @@ const SideMenu = ({ navigation, signOut, user, buttonStyle }) => {
 
             <ScrollView style={styles.options} showsVerticalScrollIndicator={false}>
               {[
-                ['home-outline', 'Inicio', () => navigate('Tasks')],
+                ['home-outline', 'Aportaciones', () => navigate('Tasks')],
                 ['list-outline', 'Tareas', () => navigate('HomeTab')],
                 ['videocam-outline', 'Reels', () => navigate('Reels')],
                 ['chatbubbles-outline', 'Mensajes directos', () => navigate('Messages')],
@@ -81,6 +81,7 @@ const SideMenu = ({ navigation, signOut, user, buttonStyle }) => {
                 ['time-outline', 'Historias', () => navigate('Stories')],
                 ['share-outline', 'Compartidas', () => navigate('SharedTasks')],
                 ['chatbox-outline', 'Foro', () => navigate('Forum')],
+                ['people-circle-outline', 'Grupos', () => navigate('Profile', { screen: 'Groups' })],
                 ['bookmarks-outline', 'Filtros guardados', () => openTaskMenu('openSavedFilters')],
                 ['eye-outline', 'Visibilidad de favoritos', () => openTaskMenu('openFavoriteVisibility')],
                 ...(user?.is_staff || user?.is_superuser

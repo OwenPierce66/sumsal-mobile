@@ -1,12 +1,20 @@
 import React from 'react';
 import { Text, Linking, Alert, StyleSheet } from 'react-native';
 import { splitTextWithLinks } from '../utils/links';
+import ExpandableText from './ExpandableText';
 
 /**
  * Texto de una descripción con sus enlaces (http(s):// o www.) tocables.
  * Se usa en lugar de <Text>: con o sin enlaces se ve igual que antes.
+ * `collapsedLines`: se corta en esos renglones con "Ver más" si el texto es más largo.
  */
-const LinkifiedText = ({ text, style, linkStyle, numberOfLines }) => (
+const LinkifiedText = ({ collapsedLines, ...props }) => (collapsedLines ? (
+  <ExpandableText lines={collapsedLines} renderText={(lines) => <LinkedText {...props} numberOfLines={lines} />} />
+) : (
+  <LinkedText {...props} />
+));
+
+const LinkedText = ({ text, style, linkStyle, numberOfLines }) => (
   <Text style={style} numberOfLines={numberOfLines}>
     {splitTextWithLinks(text).map((part, index) => (part.url ? (
       <Text

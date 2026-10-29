@@ -4,30 +4,11 @@ import { Ionicons } from '@expo/vector-icons';
 import api, { getImageUrl } from '../api';
 import { Image } from 'expo-image';
 import TouchableUsername from '../components/TouchableUsername';
+import FollowHeart from '../components/FollowHeart';
+import { TIER_META, getTierKey } from '../utils/likeTiers';
 
+// Orden de las pestañas (la regla de insignias y sus colores se comparte con los reels).
 const TIER_ORDER = ['all', 'app', 'recommended', 'sub_red', 'verified', 'sub_green', 'regular'];
-const TIER_META = {
-  verified: { label: 'Verificados', color: '#4dabf7' },
-  recommended: { label: 'Recomendados', color: '#f59f00' },
-  app: { label: 'App', color: '#000' },
-  sub_red: { label: 'Suscripción +', color: '#ff6b6b' },
-  sub_green: { label: 'Suscripción', color: '#51cf66' },
-  regular: { label: 'Otros', color: '#868e96' },
-  all: { label: 'Todos', color: '#333' },
-};
-
-// ✅ Lógica de tiers COMPLETA portada de ReelsPCH.js para consistencia
-const getTierKey = (user) => {
-  const profile = user?.profile || user || {};
-  const username = String(user?.username || user?.user?.username || '').toLowerCase();
-  const userId = user?.id || user?.user?.id;
-  if (user?.is_app || username === 'app-bot' || username === 'owen' || userId === 1) return 'app';
-  if (profile.is_recommended) return 'recommended';
-  if (profile.subscriptionActive && parseFloat(profile.subscription_amount || 0) >= 8) return 'sub_red';
-  if (profile.is_verified) return 'verified';
-  if (profile.subscriptionActive) return 'sub_green';
-  return 'regular';
-};
 
 const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title = "Usuarios", navigation }) => {
   const [loading, setLoading] = useState(false);
@@ -128,6 +109,7 @@ const TieredLikesModal = ({ visible, onClose, apiUrl, initialTier = 'all', title
         ) : (
           <Text style={[styles.likesCount, { color: tierColor }]}>{userObject.profile?.likes_count || 0} <Ionicons name="heart" size={12} /></Text>
         )}
+        <FollowHeart userId={userId} username={userName} size={18} style={styles.followHeart} />
       </View>
     );
   };
@@ -247,6 +229,7 @@ const styles = StyleSheet.create({
   userRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, borderWidth: 2 },
   userNameCell: { flex: 1, marginRight: 8 },
+  followHeart: { marginLeft: 10 },
   username: { fontSize: 16, fontWeight: '500', flex: 1 },
   tierBadge: {
     maxWidth: 92,

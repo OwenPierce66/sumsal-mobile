@@ -12,17 +12,21 @@ import {
   Platform } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import moment from 'moment'; 
-import api, { getImageUrl } from '@api';
+import api, { getImageUrl, UPLOAD_TIMEOUT_MS } from '@api';
 import { Image } from 'expo-image';
 import ShareModal from '@components/ShareModal';
 import LikesListModal from '@components/LikesListModal';
 import TaskActionsModal from '@components/TaskActionsModal';
 import useTaskActions from '@hooks/useTaskActions';
 import TouchableUsername from '@components/TouchableUsername';
+import FollowHeart from '@components/FollowHeart';
+import ContentActionsButton from '@components/ContentActionsMenu';
 import TaskPostCard, { FeedVideoVisibilityContext } from '@components/TaskPostCard';
 import ShareActionMenu from './ShareActionMenu';
 import ReportContentButton from '@components/ReportContentButton';
 import { useSharedTaskDetail, useMe, useIsAdmin } from '@hooks/useApi';
+import { useMessageExtras, MessageExtrasView } from '@components/MessageExtras';
+import { optimisticRepost, repostFromResponse, repostSnapshot } from '../utils/repost';
 
 moment.locale('es');
 
@@ -105,10 +109,29 @@ const SharedCommentItem = ({
             <Text style={styles.commentLikeCount}>{comment.likes_count || 0}</Text>
           </TouchableOpacity>
         )}
+        <FollowHeart
+          userId={comment.created_by?.id || comment.user?.id}
+          username={getCommentAuthorName(comment)}
+          size={18}
+          style={styles.commentFollowHeart}
+        />
+        <ContentActionsButton
+          accessibilityLabel="Más opciones del comentario"
+          author={comment.created_by || comment.user}
+          currentUserId={currentUserId}
+          navigation={navigation}
+          report={{ targetType: 'shared_comment', targetId: comment.id }}
+          editLabel="Editar comentario"
+          deleteLabel="Eliminar comentario"
+          {...(currentUserId === comment.created_by?.id
+            ? { onEdit: () => onEdit(comment), onDelete: () => onDelete(comment.id) }
+            : {})}
+        />
       </View>
 
       {/* TEXTO DEL COMENTARIO */}
-      <Text style={styles.commentText}>{comment.text}</Text>
+      {comment.text ? <Text style={styles.commentText}>{comment.text}</Text> : null}
+      <MessageExtrasView item={comment} navigation={navigation} compact />
 
       {/* ACCIONES */}
       <View style={styles.commentFooter}>
@@ -180,6 +203,8 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
   const [newCommentText,     setNewCommentText]     = useState('');
   const [replyingTo,         setReplyingTo]         = useState(null);
   const [editingCommentId,   setEditingCommentId]   = useState(null);
+  // Clip del comentario: publicación guardada, etiquetas y foto o video (al editar no se cambia la foto).
+  const extras = useMessageExtras({ currentUserId: me?.id ?? null, allowMedia: !editingCommentId });
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionText,    setDescriptionText]    = useState('');
   const [submittingComment,  setSubmittingComment]  = useState(false);
@@ -262,43 +287,17 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
     const originalId = sharedTask?.task?.id;
     if (!originalId || repostInFlightRef.current) return;
     repostInFlightRef.current = true;
-    const task = sharedTask.task;
-    const original = {
-      user_has_reposted: Boolean(task.user_has_reposted),
-      user_has_liked: Boolean(task.user_has_liked),
-      likes_count: task.likes_count || 0,
-      interaction_score: task.interaction_score || 0,
-    };
-    const nextReposted = !original.user_has_reposted;
-    const updateTask = (userHasReposted, userHasLiked, likesCount, interactionScore) => setSharedTask(prev => prev ? {
-      ...prev,
-      task: {
-        ...prev.task,
-        user_has_reposted: userHasReposted,
-        user_has_liked: userHasLiked,
-        likes_count: likesCount,
-        interaction_score: interactionScore,
-      },
-    } : prev);
-    updateTask(
-      nextReposted,
-      original.user_has_liked || nextReposted,
-      original.likes_count + (!original.user_has_liked && nextReposted ? 1 : 0),
-      Math.max(0, original.interaction_score + (nextReposted ? 1 : -1)),
-    );
+    const original = repostSnapshot(sharedTask.task);
+    // Se impulsa la publicación original.
+    const updateTask = (patch) => setSharedTask(prev => (prev ? { ...prev, task: { ...prev.task, ...patch } } : prev));
+    updateTask(optimisticRepost(original));
     try {
-      const response = await api.post(`/tasks/${originalId}/repost/`);
-      updateTask(
-        response.data.user_has_reposted,
-        response.data.user_has_liked,
-        response.data.likes_count,
-        response.data.interaction_score,
-      );
-      Alert.alert('Éxito', response.data.reposted ? '¡Publicación impulsada!' : 'Se quitó el impulso; el like se conserva.');
+      const response = await api.post(`tasks/${originalId}/repost/`);
+      updateTask(repostFromResponse(response.data));
     } catch (error) {
-      console.error('Error al repostear:', error.response?.data || error);
-      Alert.alert('Error', 'Error al repostear. Inténtalo de nuevo.');
-      updateTask(original.user_has_reposted, original.user_has_liked, original.likes_count, original.interaction_score);
+      console.error('Error al impulsar:', error.response?.data || error);
+      Alert.alert('Error', 'No se pudo impulsar la publicación. Inténtalo de nuevo.');
+      updateTask(original);
     } finally {
       repostInFlightRef.current = false;
     }
@@ -374,13 +373,13 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
   };
 
   const handleAddComment = async () => {
-    if (!newCommentText.trim()) return;
+    if (!newCommentText.trim() && !(extras.hasMedia && !editingCommentId)) return;
 
     try {
       setSubmittingComment(true);
-      const payload = {
+      const payload = await extras.buildBody({
         text: newCommentText,
-        parent: replyingTo?.id || null };
+        parent: replyingTo?.id || null });
 
       // ⚡ ACTUALIZACIÓN OPTIMISTA: Subimos el contador inmediatamente
       setSharedTask(prev => prev ? { ...prev, comments_count: (prev.comments_count || 0) + 1 } : prev);
@@ -388,8 +387,10 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
       if (editingCommentId) {
         await api.patch(`shared-tasks/${sharedTaskId}/comments/${editingCommentId}/`, { text: newCommentText });
       } else {
-        await api.post(`shared-tasks/${sharedTaskId}/comments/`, payload);
+        if (extras.hasMedia) await api.post(`shared-tasks/${sharedTaskId}/comments/`, payload, { timeout: UPLOAD_TIMEOUT_MS });
+        else await api.post(`shared-tasks/${sharedTaskId}/comments/`, payload);
       }
+      extras.reset();
 
       // Auto-expandir el comentario padre si se está respondiendo
       if (replyingTo) {
@@ -604,6 +605,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
               <Text style={styles.sharedByText}>compartió una tarea</Text>
               <Text style={styles.sharedByDate}>{moment(sharedTask.created_at).fromNow()}</Text>
             </View>
+            <FollowHeart userId={sharedTask.shared_by?.id} username={getUserName(sharedTask.shared_by)} />
             <TouchableOpacity onPress={() => setActionTarget('shared')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="ellipsis-vertical" size={20} color="#999" />
             </TouchableOpacity>
@@ -691,10 +693,14 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
         </View>
       )}
 
+      {/* Lo que acompaña el comentario (clip): publicación guardada, etiquetas y foto o video. */}
+      {extras.preview}
       {/* INPUT DE COMENTARIO */}
       <View style={styles.commentInputContainer}>
+        {extras.clip}
         <TextInput
           style={styles.input}
+          numberOfLines={Platform.OS === 'web' ? 1 : undefined}
           placeholder={replyingTo ? 'Escribe tu respuesta...' : 'Escribe un comentario...'}
           value={newCommentText}
           onChangeText={setNewCommentText}
@@ -704,7 +710,7 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
         <TouchableOpacity
           style={styles.sendBtn}
           onPress={handleAddComment}
-          disabled={submittingComment || !newCommentText.trim()}
+          disabled={submittingComment || (!newCommentText.trim() && !extras.hasMedia)}
         >
           {submittingComment ? (
             <ActivityIndicator size="small" color="#fff" />
@@ -713,6 +719,8 @@ const SharedTaskDetailScreen = ({ route, navigation }) => {
           )}
         </TouchableOpacity>
       </View>
+
+      {extras.pickers}
 
       {/* MODAL DE LIKES */}
       <LikesListModal 
@@ -815,7 +823,9 @@ const styles = StyleSheet.create({
 
   commentWrapper: { marginBottom: 16, borderColor: '#e0e0e0' },
   commentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  commentUserInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // flex: 1 para que el corazón de seguir quede al otro extremo, junto al like.
+  commentUserInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  commentFollowHeart: { marginHorizontal: 8 },
   commentAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#eee' },
   commentAuthor: { fontSize: 14, fontWeight: 'bold', color: '#333' },
   commentDate: { fontSize: 11, color: '#999' },
@@ -833,8 +843,9 @@ const styles = StyleSheet.create({
   replyBanner: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#e3f2fd', padding: 10, alignItems: 'center', borderTopWidth: 1, borderColor: '#b3e5fc' },
   replyBannerText: { fontSize: 13, color: '#333' },
   commentInputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', alignItems: 'flex-end', gap: 8 },
-  input: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, minHeight: 45, maxHeight: 100 },
-  sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
+  // Del alto del clip y del botón de enviar (36); crece si escribes varias líneas.
+  input: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, minHeight: 36, maxHeight: 100 },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
 
   openOriginalBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 12, marginBottom: 8, paddingVertical: 12, borderRadius: 14, backgroundColor: '#eef6ff', borderWidth: 1, borderColor: '#d0e6fb' },
   openOriginalText: { color: '#4dabf7', fontWeight: '700', fontSize: 14 },

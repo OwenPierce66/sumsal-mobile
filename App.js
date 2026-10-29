@@ -82,6 +82,10 @@ import NotificationsScreen from './screens/NotificationsScreen';
 import EditProfileScreen from './screens/EditProfileScreen';
 import FavoritesScreen from './screens/FavoritesScreen';
 import SubscriptionsScreen from './screens/SubscriptionsScreen';
+import PetitionSupportsScreen from './screens/PetitionSupportsScreen';
+import GroupsScreen from './screens/GroupsScreen';
+import GroupDetailScreen from './screens/GroupDetailScreen';
+import GroupFormScreen from './screens/GroupFormScreen';
 import FollowListScreen from './screens/FollowListScreen';
 import AdminScreen from './screens/AdminScreen';
 
@@ -103,6 +107,10 @@ const TasksStackNavigator = () => {
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
       <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} />
+      <Stack.Screen name="PetitionSupports" component={PetitionSupportsScreen} />
+      <Stack.Screen name="Groups" component={GroupsScreen} />
+      <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
+      <Stack.Screen name="GroupForm" component={GroupFormScreen} />
       <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
     </Stack.Navigator>
@@ -123,6 +131,10 @@ const HomeStackNavigator = () => {
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
       <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} />
+      <Stack.Screen name="PetitionSupports" component={PetitionSupportsScreen} />
+      <Stack.Screen name="Groups" component={GroupsScreen} />
+      <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
+      <Stack.Screen name="GroupForm" component={GroupFormScreen} />
       <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
@@ -138,6 +150,11 @@ const MessagesStackNavigator = () => {
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
       <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} />
+      <Stack.Screen name="PetitionSupports" component={PetitionSupportsScreen} />
+      <Stack.Screen name="Groups" component={GroupsScreen} />
+      <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
+      <Stack.Screen name="GroupForm" component={GroupFormScreen} />
+      <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
@@ -153,6 +170,11 @@ const NotificationsStackNavigator = () => {
       <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
       <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} />
+      <Stack.Screen name="PetitionSupports" component={PetitionSupportsScreen} />
+      <Stack.Screen name="Groups" component={GroupsScreen} />
+      <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
+      <Stack.Screen name="GroupForm" component={GroupFormScreen} />
+      <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="Favorites" component={FavoritesScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
@@ -185,6 +207,10 @@ const ProfileStackNavigator = () => {
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
       <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} />
+      <Stack.Screen name="PetitionSupports" component={PetitionSupportsScreen} />
+      <Stack.Screen name="Groups" component={GroupsScreen} />
+      <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
+      <Stack.Screen name="GroupForm" component={GroupFormScreen} />
       <Stack.Screen name="FollowList" component={FollowListScreen} />
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
@@ -208,7 +234,9 @@ const AuthenticatedTabs = () => {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: false,
-        tabBarIcon: ({ focused, color, size }) => {
+        tabBarIcon: ({ focused, color, size: baseSize }) => {
+          // La pestaña seleccionada se ve un poco más grande.
+          const size = focused ? baseSize + 6 : baseSize;
           let iconName;
           if (route.name === 'Tasks') iconName = focused ? 'home' : 'home-outline';
           else if (route.name === 'HomeTab') iconName = focused ? 'list' : 'list-outline';
@@ -239,7 +267,7 @@ const AuthenticatedTabs = () => {
         tabBarInactiveTintColor: '#999',
       })}
     >
-      <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Inicio' }} />
+      <Tab.Screen name="Tasks" component={TasksStackNavigator} options={{ tabBarLabel: 'Aportaciones' }} />
       <Tab.Screen name="HomeTab" component={HomeStackNavigator} options={{ tabBarLabel: 'Tareas' }} />
       <Tab.Screen name="Reels" component={ReelsScreen} options={{ tabBarLabel: 'Reels' }} />
       <Tab.Screen name="Messages" component={MessagesStackNavigator} options={{ tabBarLabel: 'Mensajes' }} />

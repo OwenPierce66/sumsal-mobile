@@ -13,7 +13,10 @@ import TouchableUsername from '@components/TouchableUsername';
 import LinkifiedText from '@components/LinkifiedText';
 import FollowHeart from '@components/FollowHeart';
 import PetitionSupportStat from '@components/PetitionSupportStat';
+import TopCommentPreview from '@components/TopCommentPreview';
+import StoryRing from '@components/StoryRing';
 import { withLegacyLink } from '../utils/links';
+import { subItemTitle } from '../utils/aportaciones';
 
 const TASK_VIDEO_AUTOPLAY_DELAY_MS = 500;
 const TASK_VIDEO_MIN_VISIBLE_FRACTION = 0.5;
@@ -240,27 +243,17 @@ const SubContent = ({ task, section, carouselWidth, feedItemId, onShareSubItemTo
 
           return (
             <View key={sub.id || `${section}-${idx}`} style={[styles.subItem, { width: carouselWidth }]}>
-              {sub._isMain ? null : (
+              {sub._isMain || !subItemTitle(sub) ? null : (
                 <View style={styles.subItemHeaderRow}>
                   <View style={styles.subItemHeading}>
-                    <Text style={styles.subItemEyebrow}>
-                      {section === 'subtasks' ? 'PUBLICACIÓN' : section === 'subfactores' ? 'FACTOR' : 'FUENTE'} {idx + 1}
-                    </Text>
-                    <Text style={styles.subItemTitle}>{sub.title || 'Sin título'}</Text>
+                    <Text style={styles.subItemTitle}>{subItemTitle(sub)}</Text>
                   </View>
-                  <TouchableOpacity
-                    style={styles.subShareButton}
-                    onPress={() => onShareSubItemToStory?.(task, section, sub)}
-                  >
-                    <Ionicons name="share-social-outline" size={15} color="#51cf66" />
-                    <Text style={styles.subShareText}>Historia</Text>
-                  </TouchableOpacity>
                 </View>
               )}
 
               {/* El enlace que la web guardaba aparte se muestra dentro de la descripción. */}
               {sub.description || sub.link ? (
-                <LinkifiedText style={styles.subItemDesc} text={withLegacyLink(sub.description, sub.link)} />
+                <LinkifiedText style={styles.subItemDesc} text={withLegacyLink(sub.description, sub.link)} collapsedLines={3} />
               ) : null}
 
               {finalUri && (
@@ -314,8 +307,12 @@ const TaskPostCard = ({
   onShareSubItemToStory,
   onOpenSubMediaInReels,
   stats,
+  showTopComment = false,
 }) => {
   const [localSection, setLocalSection] = useState('subtasks');
+  // Comentarios agregados o borrados desde el comentario destacado (hasta que la tarea se recargue).
+  const [commentDelta, setCommentDelta] = useState(0);
+  useEffect(() => { setCommentDelta(0); }, [task.comments_count]);
   const section = currentSection || localSection;
   const changeSection = (next) => {
     if (onChangeSection) onChangeSection(task.id, next);
@@ -324,11 +321,13 @@ const TaskPostCard = ({
 
   // Contadores mostrados en el pie: por defecto los de la tarea; una tarea compartida puede sobrescribirlos
   const shown = { ...task, ...(stats || {}) };
+  // Un testimonio solo tiene texto: sin pestañas de Aportación/Factores/Fuentes, sin impulsar ni compartir.
+  const isTestimonial = Boolean(task.testimonial_for_info);
   const temaLabel = tema || task.pch || '';
 
   const descriptionBlock = (
     <>
-      <LinkifiedText style={styles.taskDescription} text={task.description} />
+      <LinkifiedText style={styles.taskDescription} text={task.description} collapsedLines={3} />
 
       {task.categories ? (
         <View style={styles.categoriesList}>
@@ -365,12 +364,18 @@ const TaskPostCard = ({
   return (
     <View style={styles.taskCard}>
       <View style={styles.taskHeader}>
-        <TouchableOpacity onPress={() => onAvatarPress?.(task.user?.id)}>
+        <StoryRing
+          userId={task.user?.id}
+          size={38}
+          navigation={navigation}
+          onPress={() => onAvatarPress?.(task.user?.id)}
+          style={styles.avatarWrap}
+        >
           <Image
             source={{ uri: getImageUrl(task.user?.user_image) || 'https://ui-avatars.com/api/?name=User&background=random' }}
-            style={styles.avatar}
+            style={[styles.avatar, styles.avatarInRing]}
           />
-        </TouchableOpacity>
+        </StoryRing>
         <View style={{ flex: 1 }}>
           <Text style={styles.taskTitle}>{task.title}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -381,11 +386,41 @@ const TaskPostCard = ({
                 userImage={getImageUrl(task.user?.user_image)}
                 navigation={navigation}
                 textStyle={[styles.taskUser, { color: getUserStatusColor(task.user) }]}
-                showHeart={false}
               />
             </View>
             <Text style={{ fontSize: 12, color: '#999' }}>• {moment(task.created_at).fromNow()}</Text>
           </View>
+          {task.group_info ? (
+            <TouchableOpacity
+              style={styles.groupChip}
+              onPress={() => navigation?.navigate('GroupDetail', { groupId: task.group_info.id })}
+              accessibilityLabel={`Abrir grupo ${task.group_info.name}`}
+            >
+              <Ionicons name={task.group_info.is_private ? 'lock-closed' : 'people'} size={11} color="#1971c2" />
+              <Text style={styles.groupChipText} numberOfLines={1}>en {task.group_info.name}</Text>
+              {task.group_status && task.group_status !== 'approved' ? (
+                <Text style={[styles.groupReview, task.group_status === 'rejected' && styles.groupRejected]}>
+                  {task.group_status === 'rejected' ? '· rechazada' : '· en revisión'}
+                </Text>
+              ) : null}
+            </TouchableOpacity>
+          ) : null}
+          {task.testimonial_for_info ? (
+            // Testimonio: una publicación escrita en el perfil de otra persona.
+            <TouchableOpacity
+              style={[styles.groupChip, styles.testimonialChip]}
+              onPress={() => navigation?.navigate('UserProfile', {
+                userId: task.testimonial_for_info.id,
+                userName: task.testimonial_for_info.username,
+              })}
+              accessibilityLabel={`Testimonio para ${task.testimonial_for_info.username || 'este perfil'}`}
+            >
+              <Ionicons name="chatbox-ellipses" size={11} color="#7048e8" />
+              <Text style={[styles.groupChipText, styles.testimonialChipText]} numberOfLines={1}>
+                Testimonio para @{task.testimonial_for_info.username || 'usuario'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
         <FollowHeart userId={task.user?.id} username={getAuthorName(task)} size={20} style={styles.headerHeart} />
         {onOpenActions ? (
@@ -403,22 +438,26 @@ const TaskPostCard = ({
         <View>{descriptionBlock}</View>
       )}
 
-      <TaskSections
-        task={task}
-        tema={temaLabel}
-        carouselWidth={carouselWidth}
-        section={section}
-        onChangeSection={changeSection}
-        onShareSubItemToStory={onShareSubItemToStory}
-        onOpenSubMediaInReels={onOpenSubMediaInReels}
-      />
+      {isTestimonial ? null : (
+        <TaskSections
+          task={task}
+          tema={temaLabel}
+          carouselWidth={carouselWidth}
+          section={section}
+          onChangeSection={changeSection}
+          onShareSubItemToStory={onShareSubItemToStory}
+          onOpenSubMediaInReels={onOpenSubMediaInReels}
+        />
+      )}
 
       <View style={styles.taskFooter}>
         <View style={styles.statsContainer}>
-          <TouchableOpacity style={styles.stat} onPress={() => onRepost?.(task)}>
-            <Ionicons name={shown.user_has_reposted ? 'trending-up' : 'trending-up-outline'} size={18} color={shown.user_has_reposted ? '#f59f00' : '#999'} />
-            <Text style={styles.statText}>{shown.interaction_score || 0}</Text>
-          </TouchableOpacity>
+          {isTestimonial ? null : (
+            <TouchableOpacity style={styles.stat} onPress={() => onRepost?.(task)}>
+              <Ionicons name={shown.user_has_reposted ? 'trending-up' : 'trending-up-outline'} size={18} color={shown.user_has_reposted ? '#f59f00' : '#999'} />
+              <Text style={styles.statText}>{shown.reposts_count || 0}</Text>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.stat}>
             <TouchableOpacity onPress={() => onLike?.(task)}>
@@ -431,21 +470,33 @@ const TaskPostCard = ({
 
           <TouchableOpacity style={styles.stat} onPress={() => onPressComments?.(task)}>
             <Ionicons name="chatbubble-outline" size={18} color="#4dabf7" />
-            <Text style={styles.statText}>{shown.comments_count || 0}</Text>
+            <Text style={styles.statText}>{Math.max(0, (shown.comments_count || 0) + commentDelta)}</Text>
           </TouchableOpacity>
 
-          <View style={styles.stat}>
-            <TouchableOpacity onPress={() => onShare?.(task)}>
-              <Ionicons name="share-social-outline" size={18} color="#51cf66" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => onShowShares?.(task.id)} style={{ marginLeft: 4, padding: 4 }}>
-              <Text style={styles.statText}>{shown.share_count || 0}</Text>
-            </TouchableOpacity>
-          </View>
+          {isTestimonial ? null : (
+            <View style={styles.stat}>
+              <TouchableOpacity onPress={() => onShare?.(task)}>
+                <Ionicons name="share-social-outline" size={18} color="#51cf66" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => onShowShares?.(task.id)} style={{ marginLeft: 4, padding: 4 }}>
+                <Text style={styles.statText}>{shown.share_count || 0}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <PetitionSupportStat task={task} navigation={navigation} />
         </View>
       </View>
+
+      {/* Comentario con más interacción (y su mejor respuesta), con me gusta, responder y comentar aquí. */}
+      {showTopComment ? (
+        <TopCommentPreview
+          task={{ ...task, comments_count: Math.max(0, (shown.comments_count || 0) + commentDelta) }}
+          navigation={navigation}
+          onOpenComments={() => onPressComments?.(task)}
+          onCountChange={(delta) => setCommentDelta((value) => value + delta)}
+        />
+      ) : null}
     </View>
   );
 };
@@ -507,7 +558,15 @@ const styles = StyleSheet.create({
   },
   taskHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   headerHeart: { marginRight: 10 },
-  avatar: { width: 45, height: 45, borderRadius: 22.5, marginRight: 12, backgroundColor: '#eee' },
+  groupChip: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: '#e7f5ff', maxWidth: '100%' },
+  groupChipText: { fontSize: 11, fontWeight: '700', color: '#1971c2', flexShrink: 1 },
+  testimonialChip: { backgroundColor: '#f3f0ff' },
+  testimonialChipText: { color: '#7048e8' },
+  groupReview: { fontSize: 11, fontWeight: '700', color: '#e67700' },
+  groupRejected: { color: '#e03131' },
+  avatar: { width: 38, height: 38, borderRadius: 19, marginRight: 12, backgroundColor: '#eee' },
+  avatarWrap: { marginRight: 12 },
+  avatarInRing: { marginRight: 0 },
   taskTitle: { fontSize: 18, fontWeight: 'bold', color: '#000' },
   taskUser: { fontSize: 12, color: '#4dabf7', fontWeight: '600' },
   taskDescription: { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 8 },

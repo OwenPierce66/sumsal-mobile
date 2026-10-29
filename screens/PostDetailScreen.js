@@ -4,11 +4,16 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
 import 'moment/locale/es';
-import api, { getImageUrl } from '@api';
+import api, { getImageUrl, UPLOAD_TIMEOUT_MS } from '@api';
 import { Image } from 'expo-image';
 import TouchableUsername from '@components/TouchableUsername';
+import FollowHeart from '@components/FollowHeart';
+import ContentActionsButton from '@components/ContentActionsMenu';
 import ReportContentButton from '@components/ReportContentButton';
 import { usePostDetail, useMe } from '@hooks/useApi';
+import { useMessageExtras, MessageExtrasView } from '@components/MessageExtras';
+import CategoryPicker from '@components/CategoryPicker';
+import CategoryChips from '@components/CategoryChips';
 
 moment.locale('es');
 
@@ -53,9 +58,24 @@ const ReplyItem = ({ reply, depth = 0, onLike, onReply, onEdit, onDelete, curren
             />
             <Text style={styles.replyLikeCount}>{reply.likes_count || 0}</Text>
           </TouchableOpacity>
+          <FollowHeart userId={reply.user?.id} username={getAuthorName(reply)} size={18} style={styles.followHeart} />
+          <ContentActionsButton
+            accessibilityLabel="Más opciones de la respuesta"
+            author={reply.user}
+            currentUserId={currentUserId}
+            navigation={navigation}
+            report={{ targetType: 'forum_post', targetId: reply.id }}
+            onReply={() => onReply(reply)}
+            editLabel="Editar respuesta"
+            deleteLabel="Eliminar respuesta"
+            {...(currentUserId === reply.user?.id
+              ? { onEdit: () => onEdit(reply), onDelete: () => onDelete(reply.id) }
+              : {})}
+          />
         </View>
 
-        <Text style={styles.replyContent}>{reply.content}</Text>
+        {reply.content ? <Text style={styles.replyContent}>{reply.content}</Text> : null}
+        <MessageExtrasView item={reply} navigation={navigation} compact />
 
         {currentUserId === reply.user?.id && (
           <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -129,6 +149,8 @@ const PostDetailScreen = () => {
   const [creatingReply,   setCreatingReply]  = useState(false);
   const [editingPost,     setEditingPost]    = useState(false);
   const [editingReplyId,  setEditingReplyId] = useState(null);
+  // Clip de la respuesta: publicación guardada, etiquetas y foto o video (al editar no se cambia la foto).
+  const extras = useMessageExtras({ currentUserId: me?.id ?? null, allowMedia: !editingReplyId });
 
   // Sincronizar datos del hook al estado local
   const currentUserId = me?.id ?? null;
@@ -213,8 +235,8 @@ const PostDetailScreen = () => {
   };
 
   const createReply = async () => {
-    if (!newReply.trim()) {
-      Alert.alert('Error', 'El comentario no puede estar vacío');
+    if (!newReply.trim() && !(extras.hasMedia && !editingReplyId)) {
+      Alert.alert('Error', 'Escribe algo o adjunta una foto o video');
       return;
     }
 
@@ -223,8 +245,11 @@ const PostDetailScreen = () => {
       if (editingReplyId) {
         await api.patch(`posts/${editingReplyId}/`, { content: newReply });
       } else {
-        await api.post('posts/', { title: '', content: newReply, parent: replyingTo ? replyingTo.id : postId });
+        const body = await extras.buildBody({ title: '', content: newReply, parent: replyingTo ? replyingTo.id : postId });
+        if (extras.hasMedia) await api.post('posts/', body, { timeout: UPLOAD_TIMEOUT_MS });
+        else await api.post('posts/', body);
       }
+      extras.reset();
       setNewReply('');
       setEditingReplyId(null);
       setExpandedReplyIds((prev) =>
@@ -255,7 +280,7 @@ const PostDetailScreen = () => {
 
   const savePost = async () => {
     try {
-      const response = await api.patch(`posts/${postId}/`, { title: post.title, content: post.content });
+      const response = await api.patch(`posts/${postId}/`, { title: post.title, content: post.content, categories: post.categories || '' });
       setPost(response.data);
       setEditingPost(false);
     } catch (error) { Alert.alert('Error', 'No se pudo editar el post'); }
@@ -319,6 +344,20 @@ const PostDetailScreen = () => {
               />
               <Text style={styles.postLikeCount}>{post.likes_count || 0}</Text>
             </TouchableOpacity>
+            <FollowHeart userId={post.user?.id} username={getPostAuthorName(post)} style={styles.followHeart} />
+            <ContentActionsButton
+              accessibilityLabel="Más opciones del post"
+              size={20}
+              author={post.user}
+              currentUserId={currentUserId}
+              navigation={navigation}
+              report={{ targetType: 'forum_post', targetId: post.id }}
+              editLabel="Editar post"
+              deleteLabel="Eliminar post"
+              {...(currentUserId === post.user?.id
+                ? { onEdit: () => setEditingPost(true), onDelete: () => deletePost(post.id) }
+                : {})}
+            />
           </View>
           {currentUserId === post.user?.id && (
             <View style={{ flexDirection: 'row', gap: 14, marginBottom: 8 }}>
@@ -330,9 +369,17 @@ const PostDetailScreen = () => {
             <>
               <TextInput style={styles.input} value={post.title} onChangeText={title => setPost(prev => ({ ...prev, title }))} />
               <TextInput style={[styles.input, { minHeight: 90 }]} value={post.content} onChangeText={content => setPost(prev => ({ ...prev, content }))} multiline />
+              <CategoryPicker value={post.categories || ''} onChange={categories => setPost(prev => ({ ...prev, categories }))} />
               <TouchableOpacity style={styles.sendBtn} onPress={savePost}><Ionicons name="checkmark" size={18} color="#fff" /></TouchableOpacity>
             </>
-          ) : <Text style={styles.postContent}>{post.content}</Text>}
+          ) : (
+            <>
+              {post.content ? <Text style={styles.postContent}>{post.content}</Text> : null}
+              {/* Tocar una categoría abre el foro filtrado por ella. */}
+              <CategoryChips categories={post.categories} onPress={category => navigation.navigate('ForumMain', { category })} />
+              <MessageExtrasView item={post} navigation={navigation} />
+            </>
+          )}
         </View>
 
         {/* SECCIÓN DE RESPUESTAS */}
@@ -377,14 +424,18 @@ const PostDetailScreen = () => {
         </View>
       )}
 
+      {/* Lo que acompaña la respuesta (clip): publicación guardada, etiquetas y foto o video. */}
+      {extras.preview}
       {/* INPUT DE RESPUESTA */}
       <View style={styles.inputContainer}>
+        {extras.clip}
         <TextInput
           style={styles.input}
           placeholder={replyingTo ? `Respondiendo a ${getPostAuthorName(replyingTo)}...` : 'Escribe una respuesta...'}
           value={newReply}
           onChangeText={setNewReply}
           multiline
+          numberOfLines={Platform.OS === 'web' ? 1 : undefined}
           placeholderTextColor="#999"
         />
         <TouchableOpacity
@@ -399,6 +450,7 @@ const PostDetailScreen = () => {
           )}
         </TouchableOpacity>
       </View>
+      {extras.pickers}
     </KeyboardAvoidingView>
   );
 };
@@ -431,6 +483,8 @@ const styles = StyleSheet.create({
   replyCardSelected: { backgroundColor: '#e3f2fd', borderLeftColor: '#2196F3' },
   replyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
   replyUserInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  // Corazón de seguir al otro extremo, junto al like.
+  followHeart: { marginHorizontal: 8 },
   replyAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#eee' },
   replyAuthor: { fontSize: 12, fontWeight: 'bold', color: '#333' },
   replyDate: { fontSize: 10, color: '#999', marginTop: 2 },
@@ -448,7 +502,8 @@ const styles = StyleSheet.create({
   replyingBannerContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   replyingBannerText: { fontSize: 13, color: '#333' },
   inputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', gap: 8, alignItems: 'flex-end' },
-  input: { flex: 1, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: '#333', maxHeight: 100 },
-  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' } });
+  // Del alto del clip (36); crece si escribes varias líneas.
+  input: { flex: 1, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, color: '#333', minHeight: 36, maxHeight: 100 },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' } });
 
 export default PostDetailScreen;

@@ -24,63 +24,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api, { getImageUrl, UPLOAD_TIMEOUT_MS } from '../api';
 import TieredLikesModal from './TieredLikesModal';
 import TouchableUsername from '../components/TouchableUsername';
+import FollowHeart from '../components/FollowHeart';
 import OfflineEmptyState from '../components/OfflineEmptyState';
 import { useIsOnline } from '../hooks/useIsOnline';
 import { useStories, useMe, useIsAdmin } from '../hooks/useApi';
 import TaskActionsModal from '../components/TaskActionsModal';
 import useTaskActions from '../hooks/useTaskActions';
 import StoryUploadModal from '../components/StoryUploadModal';
+import { STORY_WINDOW_MS, cleanVal, parseCreatedAtMs, getStoryMedia } from '../utils/storyWindow';
+import { markStorySeen } from '../hooks/useStoryRing';
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 const IMAGE_DURATION_MS = 6500;
-export const STORY_WINDOW_MS = 24 * 60 * 60 * 1000;
-
-const cleanVal = (value) => {
-  if (value === null || value === undefined) return null;
-  const trimmed = String(value).trim();
-  return trimmed.length > 0 ? trimmed : null;
-};
-
-export const parseCreatedAtMs = (story) => {
-  const raw = story?.created_at || story?.createdAt || null;
-  if (!raw) return null;
-  const ms = Date.parse(String(raw));
-  return Number.isFinite(ms) ? ms : null;
-};
-
-export const getStoryMedia = (story) => {
-  const videoPath =
-    cleanVal(story?.video) ||
-    cleanVal(story?.primary_video) ||
-    cleanVal(story?.video_url) ||
-    cleanVal(story?.media_url) ||
-    cleanVal(story?.source_item_video) ||
-    cleanVal(story?.source_task_video) ||
-    cleanVal(story?.subtasks?.[0]?.video) ||
-    cleanVal(story?.subfactores?.[0]?.video) ||
-    cleanVal(story?.subfuentes?.[0]?.video);
-
-  if (videoPath) {
-    return { type: 'video', src: getImageUrl(videoPath) };
-  }
-
-  const imagePath =
-    cleanVal(story?.image) ||
-    cleanVal(story?.image_url) ||
-    cleanVal(story?.photo) ||
-    cleanVal(story?.picture) ||
-    cleanVal(story?.source_item_image) ||
-    cleanVal(story?.source_task_image) ||
-    cleanVal(story?.subtasks?.[0]?.image) ||
-    cleanVal(story?.subfactores?.[0]?.image) ||
-    cleanVal(story?.subfuentes?.[0]?.image);
-
-  if (imagePath) {
-    return { type: 'image', src: getImageUrl(imagePath) };
-  }
-
-  return null;
-};
+export { STORY_WINDOW_MS, parseCreatedAtMs, getStoryMedia };
 
 const formatAgo = (ms, nowMs) => {
   if (!ms) return '';
@@ -502,7 +458,7 @@ const Stories24hScreen = ({ route }) => {
     clearStoryTimers();
     if (!viewerOpen || !activeStory || !activeMedia || paused) return undefined;
 
-    if (activeMedia.type === 'image') {
+    if (activeMedia.type === 'image' || activeMedia.type === 'text') {
       const startMs = Date.now();
       progressTimerRef.current = setInterval(() => {
         const elapsed = Date.now() - startMs;
@@ -583,6 +539,11 @@ const Stories24hScreen = ({ route }) => {
   useEffect(() => {
     if (!viewerOpen) return;
   }, [viewerOpen, activeUserIndex, activeStoryIndex, activeUser?.userId, activeStory?.id, activeMedia]);
+
+  useEffect(() => {
+    // El aro del avatar pasa a gris en cuanto se abre (también con las propias).
+    if (viewerOpen && activeStory?.id) markStorySeen(activeStory.id);
+  }, [viewerOpen, activeStory?.id]);
 
   useEffect(() => {
     if (!viewerOpen || !activeStory?.id || !currentUserId || isOwnActiveStory) return;
@@ -964,6 +925,13 @@ const Stories24hScreen = ({ route }) => {
                   />
                   <Text style={styles.viewerTime}>{formatAgo(activeStory._createdMs, nowMs)}</Text>
                 </View>
+                <FollowHeart
+                  userId={activeUser?.userId}
+                  username={activeUser?.username}
+                  size={22}
+                  style={styles.viewerFollowHeart}
+                  iconStyle={styles.viewerFollowHeartGlow}
+                />
                 <TouchableOpacity style={styles.headerBtn} onPress={() => setMuted((prev) => !prev)}>
                   <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={22} color="#fff" />
                 </TouchableOpacity>
@@ -1007,11 +975,26 @@ const Stories24hScreen = ({ route }) => {
                             isLooping={false}
                             onPlaybackStatusUpdate={onVideoStatusUpdate}
                           />
+                        ) : activeMedia.type === 'text' ? (
+                          <View style={styles.testimonialStory}>
+                            <Ionicons name="chatbox-ellipses" size={30} color="#fff" />
+                            {activeMedia.title ? (
+                              <Text style={styles.testimonialStoryTitle} numberOfLines={2}>{activeMedia.title}</Text>
+                            ) : null}
+                            {activeMedia.text ? (
+                              <Text style={styles.testimonialStoryText} numberOfLines={8}>“{activeMedia.text}”</Text>
+                            ) : null}
+                            {activeMedia.forUsername ? (
+                              <Text style={styles.testimonialStoryFor}>Testimonio para @{activeMedia.forUsername}</Text>
+                            ) : null}
+                          </View>
                         ) : (
                           <Image source={{ uri: activeMedia.src }} style={styles.sharedStoryMediaVideo} contentFit="cover" />
                         )}
                       </View>
 
+                      {/* El testimonio ya muestra su texto en la tarjeta. */}
+                      {activeMedia.type === 'text' ? null : (
                       <View style={styles.sharedStoryDetails}>
                         {originalTitle ? (
                           <Text style={styles.sharedStoryTitle} numberOfLines={2}>{originalTitle}</Text>
@@ -1023,6 +1006,7 @@ const Stories24hScreen = ({ route }) => {
                           <Text style={styles.sharedStoryDescription} numberOfLines={2}>{sourceDescription}</Text>
                         ) : null}
                       </View>
+                      )}
                     </Pressable>
 
                     {sourcePromptVisible && originalTaskId ? (
@@ -1430,6 +1414,12 @@ const styles = StyleSheet.create({
   viewerUsernameWrap: { maxWidth: 180 },
   viewerUsername: { color: '#fff', fontWeight: '700', fontSize: 13 },
   viewerTime: { color: '#ccc', fontSize: 12, marginTop: 2 },
+  // Corazón de seguir al otro extremo de la cabecera; brillo para verse sobre la historia.
+  viewerFollowHeart: { marginRight: 10 },
+  viewerFollowHeartGlow: Platform.select({
+    web: { textShadow: '0px 0px 3px rgba(255,255,255,0.9)' },
+    default: { textShadowColor: 'rgba(255,255,255,0.9)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 3 },
+  }),
   mediaWrap: { flex: 1 },
   sharedStoryMediaWrap: {
     paddingTop: Platform.OS === 'web' ? 30 : 48,
@@ -1497,6 +1487,20 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#000',
   },
+  // Testimonio compartido: tarjeta con la cita en lugar de foto o video.
+  testimonialStory: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    paddingHorizontal: 28,
+    paddingBottom: 90,
+    backgroundColor: '#6741d9',
+  },
+  testimonialStoryTitle: { color: '#fff', fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  testimonialStoryText: { color: '#fff', fontSize: 18, lineHeight: 26, fontStyle: 'italic', textAlign: 'center' },
+  testimonialStoryFor: { color: '#e5dbff', fontSize: 13, fontWeight: '700' },
   sharedStoryDetails: {
     position: 'absolute',
     left: 0,

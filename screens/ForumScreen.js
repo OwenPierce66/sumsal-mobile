@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
-  RefreshControl, TextInput, Platform, ActivityIndicator, Alert
+  RefreshControl, TextInput, Platform, ActivityIndicator, Alert, ScrollView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import moment from 'moment';
@@ -9,10 +9,16 @@ import 'moment/locale/es';
 import { getImageUrl } from '@api';
 import { Image } from 'expo-image';
 import TouchableUsername from '@components/TouchableUsername';
+import FollowHeart from '@components/FollowHeart';
+import ContentActionsButton from '@components/ContentActionsMenu';
 import { usePostsInfinite, usePostMutations, useMe } from '@hooks/useApi';
 import { flattenPosts } from '../utils/postsPages';
 import { useIsOnline } from '../hooks/useIsOnline';
 import OfflineEmptyState from '../components/OfflineEmptyState';
+import { useMessageExtras, MessageExtrasView } from '@components/MessageExtras';
+import CategoryFilterBar from '@components/CategoryFilterBar';
+import CategoryPicker from '@components/CategoryPicker';
+import CategoryChips from '@components/CategoryChips';
 
 moment.locale('es');
 
@@ -24,6 +30,12 @@ const ForumScreen = ({ navigation, route }) => {
   const [newPostTitle,   setNewPostTitle]   = useState('');
   const [newPostContent, setNewPostContent] = useState('');
   const [editingPost,    setEditingPost]    = useState(null);
+  const [newPostCategories, setNewPostCategories] = useState('');
+  // Filtro por categoría y subcategorías, como el de las tareas ("Tema,Subtema").
+  const [category, setCategory] = useState(route?.params?.category || '');
+  useEffect(() => {
+    if (route?.params?.category !== undefined) setCategory(route.params.category || '');
+  }, [route?.params?.category]);
 
   // ─── React Query ────────────────────────────────────────────────────────────
   const {
@@ -34,7 +46,7 @@ const ForumScreen = ({ navigation, route }) => {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = usePostsInfinite(filterUserId);
+  } = usePostsInfinite(filterUserId, category);
   const posts = useMemo(() => flattenPosts(data), [data]);
   const isOnline = useIsOnline();
   const { data: me } = useMe();
@@ -65,20 +77,26 @@ const ForumScreen = ({ navigation, route }) => {
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
   const handleCreatePost = async () => {
-    if (!newPostTitle.trim() || !newPostContent.trim()) {
-      Alert.alert('Error', 'Título y contenido son requeridos');
+    if (!newPostTitle.trim() || (!newPostContent.trim() && !extras.hasMedia)) {
+      Alert.alert('Error', 'Escribe un título y un contenido (o adjunta una foto o video).');
       return;
     }
     try {
       if (editingPost) {
-        await editPost.mutateAsync({ id: editingPost.id, title: newPostTitle, content: newPostContent });
+        await editPost.mutateAsync({
+          id: editingPost.id, title: newPostTitle, content: newPostContent, categories: newPostCategories,
+        });
       } else {
-        await createPost.mutateAsync({ title: newPostTitle, content: newPostContent });
+        await createPost.mutateAsync(await extras.buildBody({
+          title: newPostTitle, content: newPostContent, categories: newPostCategories,
+        }));
       }
       setModalVisible(false);
       setEditingPost(null);
       setNewPostTitle('');
       setNewPostContent('');
+      setNewPostCategories('');
+      extras.reset();
       Alert.alert('Éxito', editingPost ? 'Post actualizado correctamente' : 'Post creado correctamente');
     } catch (error) {
       console.error('Error creating/editing post:', error.response?.data || error.message);
@@ -90,6 +108,7 @@ const ForumScreen = ({ navigation, route }) => {
     setEditingPost(post);
     setNewPostTitle(post.title || '');
     setNewPostContent(post.content || '');
+    setNewPostCategories(post.categories || '');
     setModalVisible(true);
   };
 
@@ -106,6 +125,9 @@ const ForumScreen = ({ navigation, route }) => {
   };
 
   const handleTogglePostLike = (postId) => likePost.mutate(postId);
+
+  // Clip del post nuevo: publicación guardada, etiquetas y foto o video (al editar solo título y texto).
+  const extras = useMessageExtras({ currentUserId, allowMedia: !editingPost });
 
   const isSaving = createPost.isPending || editPost.isPending;
 
@@ -133,8 +155,25 @@ const ForumScreen = ({ navigation, route }) => {
           />
           <Text style={styles.postDate}>{moment(item.created_at).fromNow()}</Text>
         </View>
+        <FollowHeart userId={item.user?.id} username={getPostAuthorName(item)} style={styles.followHeart} />
+        <ContentActionsButton
+          accessibilityLabel="Más opciones del post"
+          size={20}
+          style={styles.followHeart}
+          author={item.user}
+          currentUserId={currentUserId}
+          navigation={navigation}
+          report={{ targetType: 'forum_post', targetId: item.id }}
+          editLabel="Editar post"
+          deleteLabel="Eliminar post"
+          {...(currentUserId === item.user?.id
+            ? { onEdit: () => openEditPost(item), onDelete: () => handleDeletePost(item.id) }
+            : {})}
+        />
       </View>
-      <Text style={styles.postContent} numberOfLines={2}>{item.content}</Text>
+      {item.content ? <Text style={styles.postContent} numberOfLines={2}>{item.content}</Text> : null}
+      <CategoryChips categories={item.categories} onPress={setCategory} />
+      <MessageExtrasView item={item} navigation={navigation} compact />
       {currentUserId === item.user?.id && (
         <View style={{ flexDirection: 'row', gap: 16, marginBottom: 8 }}>
           <TouchableOpacity onPress={() => openEditPost(item)}>
@@ -185,10 +224,11 @@ const ForumScreen = ({ navigation, route }) => {
             <Ionicons name="close-circle" size={24} color="#999" />
           </TouchableOpacity>
         ) : null}
-        <TouchableOpacity style={styles.createBtn} onPress={() => setModalVisible(true)}>
+        <TouchableOpacity style={styles.createBtn} onPress={() => setModalVisible(true)} accessibilityLabel="Crear post">
           <Ionicons name="add" size={24} color="#fff" />
         </TouchableOpacity>
       </View>
+      <CategoryFilterBar value={category} onChange={setCategory} showStatuses={false} style={styles.filterBar} />
 
       <FlatList
         data={posts}
@@ -208,7 +248,9 @@ const ForumScreen = ({ navigation, route }) => {
             isOnline ? (
               <View style={{ alignItems: 'center', marginTop: 50 }}>
                 <Ionicons name="chatbox-outline" size={60} color="#ccc" />
-                <Text style={{ marginTop: 16, color: '#999' }}>No hay posts aún</Text>
+                <Text style={{ marginTop: 16, color: '#999' }}>
+                  {category ? 'No hay posts en esta categoría' : 'No hay posts aún'}
+                </Text>
               </View>
             ) : (
               <OfflineEmptyState onRetry={refetch} />
@@ -232,6 +274,7 @@ const ForumScreen = ({ navigation, route }) => {
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
+            <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
             <TextInput
               style={styles.input}
               placeholder="Título del post"
@@ -247,6 +290,18 @@ const ForumScreen = ({ navigation, route }) => {
               multiline
               placeholderTextColor="#999"
             />
+            {/* Antes de publicar: categorías de la app o las tuyas, con sus subcategorías. */}
+            <CategoryPicker value={newPostCategories} onChange={setNewPostCategories} />
+            {editingPost ? null : (
+              <>
+                <View style={styles.extrasRow}>
+                  {extras.clip}
+                  <Text style={styles.extrasHint}>Publicación guardada, etiquetas o foto/video</Text>
+                </View>
+                {extras.preview}
+              </>
+            )}
+            </ScrollView>
             <TouchableOpacity
               style={[styles.submitBtn, isSaving && { opacity: 0.6 }]}
               onPress={handleCreatePost}
@@ -261,6 +316,7 @@ const ForumScreen = ({ navigation, route }) => {
           </View>
         </View>
       )}
+      {extras.pickers}
     </View>
   );
 };
@@ -275,6 +331,10 @@ const styles = StyleSheet.create({
   likeButton:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
   postCard:     { backgroundColor: '#fff', marginBottom: 12, borderRadius: 12, padding: 12, elevation: 2 },
   postHeader:   { flexDirection: 'row', marginBottom: 12, gap: 10 },
+  // Corazón de seguir al otro extremo de la cabecera, separado del nombre.
+  followHeart:  { alignSelf: 'flex-start' },
+  extrasRow:    { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  extrasHint:   { flex: 1, fontSize: 12, color: '#868e96' },
   avatar:       { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#eee' },
   postTitle:    { fontSize: 16, fontWeight: 'bold', color: '#000', flex: 1 },
   postAuthor:   { fontSize: 12, color: '#4dabf7', fontWeight: '600', marginTop: 2 },
@@ -285,7 +345,9 @@ const styles = StyleSheet.create({
   statText:     { fontSize: 12, color: '#666', fontWeight: '600' },
   loader:       { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.8)' },
   modal:        { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 30 },
+  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 30, maxHeight: '90%' },
+  modalBody:    { flexGrow: 0, marginBottom: 12 },
+  filterBar:    { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
   modalHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   modalTitle:   { fontSize: 18, fontWeight: 'bold', color: '#333' },
   input:        { borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 14, color: '#333' },

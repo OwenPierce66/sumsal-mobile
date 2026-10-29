@@ -131,7 +131,7 @@ it('ya no ofrece traducir el título', async () => {
 it('se puede guardar oculta: solo en mi perfil, para ver cómo quedaría', async () => {
   const renderer = await renderScreen();
   await type(renderer, '¿Qué objetivo quieres compartir?', 'Borrador');
-  expect(textsOf(renderer)).toContain('Todos podrán verla en el inicio, en reels y en tu perfil.');
+  expect(textsOf(renderer)).toContain('Todos podrán verla en Aportaciones, en reels y en tu perfil.');
 
   await pressText(renderer, 'Solo en mi perfil (oculta)');
   expect(textsOf(renderer)).toContain('GUARDAR OCULTA');
@@ -155,6 +155,46 @@ it('por defecto se publica para todos y al editar respeta si estaba oculta', asy
   await pressText(renderer, 'Publicar ahora');
   await pressText(renderer, 'GUARDAR CAMBIOS');
   expect(formValue(api.patch.mock.calls[0][1], 'is_hidden')).toBe('false');
+});
+
+describe('testimonio en el perfil de otra persona', () => {
+  const LUIS = { id: 'luis-id', username: 'luis' };
+
+  it('es una publicación más, sin elegir PCH ni modo oculto, para ese perfil', async () => {
+    const renderer = await renderScreen({ initialPch: undefined, testimonialFor: LUIS });
+    const texts = textsOf(renderer);
+    expect(texts).toContain('Testimonio para @luis');
+    expect(texts).not.toContain('Tipo de aportación (obligatorio)');
+    expect(texts).not.toContain('CONSEJOS');
+    expect(texts).not.toContain('¿Cómo la quieres compartir?');
+    // Solo su texto: sin Aportaciones, Factores ni Fuentes.
+    expect(texts).not.toContain('Factores');
+    expect(texts).not.toContain('Fuentes');
+
+    await type(renderer, '¿Qué quieres decir de luis?', 'Gran maestro');
+    await pressText(renderer, 'ENVIAR TESTIMONIO');
+    const [url, formData] = api.post.mock.calls[0];
+    expect(url).toBe('tasks/');
+    expect(formValue(formData, 'pch')).toBe('testimonios');
+    expect(formValue(formData, 'testimonial_for')).toBe('luis-id');
+    expect(formValue(formData, 'is_hidden')).toBe('false');
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Testimonio enviado', 'luis decide si lo muestra en su perfil. Te avisaremos cuando lo haga.',
+    );
+  });
+
+  it('al editarlo sigue siendo testimonio (lo dice la propia publicación)', async () => {
+    const renderer = await renderScreen({
+      initialPch: undefined,
+      task: {
+        id: 't1', title: 'Gran maestro', pch: 'testimonios', categories: '', testimonial_for_info: LUIS,
+        subtasks: [], subfactores: [], subfuentes: [],
+      },
+    });
+    expect(textsOf(renderer)).toContain('Testimonio para @luis');
+    await pressText(renderer, 'GUARDAR CAMBIOS');
+    expect(formValue(api.patch.mock.calls[0][1], 'pch')).toBe('testimonios');
+  });
 });
 
 describe('apoyo monetario al crear una petición', () => {

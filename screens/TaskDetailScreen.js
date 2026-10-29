@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import moment from 'moment'; 
 import 'moment/locale/es'; 
-import api, { getImageUrl } from '@api';
+import api, { getImageUrl, UPLOAD_TIMEOUT_MS } from '@api';
 import { Image } from 'expo-image';
 import ShareModal from '@components/ShareModal';
 import TieredLikesModal from './TieredLikesModal';
@@ -17,13 +17,18 @@ import TaskActionsModal from '@components/TaskActionsModal';
 import ReportContentButton from '@components/ReportContentButton';
 import useTaskActions from '@hooks/useTaskActions';
 import TouchableUsername from '@components/TouchableUsername';
+import FollowHeart from '@components/FollowHeart';
+import ContentActionsButton from '@components/ContentActionsMenu';
 import AportacionCard from '@components/AportacionCard';
+import { CommentAttachMenu, CommentMediaChip, CommentAttachmentView } from '@components/CommentAttachments';
 import FavoriteAportacionPicker from '@components/FavoriteAportacionPicker';
 import HiddenTaskBanner from '@components/HiddenTaskBanner';
 import UserTagPicker from '@components/UserTagPicker';
 import { useTaskDetail, useTaskComments, useMe, useIsAdmin } from '@hooks/useApi';
-import { buildCommentPayload, getCommentAportacion } from '../utils/commentAportacion';
+import { buildCommentBody, getCommentAportacion } from '../utils/commentAportacion';
+import { pickPhotoOrVideo } from '../utils/mediaUpload';
 import { toAportacionInfo } from '../utils/aportaciones';
+import { optimisticRepost, repostFromResponse, repostSnapshot } from '../utils/repost';
 
 moment.locale('es');
 
@@ -113,9 +118,28 @@ const CommentItem = ({ comment, depth = 0, onReply, onLike, onLikeLongPress, onD
           <Text style={styles.commentLikeCount}>{comment.likes_count || 0}</Text>
           <Ionicons name={comment.user_has_liked ? "heart" : "heart-outline"} size={16} color={comment.user_has_liked ? "#ff6b6b" : "#999"} />
         </TouchableOpacity>
+        <FollowHeart
+          userId={comment.created_by?.id || comment.user?.id}
+          username={getCommentAuthorName(comment)}
+          size={18}
+          style={styles.commentFollowHeart}
+        />
+        <ContentActionsButton
+          accessibilityLabel="Más opciones del comentario"
+          author={comment.created_by || comment.user}
+          currentUserId={currentUserId}
+          navigation={navigation}
+          report={{ targetType: 'comment', targetId: comment.id }}
+          editLabel="Editar comentario"
+          deleteLabel="Eliminar comentario"
+          {...(currentUserId === (comment.created_by?.id || comment.user?.id)
+            ? { onEdit: () => onEdit(comment), onDelete: () => onDelete(comment.id) }
+            : {})}
+        />
       </View>
 
-      <Text style={styles.commentText}>{comment.text || comment.content}</Text>
+      {comment.text || comment.content ? <Text style={styles.commentText}>{comment.text || comment.content}</Text> : null}
+      <CommentAttachmentView comment={comment} />
 
       {comment.tagged_users?.length ? (
         <View style={styles.commentTags}>
@@ -205,6 +229,8 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const [commentTags, setCommentTags] = useState([]);
   const [tagPickerVisible, setTagPickerVisible] = useState(false);
   const [editingTagIds, setEditingTagIds] = useState('');
+  // Foto o video adjunto al comentario nuevo (al editar no se cambia).
+  const [commentMedia, setCommentMedia] = useState(null);
 
   // Modal de likes
   const [likesModalVisible, setLikesModalVisible] = useState(false);
@@ -288,45 +314,20 @@ const TaskDetailScreen = ({ route, navigation }) => {
   const handleRepost = useCallback(async () => {
     if (!task?.id || repostInFlightRef.current) return;
     repostInFlightRef.current = true;
-    const original = {
-      user_has_reposted: Boolean(task.user_has_reposted),
-      user_has_liked: Boolean(task.user_has_liked),
-      likes_count: task.likes_count || 0,
-      interaction_score: task.interaction_score || 0,
-    };
-    const nextReposted = !original.user_has_reposted;
-    const updateTask = (userHasReposted, userHasLiked, likesCount, interactionScore) => {
-      setTask(prev => prev ? {
-        ...prev,
-        user_has_reposted: userHasReposted,
-        user_has_liked: userHasLiked,
-        likes_count: likesCount,
-        interaction_score: interactionScore,
-      } : prev);
-    };
-    updateTask(
-      nextReposted,
-      original.user_has_liked || nextReposted,
-      original.likes_count + (!original.user_has_liked && nextReposted ? 1 : 0),
-      Math.max(0, original.interaction_score + (nextReposted ? 1 : -1)),
-    );
+    const original = repostSnapshot(task);
+    const updateTask = (patch) => setTask(prev => (prev ? { ...prev, ...patch } : prev));
+    updateTask(optimisticRepost(original));
     try {
-      const response = await api.post(`/tasks/${task.id}/repost/`);
-      updateTask(
-        response.data.user_has_reposted,
-        response.data.user_has_liked,
-        response.data.likes_count,
-        response.data.interaction_score,
-      );
-      Alert.alert('Éxito', response.data.reposted ? '¡Publicación impulsada!' : 'Se quitó el impulso; el like se conserva.');
+      const response = await api.post(`tasks/${task.id}/repost/`);
+      updateTask(repostFromResponse(response.data));
     } catch (error) {
-      console.error('Error al repostear:', error.response?.data || error);
-      Alert.alert('Error', 'Error al repostear. Inténtalo de nuevo.');
-      updateTask(original.user_has_reposted, original.user_has_liked, original.likes_count, original.interaction_score);
+      console.error('Error al impulsar:', error.response?.data || error);
+      Alert.alert('Error', 'No se pudo impulsar la publicación. Inténtalo de nuevo.');
+      updateTask(original);
     } finally {
       repostInFlightRef.current = false;
     }
-  }, [task?.id, task?.user_has_reposted, task?.user_has_liked, task?.likes_count, task?.interaction_score]);
+  }, [task]);
 
   const handleShowProfileLikes = (userId) => {
     setLikesModalUrl(`profiles/${userId}/likes/`);
@@ -433,6 +434,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
 
   const resetComposer = () => {
     setCommentText('');
+    setCommentMedia(null);
     setEditingCommentId(null);
     setEditingAportacionId(null);
     setAttachedAportacion(null);
@@ -440,8 +442,13 @@ const TaskDetailScreen = ({ route, navigation }) => {
     setEditingTagIds('');
   };
 
+  const pickCommentMedia = async () => {
+    const asset = await pickPhotoOrVideo();
+    if (asset) setCommentMedia(asset);
+  };
+
   const handleAddComment = async () => {
-    if (!commentText.trim()) return;
+    if (!commentText.trim() && !(commentMedia && !editingCommentId)) return;
     setIsCreatingComment(true);
 
     try {
@@ -457,9 +464,15 @@ const TaskDetailScreen = ({ route, navigation }) => {
         }
         await api.patch(`comments/${editingCommentId}/`, changes);
       } else {
-        const payload = buildCommentPayload({ text: commentText, replyingTo, aportacion: attachedAportacion });
-        if (commentTags.length > 0) payload.tagged_user_ids = commentTags.map((user) => user.id);
-        await api.post(`tasks/${taskId}/comments/`, payload);
+        const body = await buildCommentBody({
+          text: commentText,
+          replyingTo,
+          aportacion: attachedAportacion,
+          tagIds: commentTags.map((user) => user.id),
+          media: commentMedia,
+        });
+        if (commentMedia) await api.post(`tasks/${taskId}/comments/`, body, { timeout: UPLOAD_TIMEOUT_MS });
+        else await api.post(`tasks/${taskId}/comments/`, body);
         // ⚡ ACTUALIZACIÓN OPTIMISTA: Incrementamos el conteo global al instante
         setTask(prev => prev ? { ...prev, comments_count: (prev.comments_count || 0) + 1 } : prev);
       }
@@ -813,28 +826,26 @@ const TaskDetailScreen = ({ route, navigation }) => {
         </View>
       )}
 
+      {commentMedia ? (
+        <View style={styles.attachmentBar}>
+          <CommentMediaChip media={commentMedia} onRemove={() => setCommentMedia(null)} />
+        </View>
+      ) : null}
+
       {/* INPUT DE COMENTARIO FIJO ABAJO */}
       <View style={styles.commentInputContainer}>
-        <TouchableOpacity
-          style={styles.attachBtn}
-          onPress={() => setTagPickerVisible(true)}
-          accessibilityLabel="Etiquetar personas"
-        >
-          <Ionicons
-            name={commentTags.length ? 'people' : 'person-add-outline'}
-            size={20}
-            color={commentTags.length ? '#1971c2' : '#7048e8'}
-          />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.attachBtn, attachedAportacion && styles.attachBtnActive]}
-          onPress={() => setAportacionPickerVisible(true)}
-          accessibilityLabel="Adjuntar una de tus aportaciones favoritas"
-        >
-          <Ionicons name="bookmark" size={20} color={attachedAportacion ? '#fff' : '#7048e8'} />
-        </TouchableOpacity>
+        {/* Clip: comentar con una publicación guardada, etiquetar o adjuntar una foto o video. */}
+        <CommentAttachMenu
+          onPickAportacion={() => setAportacionPickerVisible(true)}
+          onTag={() => setTagPickerVisible(true)}
+          onPickMedia={pickCommentMedia}
+          active={Boolean(attachedAportacion || commentTags.length || commentMedia)}
+          mediaDisabled={Boolean(editingCommentId)}
+        />
         <TextInput
           style={styles.input}
+          // En la web un campo de varias líneas arranca con 2 renglones: se deja en uno, como los íconos.
+          numberOfLines={Platform.OS === 'web' ? 1 : undefined}
           placeholder={editingCommentId ? "Edita tu comentario..." : replyingTo ? "Escribe tu respuesta..." : "Escribe un comentario..."}
           value={commentText}
           onChangeText={setCommentText}
@@ -849,7 +860,7 @@ const TaskDetailScreen = ({ route, navigation }) => {
           {isCreatingComment ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Ionicons name="send" size={20} color="#fff" />
+            <Ionicons name="send" size={18} color="#fff" />
           )}
         </TouchableOpacity>
       </View>
@@ -985,7 +996,9 @@ const styles = StyleSheet.create({
   
   commentWrapper: { marginBottom: 16, borderColor: '#e0e0e0' },
   commentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  commentUserInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // flex: 1 para que el corazón de seguir quede al otro extremo, junto al like.
+  commentUserInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  commentFollowHeart: { marginHorizontal: 8 },
   commentAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#eee' },
   commentAuthorWrapper: { flexShrink: 1 },
   commentAuthor: { fontSize: 14, fontWeight: 'bold', color: '#333' },
@@ -1004,12 +1017,11 @@ const styles = StyleSheet.create({
   replyBanner: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#e3f2fd', padding: 10, alignItems: 'center', borderTopWidth: 1, borderColor: '#b3e5fc' },
   replyBannerText: { fontSize: 13, color: '#333' },
   commentInputContainer: { flexDirection: 'row', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', alignItems: 'flex-end', gap: 8 },
-  input: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 20, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, minHeight: 45, maxHeight: 100 },
-  sendBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
+  // Del alto del clip y del botón de enviar (36); crece si escribes varias líneas.
+  input: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, minHeight: 36, maxHeight: 100 },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#4dabf7', justifyContent: 'center', alignItems: 'center' },
 
   // Aportación favorita adjunta al comentario
-  attachBtn: { width: 45, height: 45, borderRadius: 22.5, backgroundColor: '#f3f0ff', justifyContent: 'center', alignItems: 'center' },
-  attachBtnActive: { backgroundColor: '#7048e8' },
   hiddenBannerWrap: { paddingHorizontal: 12, paddingTop: 12 },
   attachmentBar: { paddingHorizontal: 12, paddingTop: 8, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee' },
   commentAportacion: { marginBottom: 10 },

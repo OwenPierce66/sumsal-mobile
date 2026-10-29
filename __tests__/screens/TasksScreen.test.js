@@ -185,3 +185,51 @@ it('el menú de 3 puntos tiene Descargar y avisa si la aportación no tiene medi
   await pressText(renderer, 'Descargar');
   expect(Alert.alert).toHaveBeenCalledWith('Nada para descargar', 'Esta aportación no tiene imágenes ni videos.');
 });
+
+it('impulsar cambia el botón y cuenta impulsos (no interacciones), sin aviso de éxito', async () => {
+  const pressIcon = async (renderer, name) => {
+    let node = renderer.root.findAll((child) => child.props.name === name)[0];
+    while (node && !node.props.onPress) node = node.parent;
+    await act(async () => { await node.props.onPress(); });
+  };
+  const { Ionicons } = require('@expo/vector-icons');
+  const footer = (renderer) => renderer.root.findAllByType(Ionicons)
+    .map((child) => child.props.name)
+    .filter((name) => name === 'trending-up' || name === 'trending-up-outline');
+
+  api.post.mockResolvedValueOnce({ data: {
+    reposted: true, user_has_reposted: true, user_has_liked: true, likes_count: 4, interaction_score: 7, reposts_count: 1,
+  } });
+  const renderer = await renderFeed({ id: 'yo', is_superuser: false, is_staff: false });
+  await pressIcon(renderer, 'trending-up-outline');
+  expect(api.post).toHaveBeenCalledWith('tasks/t1/repost/');
+  expect(footer(renderer)).toEqual(['trending-up']);
+  expect(textsOf(renderer)).toEqual(expect.arrayContaining(['1', '4']));
+  expect(textsOf(renderer)).not.toContain('7');
+  expect(Alert.alert).not.toHaveBeenCalled();
+
+  // Quitar el impulso conserva el like.
+  api.post.mockResolvedValueOnce({ data: {
+    reposted: false, user_has_reposted: false, user_has_liked: true, likes_count: 4, interaction_score: 6, reposts_count: 0,
+  } });
+  await pressIcon(renderer, 'trending-up');
+  expect(footer(renderer)).toEqual(['trending-up-outline']);
+  expect(textsOf(renderer)).toContain('4');
+  expect(Alert.alert).not.toHaveBeenCalled();
+});
+
+it('si impulsar falla, el botón vuelve como estaba', async () => {
+  const pressIcon = async (renderer, name) => {
+    let node = renderer.root.findAll((child) => child.props.name === name)[0];
+    while (node && !node.props.onPress) node = node.parent;
+    await act(async () => { await node.props.onPress(); });
+  };
+  global.alert = jest.fn();
+  api.post.mockRejectedValueOnce(new Error('sin red'));
+  const renderer = await renderFeed({ id: 'yo', is_superuser: false, is_staff: false });
+  await pressIcon(renderer, 'trending-up-outline');
+  const { Ionicons } = require('@expo/vector-icons');
+  expect(renderer.root.findAllByType(Ionicons).filter((child) => child.props.name === 'trending-up')).toHaveLength(0);
+  expect(textsOf(renderer)).toContain('3');
+  expect(global.alert).toHaveBeenCalledWith('No se pudo impulsar la publicación. Inténtalo de nuevo.');
+});

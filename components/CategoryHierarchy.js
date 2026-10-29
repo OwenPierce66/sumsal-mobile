@@ -21,7 +21,7 @@ const keyFor = value => normalize(value).toLowerCase();
 // infinito de renders ("Maximum update depth exceeded").
 const EMPTY_PATH = [];
 
-const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemoveCategory, selectedStatus = '', onStatusSelect, showDescendants = false, selectedCategoryPath = EMPTY_PATH, deselectable = false, containerStyle }) => {
+const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemoveCategory, selectedStatus = '', onStatusSelect, showDescendants = false, selectedCategoryPath = EMPTY_PATH, deselectable = false, containerStyle, showStatuses = true, rootTrailing = null }) => {
   const [tree, setTree] = useState(DEFAULT_SUBTHEMES);
   const [selectedPath, setSelectedPath] = useState([]);
   const [collapsedLevels, setCollapsedLevels] = useState(new Set());
@@ -96,8 +96,11 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemove
     if (treeMode) {
       const children = childrenByParent.get(node?.id == null ? null : String(node.id)) || [];
       if (keyFor(node?.name) === 'grabar podcast') {
+        const realChildren = children.filter(child => !['procesando', 'aprobada', 'aprobadas', 'aprovada', 'aprovadas'].includes(keyFor(child.name)));
+        // Donde no hay estados (p. ej. el foro) solo se ven sus subtemas.
+        if (!showStatuses) return realChildren;
         return [
-          ...children.filter(child => !['procesando', 'aprobada', 'aprobadas', 'aprovada', 'aprovadas'].includes(keyFor(child.name))),
+          ...realChildren,
           { id: 'podcast-status-processing', name: 'Procesando', virtualStatus: 'Procesando' },
           { id: 'podcast-status-approved', name: 'Aprobadas', virtualStatus: 'Aprobada' },
         ];
@@ -210,6 +213,8 @@ const CategoryHierarchy = ({ categories, availableCategories, onSelect, onRemove
               </View>
             );
           })}
+          {/* Algo extra al final de la primera fila (p. ej. buscar otra categoría). */}
+          {level === 0 ? rootTrailing : null}
         </ScrollView>
         {selectedItem && visibleChildren.length > 0
           ? renderLevel(visibleChildren, level + 1, keyFor(labelOf(selectedItem)))

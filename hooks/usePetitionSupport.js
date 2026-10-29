@@ -12,7 +12,7 @@ import api from '@api';
 
 const MAX_SYNC_ATTEMPTS = 5;
 // Las listas que traen tareas (y por tanto su support_total).
-const TASK_QUERY_KEYS = [['tasks'], ['task'], ['taskDetail'], ['profileTasks'], ['myTasks'], ['sharedTasks'], ['sharedTask'], ['favoritesFeed']];
+const TASK_QUERY_KEYS = [['petitionSupports'], ['tasks'], ['task'], ['taskDetail'], ['profileTasks'], ['myTasks'], ['sharedTasks'], ['sharedTask'], ['favoritesFeed']];
 
 // Totales confirmados en esta sesión, por id de tarea. Ganan sobre lo que traiga
 // una lista que todavía no se recarga.

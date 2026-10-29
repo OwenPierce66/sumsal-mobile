@@ -73,6 +73,7 @@ const mockFavorites = {
 };
 
 jest.mock('@hooks/useApi', () => ({
+  useStories: () => ({ data: [] }),
   useTaskDetail: () => mockTaskQuery,
   useTaskComments: () => mockCommentsQuery,
   useMe: () => mockMe,
@@ -151,7 +152,8 @@ it('los enlaces van dentro del texto de las descripciones y se abren al tocarlos
 
 it('adjunta una favorita y la envía con el comentario', async () => {
   const renderer = await renderDetail();
-  await press(renderer, 'Adjuntar una de tus aportaciones favoritas');
+  await press(renderer, 'Adjuntar al comentario');
+  await press(renderer, 'Comentar con una publicación guardada');
   await press(renderer, 'Adjuntar Mi favorita');
   expect(textsOf(renderer)).toEqual(expect.arrayContaining(['Vas a adjuntar', 'Mi favorita']));
 
@@ -165,7 +167,8 @@ it('adjunta una favorita y la envía con el comentario', async () => {
 it('las respuestas también pueden llevar una aportación favorita', async () => {
   const renderer = await renderDetail();
   await press(renderer, 'Responder');
-  await press(renderer, 'Adjuntar una de tus aportaciones favoritas');
+  await press(renderer, 'Adjuntar al comentario');
+  await press(renderer, 'Comentar con una publicación guardada');
   await press(renderer, 'Adjuntar Mi favorita');
   expect(textsOf(renderer)).toEqual(expect.arrayContaining(['Vas a adjuntar', 'Mi favorita']));
 
@@ -189,12 +192,21 @@ it('muestra el motivo cuando el backend rechaza la aportación', async () => {
     response: { status: 400, data: { aportacion: ['Solo puedes adjuntar una de tus aportaciones favoritas.'] } },
   });
   const renderer = await renderDetail();
-  await press(renderer, 'Adjuntar una de tus aportaciones favoritas');
+  await press(renderer, 'Adjuntar al comentario');
+  await press(renderer, 'Comentar con una publicación guardada');
   await press(renderer, 'Adjuntar Mi favorita');
   await typeComment(renderer, 'Hola');
   await press(renderer, 'Publicar comentario');
 
   expect(Alert.alert).toHaveBeenCalledWith('Error', 'Solo puedes adjuntar una de tus aportaciones favoritas.');
+});
+
+it('cada comentario tiene su menú de 3 puntos (el tuyo: editar y eliminar, sin reportarte)', async () => {
+  const renderer = await renderDetail();
+  await press(renderer, 'Más opciones del comentario');
+  const texts = textsOf(renderer);
+  expect(texts).toEqual(expect.arrayContaining(['Editar comentario', 'Eliminar comentario']));
+  expect(texts).not.toContain('Reportar');
 });
 
 it('al editar se puede quitar la aportación y solo se envía si cambió', async () => {
@@ -239,6 +251,7 @@ describe('etiquetar personas en comentarios (testimonios)', () => {
   };
 
   const tagSomeone = async (renderer, query, username) => {
+    await press(renderer, 'Adjuntar al comentario');
     await press(renderer, 'Etiquetar personas');
     const search = renderer.root.findAll((node) => node.type === TextInput && node.props.accessibilityLabel === 'Buscar personas para etiquetar')[0];
     await act(async () => { search.props.onChangeText(query); });
