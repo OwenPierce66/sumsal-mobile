@@ -9,6 +9,7 @@ import { Image } from 'expo-image';
 import api, { getImageUrl, UPLOAD_TIMEOUT_MS } from '@api';
 import { AuthContext } from '@app';
 import { compressImage } from '../utils/compressImage';
+import { SOCIAL_NETWORKS } from '../utils/socialLinks';
 
 const EditProfileScreen = ({ navigation, route }) => {
   const { user: initialUser } = route.params;
@@ -19,6 +20,8 @@ const EditProfileScreen = ({ navigation, route }) => {
   const [username, setUsername] = useState(initialUser?.username || '');
   const [email, setEmail] = useState(initialUser?.email || '');
   const [image, setImage] = useState(null); // Para la nueva imagen seleccionada
+  // Redes sociales: {red: usuario, enlace o número}.
+  const [socialLinks, setSocialLinks] = useState(initialUser?.social_links || {});
   const [loading, setLoading] = useState(false);
 
   const pickImage = async () => {
@@ -45,6 +48,7 @@ const EditProfileScreen = ({ navigation, route }) => {
     formData.append('first_name', firstName);
     formData.append('last_name', lastName);
     formData.append('username', username);
+    formData.append('social_links', JSON.stringify(socialLinks));
 
     if (image) {
       if (Platform.OS === 'web') {
@@ -74,7 +78,8 @@ const EditProfileScreen = ({ navigation, route }) => {
       console.error('--- ERROR ACTUALIZANDO PERFIL ---');
       console.error('Respuesta del servidor:', JSON.stringify(error.response?.data, null, 2));
       console.error('Configuración de la petición:', JSON.stringify(error.config, null, 2));
-      Alert.alert('Error', 'No se pudo actualizar el perfil.');
+      const socialError = error.response?.data?.social_links;
+      Alert.alert('Error', socialError ? String(socialError) : 'No se pudo actualizar el perfil.');
     } finally {
       setLoading(false);
     }
@@ -143,6 +148,24 @@ const EditProfileScreen = ({ navigation, route }) => {
             keyboardType="email-address"
           />
         </View>
+
+        <Text style={styles.sectionTitle}>Redes sociales</Text>
+        <Text style={styles.sectionHint}>Se muestran en tu perfil. Deja vacías las que no uses.</Text>
+        {SOCIAL_NETWORKS.map((network) => (
+          <View key={network.key} style={styles.inputGroup}>
+            <Text style={styles.label}>{network.label}</Text>
+            <TextInput
+              style={styles.input}
+              value={socialLinks[network.key] || ''}
+              onChangeText={(text) => setSocialLinks((previous) => ({ ...previous, [network.key]: text }))}
+              placeholder={network.placeholder}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType={network.key === 'whatsapp' ? 'phone-pad' : 'default'}
+              accessibilityLabel={network.label}
+            />
+          </View>
+        ))}
       </View>
     </ScrollView>
   );
@@ -225,6 +248,19 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
     color: '#333',
+  },
+  sectionTitle: {
+    alignSelf: 'flex-start',
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#333',
+    marginTop: 10,
+  },
+  sectionHint: {
+    alignSelf: 'flex-start',
+    fontSize: 12,
+    color: '#868e96',
+    marginBottom: 14,
   },
   disabledInput: {
     backgroundColor: '#e9ecef',

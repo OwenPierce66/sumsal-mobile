@@ -84,7 +84,8 @@ export const authInterceptorController = {
 // (hooks/useMyRelations) para refrescar los corazones junto a cada nombre.
 // ─────────────────────────────────────────────────────────────────────────────
 // Escrituras que cambian relaciones con perfiles o tareas (seguir, favoritos, guardar, anclar...).
-const RELATION_WRITE_PATH = /(\/|^)(follow|pfavoritos\/agregar|favoritos\/agregar|favorites\/pin|favorites\/category-pin|favorites\/collection|tasks\/[^/]+\/save|block)\/?(\?|$)/;
+// Agregar a una colección también guarda la tarea.
+const RELATION_WRITE_PATH = /(\/|^)(follow|pfavoritos\/agregar|favoritos\/agregar|favorites\/pin|favorites\/category-pin|favorites\/collection|tasks\/[^/]+\/save|collections\/[^/]+\/items|block)\/?(\?|$)/;
 const relationsListeners = new Set();
 
 export const subscribeRelationsChange = (listener) => {

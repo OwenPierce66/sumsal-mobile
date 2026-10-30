@@ -54,6 +54,8 @@ export const queryClient = new QueryClient({
  * el siguiente usuario del dispositivo vería datos del anterior.
  */
 const clearUserCache = async () => {
+  // El "ver como" de esta sesión no pasa a la siguiente.
+  setViewAs(null);
   try {
     queryClient.clear();
     await asyncStoragePersister.removeClient();
@@ -89,6 +91,11 @@ import GroupFormScreen from './screens/GroupFormScreen';
 import FollowListScreen from './screens/FollowListScreen';
 import AdminScreen from './screens/AdminScreen';
 import TopScreen from './screens/TopScreen';
+import MapScreen from './screens/MapScreen';
+import { setViewAs } from './hooks/useViewAs';
+import CategoryExplorerScreen from './screens/CategoryExplorerScreen';
+import ActivityScreen from './screens/ActivityScreen';
+import ProfileVisitsScreen from './screens/ProfileVisitsScreen';
 
 import { NotificationsProvider } from './contexts/NotificationsContext';
 
@@ -102,6 +109,7 @@ const TasksStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TasksList" component={TasksScreen} />
+      <Stack.Screen name="CategoryExplorer" component={CategoryExplorerScreen} />
       <Stack.Screen name="CreateTask" component={CreateTaskScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
@@ -169,6 +177,7 @@ const TopStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TopMain" component={TopScreen} />
+      <Stack.Screen name="CategoryExplorer" component={CategoryExplorerScreen} />
       <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
       <Stack.Screen name="SharedTaskDetail" component={SharedTaskDetailScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
@@ -227,6 +236,8 @@ const ProfileStackNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
+      <Stack.Screen name="Activity" component={ActivityScreen} />
+      <Stack.Screen name="ProfileVisits" component={ProfileVisitsScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
       <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} />
       <Stack.Screen name="PetitionSupports" component={PetitionSupportsScreen} />
@@ -264,6 +275,7 @@ const AuthenticatedTabs = () => {
           else if (route.name === 'Top') iconName = focused ? 'trophy' : 'trophy-outline';
           else if (route.name === 'HomeTab') iconName = focused ? 'list' : 'list-outline';
           else if (route.name === 'Reels') iconName = focused ? 'videocam' : 'videocam-outline';
+          else if (route.name === 'Map') iconName = focused ? 'map' : 'map-outline';
           else if (route.name === 'Stories') iconName = focused ? 'time' : 'time-outline';
           else if (route.name === 'Forum') iconName = focused ? 'chatbox' : 'chatbox-outline';
           else if (route.name === 'SharedTasks') iconName = focused ? 'share' : 'share-outline';
@@ -296,6 +308,7 @@ const AuthenticatedTabs = () => {
       <Tab.Screen name="Reels" component={ReelsScreen} options={{ tabBarLabel: 'Reels' }} />
       <Tab.Screen name="Messages" component={MessagesStackNavigator} options={{ tabBarLabel: 'Mensajes' }} />
       <Tab.Screen name="Notifications" component={NotificationsStackNavigator} options={{ tabBarLabel: 'Notificaciones' }} />
+      <Tab.Screen name="Map" component={MapScreen} options={{ tabBarLabel: 'Mapa' }} />
       <Tab.Screen name="Profile" component={ProfileStackNavigator} options={{ tabBarLabel: 'Perfil' }} />
       <Tab.Screen
         name="Stories"
@@ -318,7 +331,7 @@ const AuthenticatedTabs = () => {
 };
 
 const linking = {
-  prefixes: ['http://localhost:8081', 'sumsal://', 'http://127.0.0.1:8081'],
+  prefixes: ['http://localhost:8081', 'aportaciones://', 'http://127.0.0.1:8081'],
   config: {
     screens: {
       Home: {
@@ -335,10 +348,12 @@ const linking = {
             screens: {
               TasksList: 'tasks',
               CreateTask: 'tasks/create',
+              CategoryExplorer: 'tasks/categories',
               TaskDetail: 'tasks/:taskId',
               SharedTaskDetail: 'tasks/shared/:sharedTaskId'
             }
           },
+          Map: 'map',
           Top: {
             screens: {
               TopMain: 'top',

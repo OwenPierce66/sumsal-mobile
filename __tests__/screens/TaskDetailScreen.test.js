@@ -8,6 +8,7 @@ import { Alert, Linking, Text, TextInput } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import api from '@api';
 import TaskDetailScreen from '../../screens/TaskDetailScreen';
+import TaskSearchPicker from '../../components/TaskSearchPicker';
 
 // El corazón de seguir junto a cada nombre (useMyRelations) necesita React Query; aquí no aplica.
 jest.mock('../../hooks/useMyRelations', () => ({
@@ -314,4 +315,92 @@ it('una aportación oculta muestra el aviso y se publica desde ahí', async () =
   expect(Alert.alert).toHaveBeenCalledWith('¡Publicada!', 'Ahora todos pueden ver tu aportación.');
   expect(mockRefetch).toHaveBeenCalled();
   mockTaskQuery.data = TASK;
+});
+
+describe('anterior y siguiente recomendado', () => {
+  afterEach(() => {
+    mockTaskQuery.data = TASK;
+    mockMe.data = { id: 'me', username: 'yo' };
+  });
+
+  it('el autor elige el siguiente recomendado desde el detalle', async () => {
+    mockMe.data = { id: 'owner', username: 'owner' };
+    const renderer = await renderDetail();
+    expect(findByLabel(renderer, 'Elegir siguiente recomendado')).toBeTruthy();
+    await act(async () => {
+      await renderer.root.findByType(TaskSearchPicker).props.onSelect({ id: 't2', title: 'Parte 2' });
+    });
+    expect(api.patch).toHaveBeenCalledWith('tasks/t1/', { next_task: 't2' });
+    expect(mockRefetch).toHaveBeenCalled();
+  });
+
+  it('el autor elige también el anterior recomendado', async () => {
+    mockMe.data = { id: 'owner', username: 'owner' };
+    const renderer = await renderDetail();
+    await press(renderer, 'Elegir anterior recomendado');
+    await act(async () => {
+      await renderer.root.findByType(TaskSearchPicker).props.onSelect({ id: 't0', title: 'Parte 0' });
+    });
+    expect(api.patch).toHaveBeenCalledWith('tasks/t1/', { previous_task: 't0' });
+  });
+
+  it('todos ven anterior y siguiente y los abren; solo el autor ve Cambiar y Quitar', async () => {
+    mockTaskQuery.data = {
+      ...TASK,
+      previous_task_info: { id: 't0', title: 'Parte 0', chosen: true },
+      next_task_info: { id: 't2', title: 'Parte 2', chosen: true },
+    };
+    let renderer = await renderDetail();
+    expect(textsOf(renderer)).toEqual(expect.arrayContaining(['Anterior', 'Parte 0', 'Siguiente recomendado', 'Parte 2']));
+    expect(findByLabel(renderer, 'Quitar siguiente recomendado')).toBeUndefined();
+    await press(renderer, 'Siguiente recomendado: Parte 2');
+    expect(navigation.push).toHaveBeenCalledWith('TaskDetail', { taskId: 't2' });
+    await press(renderer, 'Anterior: Parte 0');
+    expect(navigation.push).toHaveBeenCalledWith('TaskDetail', { taskId: 't0' });
+    act(() => mounted.unmount());
+
+    mockMe.data = { id: 'owner', username: 'owner' };
+    renderer = await renderDetail();
+    await press(renderer, 'Quitar siguiente recomendado');
+    expect(api.patch).toHaveBeenCalledWith('tasks/t1/', { next_task: null });
+    await press(renderer, 'Quitar anterior recomendado');
+    expect(api.patch).toHaveBeenCalledWith('tasks/t1/', { previous_task: null });
+  });
+
+  it('muestra la serie completa en orden y abre cualquier parte', async () => {
+    mockTaskQuery.data = {
+      ...TASK,
+      previous_task_info: { id: 't0', title: 'Parte 0', chosen: false },
+      next_task_info: { id: 't2', title: 'Parte 2', chosen: true },
+      series: [
+        { id: 't0', title: 'Parte 0', current: false },
+        { id: 't1', title: TASK.title, current: true },
+        { id: 't2', title: 'Parte 2', current: false },
+      ],
+    };
+    const renderer = await renderDetail();
+    expect(textsOf(renderer)).toContain('Serie · Parte 2 de 3');
+    await press(renderer, 'Parte 3: Parte 2');
+    expect(navigation.push).toHaveBeenCalledWith('TaskDetail', { taskId: 't2' });
+    await press(renderer, 'Parte 1: Parte 0');
+    expect(navigation.push).toHaveBeenCalledWith('TaskDetail', { taskId: 't0' });
+  });
+
+  it('sin serie no muestra el panel', async () => {
+    mockTaskQuery.data = { ...TASK, next_task_info: { id: 't2', title: 'Parte 2', chosen: true }, series: null };
+    const renderer = await renderDetail();
+    expect(textsOf(renderer).some((text) => text.startsWith('Serie ·'))).toBe(false);
+  });
+
+  it('el autor solo puede quitar lo que eligió él', async () => {
+    mockMe.data = { id: 'owner', username: 'owner' };
+    mockTaskQuery.data = {
+      ...TASK,
+      previous_task_info: { id: 't0', title: 'Parte 0', chosen: false },
+      next_task_info: { id: 't2', title: 'Parte 2', chosen: false },
+    };
+    const renderer = await renderDetail();
+    expect(findByLabel(renderer, 'Quitar siguiente recomendado')).toBeUndefined();
+    expect(findByLabel(renderer, 'Quitar anterior recomendado')).toBeUndefined();
+  });
 });

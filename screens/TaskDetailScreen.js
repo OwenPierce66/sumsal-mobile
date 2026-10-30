@@ -29,6 +29,7 @@ import { buildCommentBody, getCommentAportacion } from '../utils/commentAportaci
 import { pickPhotoOrVideo } from '../utils/mediaUpload';
 import { toAportacionInfo } from '../utils/aportaciones';
 import { optimisticRepost, repostFromResponse, repostSnapshot } from '../utils/repost';
+import TaskSearchPicker from '@components/TaskSearchPicker';
 
 moment.locale('es');
 
@@ -380,6 +381,8 @@ const TaskDetailScreen = ({ route, navigation }) => {
   };
 
   // ─── React Query para data inicial ─────────────────────────────────────────
+  // Anterior / siguiente recomendado: el autor los elige desde aquí ('previous' | 'next').
+  const [seriesPicker, setSeriesPicker] = useState(null);
   const { data: taskData, isLoading: loading, refetch: refetchTask } = useTaskDetail(taskId);
   const {
     data: commentsData,
@@ -410,6 +413,15 @@ const TaskDetailScreen = ({ route, navigation }) => {
   useEffect(() => {
     if (me?.id) setCurrentUserId(me.id);
   }, [me]);
+
+  const saveSeriesLink = async (field, linkedTaskId) => {
+    try {
+      await api.patch(`tasks/${task.id}/`, { [field]: linkedTaskId });
+      await refetchTask();
+    } catch (error) {
+      Alert.alert('No se pudo guardar', String(error.response?.data?.[field]?.[0] || 'Intenta de nuevo.'));
+    }
+  };
 
   useEffect(() => {
     if (adminData) setIsAdmin(adminData.isAdmin || adminData.isStaff);
@@ -733,6 +745,115 @@ const TaskDetailScreen = ({ route, navigation }) => {
             onOpenSubMediaInReels={openSubMediaInReels}
           />
         </FeedVideoVisibilityContext.Provider>
+        {/* Anterior / siguiente recomendado por su autor (series, el próximo podcast).
+            En sus propias publicaciones el autor los elige, cambia o quita aquí mismo. */}
+        {/* La serie completa: todas las partes en orden, la actual resaltada. */}
+        {task.series?.length > 1 ? (
+          <View style={styles.seriesPanel}>
+            <Text style={styles.seriesPanelTitle}>
+              {`Serie · Parte ${task.series.findIndex((part) => part.current) + 1} de ${task.series.length}`}
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.seriesParts}>
+              {task.series.map((part, index) => (
+                <TouchableOpacity
+                  key={part.id}
+                  style={[styles.seriesPart, part.current && styles.seriesPartCurrent]}
+                  onPress={() => navigation.push('TaskDetail', { taskId: part.id })}
+                  disabled={part.current}
+                  accessibilityLabel={`Parte ${index + 1}: ${part.title || 'publicación'}`}
+                >
+                  <Text style={[styles.seriesPartNumber, part.current && styles.seriesPartTextCurrent]}>{index + 1}</Text>
+                  <Text style={[styles.seriesPartTitle, part.current && styles.seriesPartTextCurrent]} numberOfLines={2}>
+                    {part.title || 'Publicación'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+        {(task.previous_task_info || task.next_task_info || isTaskOwner) && !task.testimonial_for_info ? (
+          <View style={styles.seriesBox}>
+            {task.previous_task_info ? (
+              <View style={styles.seriesSide}>
+                <TouchableOpacity
+                  style={[styles.seriesItem, styles.seriesCard]}
+                  onPress={() => navigation.push('TaskDetail', { taskId: task.previous_task_info.id })}
+                  accessibilityLabel={`Anterior: ${task.previous_task_info.title}`}
+                >
+                  <Ionicons name="arrow-back-circle" size={22} color="#4dabf7" />
+                  <View style={styles.seriesText}>
+                    <Text style={styles.seriesLabel}>Anterior</Text>
+                    <Text style={styles.seriesTitle} numberOfLines={2}>{task.previous_task_info.title || 'Publicación'}</Text>
+                  </View>
+                </TouchableOpacity>
+                {isTaskOwner ? (
+                  <View style={styles.seriesOwnerActions}>
+                    <TouchableOpacity onPress={() => setSeriesPicker('previous')} accessibilityLabel="Cambiar anterior recomendado">
+                      <Text style={styles.seriesLink}>Cambiar</Text>
+                    </TouchableOpacity>
+                    {task.previous_task_info.chosen ? (
+                      <TouchableOpacity onPress={() => saveSeriesLink('previous_task', null)} accessibilityLabel="Quitar anterior recomendado">
+                        <Text style={[styles.seriesLink, styles.seriesLinkDanger]}>Quitar</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            ) : isTaskOwner ? (
+              <TouchableOpacity
+                style={[styles.seriesSide, styles.seriesChoose]}
+                onPress={() => setSeriesPicker('previous')}
+                accessibilityLabel="Elegir anterior recomendado"
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#4dabf7" />
+                <Text style={styles.seriesChooseText}>Elegir anterior recomendado</Text>
+              </TouchableOpacity>
+            ) : <View style={styles.seriesSide} />}
+            {task.next_task_info ? (
+              <View style={styles.seriesSide}>
+                <TouchableOpacity
+                  style={[styles.seriesItem, styles.seriesCard, styles.seriesNext]}
+                  onPress={() => navigation.push('TaskDetail', { taskId: task.next_task_info.id })}
+                  accessibilityLabel={`Siguiente recomendado: ${task.next_task_info.title}`}
+                >
+                  <View style={[styles.seriesText, styles.seriesTextNext]}>
+                    <Text style={styles.seriesLabel}>Siguiente recomendado</Text>
+                    <Text style={styles.seriesTitle} numberOfLines={2}>{task.next_task_info.title || 'Publicación'}</Text>
+                  </View>
+                  <Ionicons name="arrow-forward-circle" size={22} color="#4dabf7" />
+                </TouchableOpacity>
+                {isTaskOwner ? (
+                  <View style={[styles.seriesOwnerActions, styles.seriesOwnerActionsEnd]}>
+                    <TouchableOpacity onPress={() => setSeriesPicker('next')} accessibilityLabel="Cambiar siguiente recomendado">
+                      <Text style={styles.seriesLink}>Cambiar</Text>
+                    </TouchableOpacity>
+                    {task.next_task_info.chosen ? (
+                      <TouchableOpacity onPress={() => saveSeriesLink('next_task', null)} accessibilityLabel="Quitar siguiente recomendado">
+                        <Text style={[styles.seriesLink, styles.seriesLinkDanger]}>Quitar</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            ) : isTaskOwner ? (
+              <TouchableOpacity
+                style={[styles.seriesSide, styles.seriesChoose]}
+                onPress={() => setSeriesPicker('next')}
+                accessibilityLabel="Elegir siguiente recomendado"
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#4dabf7" />
+                <Text style={styles.seriesChooseText}>Elegir siguiente recomendado</Text>
+              </TouchableOpacity>
+            ) : <View style={styles.seriesSide} />}
+          </View>
+        ) : null}
+        <TaskSearchPicker
+          visible={Boolean(seriesPicker)}
+          onClose={() => setSeriesPicker(null)}
+          onSelect={(picked) => saveSeriesLink(seriesPicker === 'previous' ? 'previous_task' : 'next_task', picked.id)}
+          excludeTaskId={task.id}
+          title={seriesPicker === 'previous' ? 'Anterior recomendado' : 'Siguiente recomendado'}
+        />
         {/* SECCIÓN DE COMENTARIOS */}
         <View style={styles.commentsSection}>
           <Text style={styles.sectionTitle}>Comentarios</Text>
@@ -988,6 +1109,29 @@ const styles = StyleSheet.create({
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'center' },
   actionBtnText: { color: '#666', fontWeight: 'bold' },
 
+  seriesBox: { flexDirection: 'row', gap: 10, marginHorizontal: 12, marginBottom: 12 },
+  seriesPanel: { marginHorizontal: 12, marginBottom: 10, padding: 12, borderRadius: 14, backgroundColor: '#fff' },
+  seriesPanelTitle: { fontSize: 13, fontWeight: '800', color: '#1864ab', marginBottom: 8 },
+  seriesParts: { gap: 8 },
+  seriesPart: { width: 140, padding: 10, borderRadius: 12, backgroundColor: '#f1f3f5', gap: 2 },
+  seriesPartCurrent: { backgroundColor: '#4dabf7' },
+  seriesPartNumber: { fontSize: 18, fontWeight: '900', color: '#868e96' },
+  seriesPartTitle: { fontSize: 12, fontWeight: '700', color: '#343a40' },
+  seriesPartTextCurrent: { color: '#fff' },
+  seriesSide: { flex: 1, gap: 4 },
+  seriesItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  seriesCard: { padding: 10, borderRadius: 12, backgroundColor: '#e7f5ff' },
+  seriesNext: { justifyContent: 'flex-end' },
+  seriesOwnerActionsEnd: { justifyContent: 'flex-end' },
+  seriesOwnerActions: { flexDirection: 'row', gap: 14 },
+  seriesLink: { color: '#1864ab', fontSize: 12, fontWeight: '700' },
+  seriesLinkDanger: { color: '#e03131' },
+  seriesChoose: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 10, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: '#74c0fc' },
+  seriesChooseText: { color: '#1864ab', fontSize: 13, fontWeight: '700' },
+  seriesText: { flexShrink: 1 },
+  seriesTextNext: { alignItems: 'flex-end' },
+  seriesLabel: { fontSize: 11, fontWeight: '800', color: '#1864ab', textTransform: 'uppercase' },
+  seriesTitle: { fontSize: 13, fontWeight: '700', color: '#343a40' },
   commentsSection: { padding: 16, paddingBottom: 40 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 16 },
   noComments: { textAlign: 'center', color: '#999', marginTop: 20 },

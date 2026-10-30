@@ -1,4 +1,4 @@
-# Sumsal Mobile - Migración de Lebaron a React Native
+# Aportaciones Mobile - Migración de Lebaron a React Native
 
 ## ✅ Completado
 
@@ -49,7 +49,7 @@ He creado la arquitectura completa de la app mobile replicando las característi
 
 ## 🔧 Instalación de Dependencias
 
-Ejecuta en la terminal de `sumsal-mobile`:
+Ejecuta en la terminal de `aportaciones-mobile`:
 
 ```bash
 npm install @react-navigation/bottom-tabs expo-image-picker
@@ -61,7 +61,7 @@ npm install @react-navigation/bottom-tabs expo-image-picker
 
 1. **Instala las dependencias**:
    ```bash
-   cd c:\Users\owenf\Desktop\sumsal\sumsal-mobile
+   cd c:\Users\owenf\Desktop\aportaciones\aportaciones-mobile
    npm install @react-navigation/bottom-tabs expo-image-picker
    ```
 

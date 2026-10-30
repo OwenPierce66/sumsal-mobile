@@ -55,6 +55,7 @@ const NOTIFICATION_COPY = {
   comment_tag:                  { icon: 'pricetags',         color: '#845ef7', text: 'te etiquetó en un comentario. ¿Lo muestras en tu perfil como testimonio?' },
   profile_testimonial:          { icon: 'chatbox-ellipses',  color: '#845ef7', text: 'escribió un testimonio en tu perfil. ¿Lo muestras?' },
   testimonial_approved:         { icon: 'chatbox-ellipses',  color: '#845ef7', text: 'mostró tu testimonio en su perfil.' },
+  forum_invite:                 { icon: 'mail',              color: '#4dabf7', text: 'te invitó a una conversación del foro.' },
   group_join_request:           { icon: 'person-add',        color: '#4dabf7', text: 'pidió unirse a tu grupo' },
   group_join_approved:          { icon: 'people',            color: '#2f9e44', text: 'aceptó tu solicitud: ya estás en el grupo' },
   group_admin:                  { icon: 'shield-checkmark',  color: '#845ef7', text: 'te nombró admin del grupo' },
@@ -325,8 +326,16 @@ const NotificationsScreen = ({ navigation }) => {
     const saved = !!story.story_saved;
     const gone = story.story_exists === false;
     const preview = getImageUrl(story.story_image);
+    // Tocar la tarjeta (fuera de los botones) abre la historia, como cualquier notificación.
     return (
-      <View style={[styles.storyAd, !item.is_read && styles.storyAdUnread]}>
+      <TouchableOpacity
+        style={[styles.storyAd, !item.is_read && styles.storyAdUnread]}
+        onPress={() => handleOpenNotification(item)}
+        disabled={gone}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Abrir la historia que terminó"
+      >
         <View style={styles.storyAdTag}>
           <Ionicons name="time" size={12} color="#845ef7" />
           <Text style={styles.storyAdTagText}>Tu historia terminó</Text>
@@ -378,7 +387,7 @@ const NotificationsScreen = ({ navigation }) => {
         <Text style={[styles.time, !item.is_read && styles.timeUnread]}>
           {moment(item.created_at).fromNow()}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   };
 

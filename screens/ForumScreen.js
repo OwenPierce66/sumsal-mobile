@@ -19,18 +19,25 @@ import { useMessageExtras, MessageExtrasView } from '@components/MessageExtras';
 import CategoryFilterBar from '@components/CategoryFilterBar';
 import CategoryPicker from '@components/CategoryPicker';
 import CategoryChips from '@components/CategoryChips';
+import ForumAudiencePicker, { audienceOf } from '@components/ForumAudiencePicker';
 
 moment.locale('es');
 
 const ForumScreen = ({ navigation, route }) => {
   const filterUserId   = route?.params?.userId ?? null;
   const filterUserName = route?.params?.userName ?? null;
+  // Foro de un grupo: sus posts y los nuevos se publican ahí.
+  const groupId   = route?.params?.groupId ?? null;
+  const groupName = route?.params?.groupName ?? null;
 
   const [modalVisible,   setModalVisible]   = useState(false);
   const [newPostTitle,   setNewPostTitle]   = useState('');
   const [newPostContent, setNewPostContent] = useState('');
   const [editingPost,    setEditingPost]    = useState(null);
   const [newPostCategories, setNewPostCategories] = useState('');
+  // Quién ve el post: todos, seguidores, suscriptores (de paga) o invitados.
+  const [newPostVisibility, setNewPostVisibility] = useState('public');
+  const [newPostInvited, setNewPostInvited] = useState([]);
   // Filtro por categoría y subcategorías, como el de las tareas ("Tema,Subtema").
   const [category, setCategory] = useState(route?.params?.category || '');
   useEffect(() => {
@@ -46,7 +53,7 @@ const ForumScreen = ({ navigation, route }) => {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = usePostsInfinite(filterUserId, category);
+  } = usePostsInfinite(filterUserId, category, groupId);
   const posts = useMemo(() => flattenPosts(data), [data]);
   const isOnline = useIsOnline();
   const { data: me } = useMe();
@@ -81,14 +88,24 @@ const ForumScreen = ({ navigation, route }) => {
       Alert.alert('Error', 'Escribe un título y un contenido (o adjunta una foto o video).');
       return;
     }
+    if (newPostVisibility === 'invited' && !newPostInvited.length) {
+      Alert.alert('Faltan invitados', 'Elige al menos a una persona para invitar.');
+      return;
+    }
+    const audience = {
+      visibility: newPostVisibility,
+      invited_user_ids: newPostVisibility === 'invited' ? newPostInvited.map((user) => user.id) : undefined,
+    };
     try {
       if (editingPost) {
         await editPost.mutateAsync({
-          id: editingPost.id, title: newPostTitle, content: newPostContent, categories: newPostCategories,
+          id: editingPost.id, title: newPostTitle, content: newPostContent, categories: newPostCategories, ...audience,
         });
       } else {
         await createPost.mutateAsync(await extras.buildBody({
           title: newPostTitle, content: newPostContent, categories: newPostCategories,
+          ...audience,
+          group: groupId || undefined,
         }));
       }
       setModalVisible(false);
@@ -96,6 +113,8 @@ const ForumScreen = ({ navigation, route }) => {
       setNewPostTitle('');
       setNewPostContent('');
       setNewPostCategories('');
+      setNewPostVisibility('public');
+      setNewPostInvited([]);
       extras.reset();
       Alert.alert('Éxito', editingPost ? 'Post actualizado correctamente' : 'Post creado correctamente');
     } catch (error) {
@@ -109,6 +128,8 @@ const ForumScreen = ({ navigation, route }) => {
     setNewPostTitle(post.title || '');
     setNewPostContent(post.content || '');
     setNewPostCategories(post.categories || '');
+    setNewPostVisibility(post.visibility || 'public');
+    setNewPostInvited(post.invited_users || []);
     setModalVisible(true);
   };
 
@@ -154,6 +175,12 @@ const ForumScreen = ({ navigation, route }) => {
             numberOfLines={1}
           />
           <Text style={styles.postDate}>{moment(item.created_at).fromNow()}</Text>
+          {item.visibility && item.visibility !== 'public' ? (
+            <View style={styles.audienceBadge}>
+              <Ionicons name={audienceOf(item.visibility).icon} size={11} color="#845ef7" />
+              <Text style={styles.audienceText}>Solo {audienceOf(item.visibility).label.toLowerCase()}</Text>
+            </View>
+          ) : null}
         </View>
         <FollowHeart userId={item.user?.id} username={getPostAuthorName(item)} style={styles.followHeart} />
         <ContentActionsButton
@@ -214,12 +241,17 @@ const ForumScreen = ({ navigation, route }) => {
           </TouchableOpacity>
         )}
         <Text style={styles.headerTitle} numberOfLines={1}>
-          {filterUserId ? `Foro de ${filterUserName || 'usuario'}` : 'Foro'}
+          {groupId
+            ? `Foro de ${groupName || 'el grupo'}`
+            : filterUserId ? `Foro de ${filterUserName || 'usuario'}` : 'Foro'}
         </Text>
-        {filterUserId ? (
+        {filterUserId || groupId ? (
           <TouchableOpacity
             style={styles.backBtn}
-            onPress={() => navigation.setParams({ userId: undefined, userName: undefined })}
+            onPress={() => navigation.setParams({
+              userId: undefined, userName: undefined, groupId: undefined, groupName: undefined,
+            })}
+            accessibilityLabel="Volver al foro general"
           >
             <Ionicons name="close-circle" size={24} color="#999" />
           </TouchableOpacity>
@@ -292,6 +324,14 @@ const ForumScreen = ({ navigation, route }) => {
             />
             {/* Antes de publicar: categorías de la app o las tuyas, con sus subcategorías. */}
             <CategoryPicker value={newPostCategories} onChange={setNewPostCategories} />
+            <ForumAudiencePicker
+              value={newPostVisibility}
+              onChange={setNewPostVisibility}
+              invited={newPostInvited}
+              onInvitedChange={setNewPostInvited}
+              currentUserId={currentUserId}
+              inGroup={Boolean(groupId || editingPost?.group)}
+            />
             {editingPost ? null : (
               <>
                 <View style={styles.extrasRow}>
@@ -348,6 +388,8 @@ const styles = StyleSheet.create({
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 30, maxHeight: '90%' },
   modalBody:    { flexGrow: 0, marginBottom: 12 },
   filterBar:    { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  audienceBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: '#f3f0ff' },
+  audienceText: { fontSize: 11, fontWeight: '700', color: '#845ef7' },
   modalHeader:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   modalTitle:   { fontSize: 18, fontWeight: 'bold', color: '#333' },
   input:        { borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 14, color: '#333' },

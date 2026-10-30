@@ -12,6 +12,8 @@ import FilterModal from '../components/FilterModal';
 import OfflineEmptyState from '../components/OfflineEmptyState';
 import { useIsOnline } from '../hooks/useIsOnline';
 import { useReelsInfinite } from '../hooks/useApi';
+import { useViewAs } from '../hooks/useViewAs';
+import ViewAsBanner from '../components/ViewAsBanner';
 import { buildReelsFromPages } from '../utils/reelsPages';
 import TieredLikesModal from './TieredLikesModal';
 import { makeTierCounts } from '../utils/likeTiers';
@@ -276,7 +278,18 @@ const ReelsScreen = ({ route }) => {
   // estado local (`reels`) porque las acciones optimistas (like, favorito,
   // borrar…) los modifican directamente; el servidor es la fuente de verdad
   // cada vez que llegan datos nuevos.
+  // Ver como otra persona: sus reels (lo de quienes sigue), con mis permisos.
+  const viewAs = useViewAs();
+  // Su franja se esconde al pasar al siguiente reel y vuelve al regresar (como en el feed).
+  const [viewAsBannerShown, setViewAsBannerShown] = useState(true);
+  const lastReelIndexRef = useRef(activeIndex);
+  useEffect(() => {
+    if (activeIndex > lastReelIndexRef.current) setViewAsBannerShown(false);
+    else if (activeIndex < lastReelIndexRef.current) setViewAsBannerShown(true);
+    lastReelIndexRef.current = activeIndex;
+  }, [activeIndex]);
   const reelsParams = useMemo(() => ({
+    as_user: viewAs?.id,
     pch: tema,
     category: selectedCategory,
     date_filter: selectedDateFilter,
@@ -286,7 +299,7 @@ const ReelsScreen = ({ route }) => {
     followed_users_only: selectedFollowedUsersOnly,
     verified_users_only: selectedVerifiedUsersOnly,
     recommended_users_only: selectedRecommendedUsersOnly,
-  }), [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedFollowedUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+  }), [tema, selectedCategory, selectedDateFilter, selectedSortBy, selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedFollowedUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly, viewAs]);
 
   const reelsQuery = useReelsInfinite(reelsParams);
   const {
@@ -659,6 +672,9 @@ const ReelsScreen = ({ route }) => {
             <View style={styles.topBarRight} />
           </View>
         )}
+        {isUIVisible && viewAsBannerShown && (
+          <ViewAsBanner what="los reels" style={styles.viewAsBanner} />
+        )}
         {isUIVisible && paused && (
           <TouchableOpacity
             style={styles.pausedFilterButton}
@@ -788,6 +804,7 @@ const styles = StyleSheet.create({
   topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 42, width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10, paddingHorizontal: 15, pointerEvents: 'box-none' },
   topBarLeft: { flex: 1, minHeight: 36, justifyContent: 'center', alignItems: 'flex-start' },
   reelsMenuButton: { padding: 4 },
+  viewAsBanner: { position: 'absolute', top: Platform.OS === 'ios' ? 92 : 84, left: 12, right: 12, zIndex: 11, borderRadius: 12 },
   topBarCenter: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flex: 3 },
   topBarRight: { flex: 1, alignItems: 'flex-end' },
   topTab: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700', marginHorizontal: 12, textShadow: '1px 1px 3px rgba(0, 0, 0, 0.5)' },

@@ -1,7 +1,6 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, Platform, ScrollView, ActivityIndicator, LogBox } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
-import { Video } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
@@ -13,6 +12,7 @@ import FollowHeart from '../components/FollowHeart';
 import { useMyRelations } from '../hooks/useMyRelations';
 import { TIER_KEYS, TIER_META, followersShown, getTierKey } from '../utils/likeTiers';
 import { NameWithBadges } from '../components/UserBadges';
+import ReelClipMedia from '../components/ReelClipMedia';
 
 const { buildPlaylists } = require('./reelUtils');
 
@@ -66,6 +66,8 @@ const ReelItemComponent = ({
   }
 
   const [playbackStatus, setPlaybackStatus] = useState({});
+  // Forma real del reel en pantalla (para decidir si cada clip la llena).
+  const [boxRatio, setBoxRatio] = useState(windowWidth / windowHeight);
 
   const VIEW_ORDER = ["main", "factores", "fuentes"];
   const fallbackMode = VIEW_ORDER.find((m) => (playlists?.[m]?.length || 0) > 0) || "main";
@@ -149,7 +151,13 @@ const ReelItemComponent = ({
   }, [currentEntry?.type, isActive, paused, rawState.pos]);
 
   return (
-    <View style={styles.reelContainer}>
+    <View
+      style={styles.reelContainer}
+      onLayout={(event) => {
+        const { width, height } = event.nativeEvent.layout;
+        if (width > 0 && height > 0) setBoxRatio(width / height);
+      }}
+    >
       {/* 🔄 SWIPE HORIZONTAL NATIVO CLÁSICO */}
       <ScrollView
         horizontal
@@ -168,35 +176,36 @@ const ReelItemComponent = ({
         {list.length > 0 ? (
           list.map((entry, clipIdx) => (
             <View key={`${item.id}-clip-${clipIdx}`} style={{ width: windowWidth, height: '100%' }}>
-              {entry.type === 'image' ? (
-                <Image source={{ uri: getImageUrl(entry.src) }} style={styles.image} contentFit="cover" />
-              ) : (
-                <Video
-                  ref={videoRefs.current[clipIdx]}
-                  source={{ uri: getImageUrl(entry.src) }}
-                  style={styles.video}
-                  resizeMode="cover"
-                  shouldPlay={isActive && !paused && rawState.pos === clipIdx}
-                  isLooping
-                  isMuted={isMuted}
-                  progressUpdateIntervalMillis={250}
-                  onPlaybackStatusUpdate={(status) => { if (rawState.pos === clipIdx) { setPlaybackStatus(status); } }}
-                />
-              )}
+              <ReelClipMedia
+                type={entry.type === 'image' ? 'image' : 'video'}
+                uri={getImageUrl(entry.src)}
+                boxRatio={boxRatio}
+                videoRef={videoRefs.current[clipIdx]}
+                videoProps={{
+                  shouldPlay: isActive && !paused && rawState.pos === clipIdx,
+                  isLooping: true,
+                  isMuted,
+                  progressUpdateIntervalMillis: 250,
+                  onPlaybackStatusUpdate: (status) => { if (rawState.pos === clipIdx) { setPlaybackStatus(status); } },
+                }}
+              />
             </View>
           ))
         ) : (
           <View style={{ width: windowWidth, height: '100%' }}> 
-            <Video // 🪵 LOG DE DIAGNÓSTICO: Fallback Video componente
-              ref={videoRefs.current[0]} // ✅ Asignamos la primera referencia si no hay lista
-              source={{ uri: getImageUrl(item._anyMedia) }}
-              style={styles.video}
-              resizeMode="cover" 
-              shouldPlay={isActive && !paused} // ✅ Usamos la prop `paused` directamente
-              isLooping
-              isMuted={isMuted}
-              progressUpdateIntervalMillis={250}
-              onPlaybackStatusUpdate={setPlaybackStatus}
+            {/* Sin lista de clips: el video principal (la primera referencia). */}
+            <ReelClipMedia
+              type="video"
+              uri={getImageUrl(item._anyMedia)}
+              boxRatio={boxRatio}
+              videoRef={videoRefs.current[0]}
+              videoProps={{
+                shouldPlay: isActive && !paused,
+                isLooping: true,
+                isMuted,
+                progressUpdateIntervalMillis: 250,
+                onPlaybackStatusUpdate: setPlaybackStatus,
+              }}
             />
           </View>
         )}
@@ -436,8 +445,6 @@ const ReelItem = React.memo(ReelItemComponent);
 
 const styles = StyleSheet.create({
   reelContainer: { width: windowWidth, height: '100%' },
-  video: { ...StyleSheet.absoluteFillObject },
-  image: { ...StyleSheet.absoluteFillObject },
   sharedByContainer: { padding: 10, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 12, marginBottom: 10, pointerEvents: 'auto' },
   sharedByTopRow: { flexDirection: 'row', alignItems: 'center' },
   sharedByRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },

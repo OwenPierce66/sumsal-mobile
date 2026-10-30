@@ -20,10 +20,10 @@ description: "Workspace skill to help inspect, compare, and merge two Git reposi
 
 ## Suggested workflow
 1. Localiza los dos proyectos:
-   - Repository nuevo: por ejemplo `c:\Users\owenf\Desktop\sumsal\sumsal-mobile`
+   - Repository nuevo: por ejemplo `c:\Users\owenf\Desktop\aportaciones\aportaciones-mobile`
    - Repository antiguo: su ruta local o URL Git.
 2. Entra al repositorio principal (`nuevo`):
-   - `cd c:\Users\owenf\Desktop\sumsal\sumsal-mobile`
+   - `cd c:\Users\owenf\Desktop\aportaciones\aportaciones-mobile`
 3. Agrega el repo antiguo como remoto temporal:
    - `git remote add oldrepo <ruta-o-url-del-repo-antiguo>`
    - `git fetch oldrepo`

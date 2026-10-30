@@ -16,6 +16,7 @@ const LOCAL_IP  = process.env.LOCAL_IP   || '192.168.1.115';
 const API_PORT  = process.env.API_PORT   || '8001';
 const API_URL   = process.env.API_URL   || process.env.EXPO_PUBLIC_API_URL || '';
 const SENTRY_DSN = process.env.SENTRY_DSN || '';
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 
 module.exports = {
   expo: {
@@ -27,13 +28,20 @@ module.exports = {
     assetBundlePatterns: ['**/*'],
     ios: {
       supportsTablet: true,
+      config: { googleMapsApiKey: GOOGLE_MAPS_API_KEY },
     },
     android: {
-      package: 'com.sumsal.aportaciones',
+      package: 'com.aportaciones.app',
+      config: { googleMaps: { apiKey: GOOGLE_MAPS_API_KEY } },
     },
     web: {},
 
     plugins: [
+      // Pestaña Mapa: solo se pide mientras se usa la app.
+      [
+        'expo-location',
+        { locationWhenInUsePermission: 'Aportaciones usa tu ubicación para mostrarte en el mapa.' },
+      ],
       // Descargar imágenes y videos de las aportaciones a la galería.
       [
         'expo-media-library',

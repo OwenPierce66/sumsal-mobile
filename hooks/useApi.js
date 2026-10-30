@@ -309,6 +309,30 @@ export function useProfileSocial(userId) {
  * `is_recommended_by_me` y `my_comment`.
  */
 /**
+ * Colecciones (álbumes) dentro de guardados. Sin `userId`: las mías (todas).
+ */
+export function useCollections(userId = null, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: ['collections', userId || 'me'],
+    queryFn: async () => (await api.get(userId ? `collections/user/${userId}/` : 'collections/')).data,
+    enabled,
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/** Una colección con sus tareas. */
+export function useCollection(collectionId) {
+  return useQuery({
+    queryKey: ['collection', collectionId],
+    queryFn: async () => (await api.get(`collections/${collectionId}/`)).data,
+    enabled: Boolean(collectionId),
+    staleTime: 30 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
  * Actividad del perfil que su dueño decide si se ve: `kind` = likes | comments | verifications.
  */
 export function useProfileActivity(userId, kind) {
@@ -316,6 +340,20 @@ export function useProfileActivity(userId, kind) {
     queryKey: ['profileActivity', userId, kind],
     queryFn: async () => (await api.get(`users/${userId}/activity/`, { params: { kind } })).data,
     enabled: Boolean(userId && kind),
+    staleTime: 60 * 1000,
+    gcTime: GC_TIME,
+  });
+}
+
+/**
+ * Visitas a tu perfil: cuántas (7 y 30 días), quién (con suscripción en la app) y si
+ * visitas en modo anónimo.
+ */
+export function useProfileVisits(userId) {
+  return useQuery({
+    queryKey: ['profileVisits', userId],
+    queryFn: async () => (await api.get(`users/${userId}/visits/`)).data,
+    enabled: Boolean(userId),
     staleTime: 60 * 1000,
     gcTime: GC_TIME,
   });
@@ -482,10 +520,11 @@ export function useFavoritesTop(userId, { enabled = true } = {}) {
  * El backend devuelve 10 por página (StandardPagination); antes solo se leía
  * la primera, por lo que los posts más antiguos nunca eran visibles.
  */
-export function usePostsInfinite(userId = null, category = '') {
-  // Foro de un usuario y/o de una categoría ("Tema,Subtema"), como el filtro de las tareas.
+export function usePostsInfinite(userId = null, category = '', groupId = null) {
+  // Foro de un usuario, de un grupo y/o de una categoría ("Tema,Subtema"), como el filtro de las tareas.
   const filters = {};
   if (userId) filters.user = userId;
+  if (groupId) filters.group = groupId;
   if (category) filters.category = category;
   return useInfiniteQuery({
     queryKey: Object.keys(filters).length ? ['posts', filters] : ['posts'],
@@ -525,9 +564,10 @@ export function usePostMutations() {
   });
 
   const editPost = useMutation({
-    mutationFn: ({ id, title, content, categories }) => api.patch(
+    // Solo se mandan los campos que vienen (título, texto, categorías, quién lo ve, invitados).
+    mutationFn: ({ id, ...fields }) => api.patch(
       `posts/${id}/`,
-      categories === undefined ? { title, content } : { title, content, categories },
+      Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)),
     ),
     onSuccess: invalidate,
   });

@@ -15,6 +15,7 @@ import CategoryFilterBar from '../../components/CategoryFilterBar';
 import CategoryPicker from '../../components/CategoryPicker';
 import { useUsersInCategory } from '../../hooks/useCategoryFilter';
 import ForumScreen from '../../screens/ForumScreen';
+import UserTagPicker from '../../components/UserTagPicker';
 
 jest.mock('@api', () => ({
   __esModule: true,
@@ -67,6 +68,10 @@ jest.mock('@components/MessageExtras', () => ({
     buildBody: async (fields) => fields, reset: jest.fn(),
   }),
   MessageExtrasView: () => null,
+  TagChips: ({ users }) => {
+    const { Text: MockText } = require('react-native');
+    return (users || []).map((user) => <MockText key={user.id}>@{user.username}</MockText>);
+  },
 }));
 
 const textsOf = (renderer) => renderer.root.findAllByType(Text)
@@ -272,10 +277,10 @@ describe('ForumScreen', () => {
     mockUsePostsInfinite.mockReturnValue({ data: POSTS, isLoading: false });
     let renderer;
     await act(async () => { renderer = TestRenderer.create(<ForumScreen navigation={navigation} route={{ params: {} }} />); });
-    expect(mockUsePostsInfinite).toHaveBeenLastCalledWith(null, '');
+    expect(mockUsePostsInfinite).toHaveBeenLastCalledWith(null, '', null);
 
     await pressLabel(renderer, 'Categoría React');
-    expect(mockUsePostsInfinite).toHaveBeenLastCalledWith(null, 'React');
+    expect(mockUsePostsInfinite).toHaveBeenLastCalledWith(null, 'React', null);
     expect(textsOf(renderer)).toContain('React'); // resumen de la barra del filtro
     act(() => renderer.unmount());
   });
@@ -289,7 +294,39 @@ describe('ForumScreen', () => {
     await typeInto(renderer, 'Contenido del post', 'miren');
     await pressLabel(renderer, 'Elegir Salud');
     await pressText(renderer, 'Crear Post');
-    expect(mockCreatePost).toHaveBeenCalledWith({ title: 'Becas', content: 'miren', categories: 'Salud' });
+    expect(mockCreatePost).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Becas', content: 'miren', categories: 'Salud', visibility: 'public',
+    }));
+    act(() => renderer.unmount());
+  });
+
+  it('foro privado: un post solo para invitados, dentro del foro de un grupo', async () => {
+    mockUsePostsInfinite.mockReturnValue({ data: { pages: [{ results: [{
+      id: 2, title: 'Solo para el equipo', content: 'x', categories: '', visibility: 'invited',
+      user: { id: 'u1', username: 'ana' }, replies: [], likes_count: 0,
+    }] }] }, isLoading: false });
+    let renderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <ForumScreen navigation={navigation} route={{ params: { groupId: 'g1', groupName: 'Huertos' } }} />,
+      );
+    });
+    expect(mockUsePostsInfinite).toHaveBeenLastCalledWith(null, '', 'g1');
+    expect(textsOf(renderer)).toEqual(expect.arrayContaining(['Foro de Huertos', 'Solo invitados']));
+
+    await pressLabel(renderer, 'Crear post');
+    expect(textsOf(renderer)).toContain('Todo el grupo');
+    await typeInto(renderer, 'Título del post', 'Plan');
+    await typeInto(renderer, 'Contenido del post', 'detalles');
+    await pressLabel(renderer, 'Visible para Invitados');
+    await act(async () => {
+      renderer.root.findByType(UserTagPicker).props.onChange([{ id: 'luis-id', username: 'luis' }]);
+    });
+    expect(textsOf(renderer)).toContain('@luis');
+    await pressText(renderer, 'Crear Post');
+    expect(mockCreatePost).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Plan', visibility: 'invited', invited_user_ids: ['luis-id'], group: 'g1',
+    }));
     act(() => renderer.unmount());
   });
 });

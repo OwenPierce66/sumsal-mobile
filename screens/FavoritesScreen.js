@@ -27,6 +27,7 @@ import { taskCategories } from '../utils/relations';
 import CategoryFilterBar from '@components/CategoryFilterBar';
 import { useProfileCategoryFilter } from '@hooks/useCategoryFilter';
 import { categoryPath, matchesCategoryPath } from '../utils/categoryFilter';
+import SaveCollectionsPanel from '@components/SaveCollectionsPanel';
 
 const ALL = '__all__';
 
@@ -373,8 +374,9 @@ const FavoritesScreen = ({ navigation, route }) => {
       </View>
       <View style={styles.tabs}>
         {[
-          ['profiles', 'Perfiles', 'people-outline'],
-          ['tasks',    'Tareas',   'document-text-outline'],
+          ['profiles',    'Perfiles',    'people-outline'],
+          ['tasks',       'Tareas',      'document-text-outline'],
+          ['collections', 'Colecciones', 'albums-outline'],
         ].map(([type, label, icon]) => (
           <TouchableOpacity
             key={type}
@@ -386,7 +388,7 @@ const FavoritesScreen = ({ navigation, route }) => {
           </TouchableOpacity>
         ))}
       </View>
-      {isOwner ? (
+      {isOwner && activeType !== 'collections' ? (
         <View style={styles.toolbar}>
           <Text style={styles.helper} numberOfLines={2}>
             {activeType === 'profiles'
@@ -421,7 +423,9 @@ const FavoritesScreen = ({ navigation, route }) => {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} />}
           contentContainerStyle={styles.list}
         >
-          {isEmpty ? (
+          {activeType === 'collections' ? (
+            <SaveCollectionsPanel userId={userId} navigation={navigation} />
+          ) : isEmpty ? (
             <Text style={styles.empty}>{emptyText}</Text>
           ) : activeType === 'profiles' ? renderProfiles() : (
             activeCategory === ALL ? renderAllTasks() : renderCategoryTasks()

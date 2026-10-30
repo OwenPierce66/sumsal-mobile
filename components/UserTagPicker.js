@@ -25,11 +25,12 @@ const UserTagPicker = ({ visible, onClose, selected = [], onChange, excludeIds =
 
   useEffect(() => {
     const text = query.trim();
-    if (!visible || !text) {
+    if (!visible) {
       setResults([]);
       return undefined;
     }
     let cancelled = false;
+    // Sin texto: sugerencias al abrir (a quien sigues, quien te sigue y otras cuentas).
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
@@ -40,7 +41,7 @@ const UserTagPicker = ({ visible, onClose, selected = [], onChange, excludeIds =
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }, SEARCH_DELAY_MS);
+    }, text ? SEARCH_DELAY_MS : 0);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [query, visible]);
 
@@ -87,6 +88,9 @@ const UserTagPicker = ({ visible, onClose, selected = [], onChange, excludeIds =
             />
           </View>
           <Text style={styles.counter}>{selected.length} de {MAX_TAGS} etiquetas</Text>
+          {!query.trim() && !loading && visibleResults.length ? (
+            <Text style={styles.sectionLabel}>Sugerencias</Text>
+          ) : null}
 
           {loading ? (
             <ActivityIndicator style={styles.loader} color="#4dabf7" />
@@ -97,7 +101,7 @@ const UserTagPicker = ({ visible, onClose, selected = [], onChange, excludeIds =
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={(
                 <Text style={styles.empty}>
-                  {query.trim() ? 'No se encontraron personas.' : 'Escribe un nombre para buscar.'}
+                  {query.trim() ? 'No se encontraron personas.' : 'Escribe un nombre para buscar a alguien.'}
                 </Text>
               )}
               renderItem={({ item }) => {
@@ -146,6 +150,7 @@ const styles = StyleSheet.create({
   searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: '#f1f3f5' },
   searchInput: { flex: 1, height: 42, fontSize: 14, color: '#333' },
   counter: { fontSize: 12, color: '#868e96', marginTop: 6, marginBottom: 4 },
+  sectionLabel: { fontSize: 12, fontWeight: '800', color: '#495057', marginTop: 4 },
   loader: { marginTop: 24 },
   empty: { textAlign: 'center', color: '#868e96', marginTop: 24 },
   row: {

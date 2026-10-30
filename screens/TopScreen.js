@@ -2,11 +2,14 @@ import React, { useCallback, useState } from 'react';
 import {
   Platform, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { getImageUrl } from '@api';
 import { useMe } from '@hooks/useApi';
 import ProfileTopFive from '@components/ProfileTopFive';
 import TopicTopSections from '@components/TopicTopSections';
+import ViewAsBanner from '@components/ViewAsBanner';
+import { useViewAs } from '@hooks/useViewAs';
 
 const PERIODS = [
   { value: 'top_day', label: '24 h' },
@@ -22,6 +25,8 @@ const TopScreen = ({ navigation }) => {
   const queryClient = useQueryClient();
   const { data: me } = useMe();
   const [period, setPeriod] = useState('top_month');
+  // Ver como otra persona: su top 5 (si lo muestra) y lo más votado de quienes sigue.
+  const viewAs = useViewAs();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
@@ -54,8 +59,26 @@ const TopScreen = ({ navigation }) => {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <Text style={styles.title}>Top</Text>
+      <ViewAsBanner what="el top" style={styles.viewAsBanner} />
 
-      {me?.id ? (
+      <TouchableOpacity
+        style={styles.explore}
+        onPress={() => navigation.navigate('CategoryExplorer')}
+        accessibilityLabel="Explorar categorías"
+      >
+        <Ionicons name="grid-outline" size={22} color="#1864ab" />
+        <View style={styles.exploreText}>
+          <Text style={styles.exploreTitle}>Explorar categorías</Text>
+          <Text style={styles.exploreSubtitle}>Cada tema con su imagen, de qué trata y lo más destacado</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color="#1864ab" />
+      </TouchableOpacity>
+
+      {viewAs ? (
+        <View style={styles.block}>
+          <ProfileTopFive userId={viewAs.id} isCurrentUser={false} navigation={navigation} onOpenProfile={openProfile} />
+        </View>
+      ) : me?.id ? (
         <View style={styles.block}>
           <ProfileTopFive userId={me.id} isCurrentUser navigation={navigation} onOpenProfile={openProfile} />
         </View>
@@ -77,7 +100,7 @@ const TopScreen = ({ navigation }) => {
           ))}
         </View>
       </View>
-      <TopicTopSections navigation={navigation} onSelectTopic={openTopic} sortBy={period} />
+      <TopicTopSections navigation={navigation} onSelectTopic={openTopic} sortBy={period} asUser={viewAs?.id} />
     </ScrollView>
   );
 };
@@ -87,6 +110,11 @@ const styles = StyleSheet.create({
   content: { paddingTop: Platform.OS === 'android' ? 34 : 16, paddingBottom: 24 },
   title: { fontSize: 24, fontWeight: '800', color: '#333', marginHorizontal: 16, marginBottom: 8 },
   block: { marginHorizontal: 12 },
+  viewAsBanner: { marginHorizontal: 12, marginBottom: 12, borderRadius: 12 },
+  explore: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginBottom: 12, padding: 12, borderRadius: 14, backgroundColor: '#e7f5ff' },
+  exploreText: { flex: 1 },
+  exploreTitle: { fontSize: 15, fontWeight: '800', color: '#1864ab' },
+  exploreSubtitle: { fontSize: 12, color: '#1971c2', marginTop: 2 },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: '#333' },
   periodRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginHorizontal: 16, marginTop: 12 },
   periods: { flexDirection: 'row', gap: 6 },

@@ -9,6 +9,7 @@ import { Alert, Text, TextInput } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import api from '@api';
 import CreateTaskScreen from '../../screens/CreateTaskScreen';
+import TaskSearchPicker from '../../components/TaskSearchPicker';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
@@ -155,6 +156,37 @@ it('por defecto se publica para todos y al editar respeta si estaba oculta', asy
   await pressText(renderer, 'Publicar ahora');
   await pressText(renderer, 'GUARDAR CAMBIOS');
   expect(formValue(api.patch.mock.calls[0][1], 'is_hidden')).toBe('false');
+});
+
+it('se pueden elegir el anterior y el siguiente recomendado y al editar quitarlos', async () => {
+  let renderer = await renderScreen();
+  await type(renderer, '¿Qué objetivo quieres compartir?', 'Parte 1');
+  const pressLabel = async (label) => {
+    const target = renderer.root.findAll((node) => node.props.accessibilityLabel === label && node.props.onPress)[0];
+    await act(async () => { target.props.onPress(); });
+  };
+  await pressLabel('Elegir siguiente recomendado');
+  await act(async () => {
+    renderer.root.findByType(TaskSearchPicker).props.onSelect({ id: 't2', title: 'Parte 2' });
+  });
+  await pressLabel('Elegir anterior recomendado');
+  await act(async () => {
+    renderer.root.findByType(TaskSearchPicker).props.onSelect({ id: 't0', title: 'Parte 0' });
+  });
+  expect(textsOf(renderer)).toEqual(expect.arrayContaining(['Siguiente: Parte 2', 'Anterior: Parte 0']));
+  await pressText(renderer, 'PUBLICAR ÉXITO');
+  expect(formValue(api.post.mock.calls[0][1], 'next_task')).toBe('t2');
+  expect(formValue(api.post.mock.calls[0][1], 'previous_task')).toBe('t0');
+  act(() => mounted.unmount());
+
+  renderer = await renderScreen({ task: {
+    id: 't1', title: 'Parte 1', pch: 'consejos', categories: '', next_task_info: { id: 't2', title: 'Parte 2' },
+    subtasks: [], subfactores: [], subfuentes: [],
+  } });
+  const remove = renderer.root.findAll((node) => node.props.accessibilityLabel === 'Quitar siguiente recomendado' && node.props.onPress)[0];
+  await act(async () => { remove.props.onPress(); });
+  await pressText(renderer, 'GUARDAR CAMBIOS');
+  expect(formValue(api.patch.mock.calls[0][1], 'next_task')).toBe('');
 });
 
 describe('testimonio en el perfil de otra persona', () => {

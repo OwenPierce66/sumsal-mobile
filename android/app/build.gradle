@@ -61,6 +61,15 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
+// La clave de Google Maps vive en .env (no está en git).
+def googleMapsApiKey = ""
+def dotEnv = rootProject.file("../.env")
+if (dotEnv.exists()) {
+    dotEnv.eachLine { line ->
+        if (line.startsWith("GOOGLE_MAPS_API_KEY=")) googleMapsApiKey = line.substring("GOOGLE_MAPS_API_KEY=".length()).trim()
+    }
+}
+
 def enableProguardInReleaseBuilds = (findProperty('android.enableProguardInReleaseBuilds') ?: false).toBoolean()
 
 /**
@@ -81,13 +90,14 @@ android {
 
     compileSdkVersion rootProject.ext.compileSdkVersion
 
-    namespace 'com.sumsal.aportaciones'
+    namespace 'com.aportaciones.app'
     defaultConfig {
-        applicationId 'com.sumsal.aportaciones'
+        applicationId 'com.aportaciones.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
+        manifestPlaceholders = [googleMapsApiKey: googleMapsApiKey]
 
         buildConfigField("boolean", "REACT_NATIVE_UNSTABLE_USE_RUNTIME_SCHEDULER_ALWAYS", (findProperty("reactNative.unstable_useRuntimeSchedulerAlways") ?: true).toString())
     }

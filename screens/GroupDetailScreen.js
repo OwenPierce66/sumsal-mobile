@@ -317,6 +317,20 @@ const GroupDetailScreen = ({ navigation, route }) => {
             </TouchableOpacity>
           )}
         </View>
+        {canSeeContent ? (
+          // Cada grupo tiene su foro; en uno privado solo lo ven sus integrantes.
+          <TouchableOpacity
+            style={styles.forumButton}
+            onPress={() => navigation.getParent()?.navigate('Forum', {
+              screen: 'ForumMain', params: { groupId: group.id, groupName: group.name },
+            })}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir el foro del grupo"
+          >
+            <Ionicons name="chatbox-ellipses-outline" size={18} color="#4dabf7" />
+            <Text style={styles.forumButtonText}>Foro del grupo</Text>
+          </TouchableOpacity>
+        ) : null}
         {isMember && !isAdmin ? (
           <Text style={styles.hint}>Lo que publiques aquí lo revisa un admin antes de que se vea.</Text>
         ) : null}
@@ -490,6 +504,11 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12, color: '#868e96' },
   tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, marginBottom: 10, flexWrap: 'wrap' },
   filterBar: { marginBottom: 6 },
+  forumButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10,
+    borderRadius: 12, borderWidth: 1, borderColor: '#4dabf7', backgroundColor: '#fff',
+  },
+  forumButtonText: { color: '#4dabf7', fontWeight: '700' },
   tab: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 14, borderWidth: 1, borderColor: '#d0ebff', backgroundColor: '#fff' },
   tabActive: { backgroundColor: '#4dabf7', borderColor: '#4dabf7' },
   tabText: { color: '#4dabf7', fontWeight: '700', fontSize: 13 },

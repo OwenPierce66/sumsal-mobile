@@ -57,7 +57,7 @@ const SideMenu = ({ navigation, signOut, user, buttonStyle }) => {
           <View style={styles.panel}>
             <View style={styles.header}>
               <View>
-                <Text style={styles.title}>Sumsal</Text>
+                <Text style={styles.title}>Aportaciones</Text>
                 <Text style={styles.subtitle}>
                   {user?.first_name || user?.username || 'Tu comunidad'}
                 </Text>

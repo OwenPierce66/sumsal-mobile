@@ -13,6 +13,7 @@ import { taskCategories } from '../utils/relations';
 import { subItemTitle } from '../utils/aportaciones';
 import TaskStatsSheet from './TaskStatsSheet';
 import { shareExternally, taskShareLink } from '../utils/externalShare';
+import CollectionPickerSheet from './CollectionPickerSheet';
 
 const STORY_SECTIONS = [
   ['subtasks', 'Publicación'],
@@ -74,6 +75,8 @@ const TaskActionsModal = ({
   const [supportTask, setSupportTask] = useState(null);
   // Estadísticas de la publicación: también viven fuera del menú.
   const [statsTaskId, setStatsTaskId] = useState(null);
+  // Colecciones (álbumes de guardados) donde va esta publicación.
+  const [collectionTaskId, setCollectionTaskId] = useState(null);
   const [storyOptionsOpen, setStoryOptionsOpen] = useState(false);
   const [categoryPinsOpen, setCategoryPinsOpen] = useState(false);
   useEffect(() => {
@@ -212,6 +215,14 @@ const TaskActionsModal = ({
                   ) : null}
                 </>
               ) : null}
+              <TouchableOpacity
+                style={styles.actionOption}
+                onPress={() => { setCollectionTaskId(taskId || null); onClose?.(); }}
+                accessibilityLabel="Guardar en una colección"
+              >
+                <Ionicons name="albums-outline" size={20} color="#845ef7" />
+                <Text style={styles.actionText}>Guardar en una colección</Text>
+              </TouchableOpacity>
               {taskState.saved ? (
                 <TouchableOpacity style={styles.actionOption} onPress={taskActions.togglePrivate}>
                   <Ionicons name={taskState.private ? 'lock-closed' : 'lock-open-outline'} size={20} color="#495057" />
@@ -398,6 +409,9 @@ const TaskActionsModal = ({
     </Modal>
     {statsTaskId ? (
       <TaskStatsSheet visible taskId={statsTaskId} onClose={() => setStatsTaskId(null)} />
+    ) : null}
+    {collectionTaskId ? (
+      <CollectionPickerSheet visible taskId={collectionTaskId} onClose={() => setCollectionTaskId(null)} />
     ) : null}
     {supportTask ? (
       <PetitionSupportSheet

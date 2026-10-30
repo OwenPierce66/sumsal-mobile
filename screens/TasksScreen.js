@@ -37,6 +37,9 @@ import StoryRing from '@components/StoryRing';
 import TopicTopSections from '@components/TopicTopSections';
 import { dedupeFeedItems } from '../utils/feedItems';
 import { optimisticRepost, repostFromResponse, repostSnapshot } from '../utils/repost';
+import CategoryHeader from '@components/CategoryHeader';
+import ViewAsBanner from '@components/ViewAsBanner';
+import { useViewAs } from '@hooks/useViewAs';
 
 
 const TasksScreen = ({ navigation, route }) => {
@@ -233,6 +236,17 @@ const TasksScreen = ({ navigation, route }) => {
     setSelectedSortBy(route.params.topicSortBy || 'top_month');
     navigation.setParams({ topicPch: undefined, topicSortBy: undefined });
   }, [navigation, route?.params?.topicPch, route?.params?.topicSortBy]);
+
+  // Ver como otra persona (se activa desde su perfil): su feed, con mis permisos.
+  const viewAs = useViewAs();
+
+  // Desde Explorar categorías: el feed ya filtrado por esa categoría (y su tipo).
+  useEffect(() => {
+    if (route?.params?.categoryPath == null) return;
+    if (route.params.categoryPch) setTema(route.params.categoryPch);
+    setSelectedCategory(route.params.categoryPath);
+    navigation.setParams({ categoryPath: undefined, categoryPch: undefined });
+  }, [navigation, route?.params?.categoryPath, route?.params?.categoryPch]);
 
   useEffect(() => {
     if (route?.params?.openSavedFilters) {
@@ -802,8 +816,10 @@ const TasksScreen = ({ navigation, route }) => {
     followed_users_only: selectedFollowedUsersOnly,
     verified_users_only: selectedVerifiedUsersOnly,
     recommended_users_only: selectedRecommendedUsersOnly,
+    as_user: viewAs?.id,
   }), [tema, selectedCategory, selectedStatus, selectedDateFilter, selectedSortBy,
-      selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedFollowedUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly]);
+      selectedFavoritesOnly, selectedFavoriteUsersOnly, selectedFollowedUsersOnly, selectedVerifiedUsersOnly, selectedRecommendedUsersOnly,
+      viewAs]);
 
   // ─── React Query: Tareas ─────────────────────────────────────────────────
   const {
@@ -1652,6 +1668,13 @@ const TasksScreen = ({ navigation, route }) => {
             <TouchableOpacity style={styles.headerIconBtn} onPress={openSearch}>
               <Ionicons name="search-outline" size={24} color="#4dabf7" />
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              onPress={() => navigation.navigate('CategoryExplorer', { pch: tema || 'consejos', path: selectedCategory })}
+              accessibilityLabel="Explorar categorías"
+            >
+              <Ionicons name="grid-outline" size={22} color="#4dabf7" />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.headerIconBtn} onPress={() => setFilterModalVisible(true)}>
               <Ionicons name="options-outline" size={24} color="#4dabf7" />
             </TouchableOpacity>
@@ -1666,6 +1689,8 @@ const TasksScreen = ({ navigation, route }) => {
       {/* Zona movil: historias, temas y categorias se deslizan por debajo del titulo fijo */}
       <Animated.View style={[styles.movingHeader, { transform: [{ translateY: headerTranslateY }] }]}>
       <View onLayout={(e) => setCollapsibleH(e.nativeEvent.layout.height)}>
+      {/* "Ver como": se esconde al deslizar hacia abajo, como lo demás de esta zona. */}
+      <ViewAsBanner />
       {!searchExpanded ? <StoriesBar navigation={navigation} /> : null}
 
       <View style={styles.temaSelector}>
@@ -1796,7 +1821,17 @@ const TasksScreen = ({ navigation, route }) => {
         // Para un item compartido, usamos su propio ID, no el de la tarea anidada.
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderFeedItem}
-        ListHeaderComponent={showTopicTops ? (
+        ListHeaderComponent={selectedCategory && !searchExpanded ? (
+          // La categoría elegida: su imagen y de qué trata (un admin la edita aquí).
+          <CategoryHeader
+            categories={availableCategories}
+            path={selectedCategory}
+            isAdmin={isAdmin}
+            onUpdated={(updated) => setAvailableCategories((previous) => previous.map((item) => (
+              item.id === updated.id ? { ...item, ...updated } : item
+            )))}
+          />
+        ) : showTopicTops ? (
           <TopicTopSections
             navigation={navigation}
             onSelectTopic={(pch) => {

@@ -17,6 +17,9 @@ import TopCommentPreview from '@components/TopCommentPreview';
 import StoryRing from '@components/StoryRing';
 import { withLegacyLink } from '../utils/links';
 import { subItemTitle } from '../utils/aportaciones';
+import {
+  feedMediaBox, feedRatio, imageSizeFromLoad, useMediaRatio, videoSizeFromReady,
+} from '../utils/mediaLayout';
 
 const TASK_VIDEO_AUTOPLAY_DELAY_MS = 500;
 const TASK_VIDEO_MIN_VISIBLE_FRACTION = 0.5;
@@ -57,8 +60,26 @@ export const getAuthorName = (item) => {
   return item?.username || 'Anónimo';
 };
 
+// Tamaño de una foto o video del feed: su propia forma; sin `width`, todo el ancho.
+const feedMediaStyle = (ratio, width) => (
+  width ? feedMediaBox(ratio, width) : { width: '100%', aspectRatio: feedRatio(ratio) }
+);
+
+// ─── Foto del feed con su propia forma (no un recorte fijo) ──────────────────
+export const FeedImage = ({ uri, width }) => {
+  const [ratio, onSize] = useMediaRatio(uri);
+  return (
+    <Image
+      source={{ uri }}
+      style={[styles.subImage, feedMediaStyle(ratio, width)]}
+      contentFit="cover"
+      onLoad={(event) => onSize(imageSizeFromLoad(event))}
+    />
+  );
+};
+
 // ─── Video con autoplay solo cuando está realmente en pantalla ───────────────
-export const TaskVideoPreview = ({ uri, onOpenReel, feedItemId }) => {
+export const TaskVideoPreview = ({ uri, onOpenReel, feedItemId, width }) => {
   const videoRef = useRef(null);
   const playerRef = useRef(null);
   const visibleSinceRef = useRef(null);
@@ -69,6 +90,7 @@ export const TaskVideoPreview = ({ uri, onOpenReel, feedItemId }) => {
   const [playbackStatus, setPlaybackStatus] = useState({});
   const isScreenFocused = useIsFocused();
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
+  const [ratio, onSize] = useMediaRatio(uri);
 
   const feedVisibility = useContext(FeedVideoVisibilityContext);
   const feedVisibilityRef = useRef(feedVisibility);
@@ -164,12 +186,13 @@ export const TaskVideoPreview = ({ uri, onOpenReel, feedItemId }) => {
   }, []);
 
   return (
-    <View ref={videoRef} collapsable={false} style={styles.subMediaWrapper}>
+    <View ref={videoRef} collapsable={false} style={[styles.subMediaWrapper, feedMediaStyle(ratio, width)]}>
       <Video
         ref={playerRef}
         source={{ uri }}
         style={styles.subMedia}
         resizeMode="contain"
+        onReadyForDisplay={(event) => onSize(videoSizeFromReady(event))}
         shouldPlay={isReadyToPlay && canPlay && !isPausedByUser}
         isLooping
         onPlaybackStatusUpdate={setPlaybackStatus}
@@ -219,7 +242,10 @@ const SubContent = ({ task, section, carouselWidth, feedItemId, onShareSubItemTo
     const ownMedia = getTaskOwnMedia(task);
     if (ownMedia) content = [ownMedia];
   }
+  const [activeIndex, setActiveIndex] = useState(0);
   if (content.length === 0) return <Text style={styles.noContent}>Sin datos en esta sección</Text>;
+  // El ancho para fotos y videos: el de cada elemento menos su margen.
+  const mediaWidth = carouselWidth ? carouselWidth - 10 : undefined;
 
   return (
     <View style={styles.carouselContainer}>
@@ -236,6 +262,10 @@ const SubContent = ({ task, section, carouselWidth, feedItemId, onShareSubItemTo
         disableIntervalMomentum
         alwaysBounceHorizontal={content.length > 1}
         scrollEventThrottle={16}
+        onScroll={(event) => {
+          if (!carouselWidth) return;
+          setActiveIndex(Math.round(event.nativeEvent.contentOffset.x / carouselWidth));
+        }}
       >
         {content.map((sub, idx) => {
           const finalUri = getImageUrl(sub.image);
@@ -256,18 +286,13 @@ const SubContent = ({ task, section, carouselWidth, feedItemId, onShareSubItemTo
                 <LinkifiedText style={styles.subItemDesc} text={withLegacyLink(sub.description, sub.link)} collapsedLines={3} />
               ) : null}
 
-              {finalUri && (
-                <Image
-                  source={{ uri: finalUri }}
-                  style={styles.subImage}
-                  contentFit="cover"
-                />
-              )}
+              {finalUri && <FeedImage uri={finalUri} width={mediaWidth} />}
 
               {videoUri && (
                 <TaskVideoPreview
                   feedItemId={feedItemId ?? task.id}
                   uri={videoUri}
+                  width={mediaWidth}
                   onOpenReel={() => onOpenSubMediaInReels?.(task, sub, section)}
                 />
               )}
@@ -279,7 +304,9 @@ const SubContent = ({ task, section, carouselWidth, feedItemId, onShareSubItemTo
         <View style={styles.carouselMeta}>
           <Text style={styles.carouselHint}>Desliza para ver más</Text>
           <View style={styles.carouselDots}>
-            {content.map((sub, idx) => <View key={sub.id || idx} style={styles.carouselDot} />)}
+            {content.map((sub, idx) => (
+              <View key={sub.id || idx} style={[styles.carouselDot, idx === activeIndex && styles.carouselDotActive]} />
+            ))}
           </View>
         </View>
       )}
@@ -598,9 +625,10 @@ const styles = StyleSheet.create({
   subItemDesc: { fontSize: 14, color: '#666', lineHeight: 20, marginTop: 8 },
   subShareButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, gap: 4 },
   subShareText: { fontSize: 11, color: '#1f9d5a', fontWeight: '700' },
-  subMediaWrapper: { width: '100%', height: 240, marginTop: 12, borderRadius: 14, overflow: 'hidden', backgroundColor: '#f1f3f5' },
-  subMedia: { width: '100%', height: '100%', backgroundColor: '#f1f3f5' },
-  subImage: { width: '100%', height: 240, marginTop: 12, borderRadius: 14, backgroundColor: '#f1f3f5' },
+  // El tamaño lo da la forma de cada foto o video (feedMediaStyle).
+  subMediaWrapper: { alignSelf: 'center', marginTop: 12, borderRadius: 14, overflow: 'hidden', backgroundColor: '#000' },
+  subMedia: { width: '100%', height: '100%', backgroundColor: '#000' },
+  subImage: { alignSelf: 'center', marginTop: 12, borderRadius: 14, backgroundColor: '#f1f3f5' },
   videoTouchSurface: { ...StyleSheet.absoluteFillObject },
   videoControls: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 58, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, backgroundColor: 'rgba(0,0,0,0.62)' },
   videoControlButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
@@ -610,6 +638,7 @@ const styles = StyleSheet.create({
   carouselHint: { fontSize: 10, color: '#adb5bd', marginBottom: 5 },
   carouselDots: { flexDirection: 'row', justifyContent: 'center', gap: 4 },
   carouselDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#cbd5e1' },
+  carouselDotActive: { width: 14, backgroundColor: '#4dabf7' },
   noContent: { fontSize: 12, color: '#bbb', fontStyle: 'italic', textAlign: 'center' },
   taskFooter: { marginTop: 15, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
   statsContainer: { flexDirection: 'row', gap: 20 },

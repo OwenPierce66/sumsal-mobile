@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import api from '@api';
 import { AuthContext } from '@app';
 import TasksScreen from '../../screens/TasksScreen';
+import { setViewAs } from '../../hooks/useViewAs';
 
 // El corazón de seguir junto a cada nombre (useMyRelations) necesita React Query; aquí no aplica.
 jest.mock('../../hooks/useMyRelations', () => ({
@@ -62,8 +63,12 @@ const mockSharedQuery = {
   isFetchingNextPage: false, fetchNextPage: jest.fn(),
   hasNextPage: false, refetch: jest.fn(), isRefetching: false,
 };
+const mockTasksFilters = jest.fn();
 jest.mock('@hooks/useApi', () => ({
-  useTasksInfinite: () => mockTasksQuery,
+  useTasksInfinite: (filters) => {
+    mockTasksFilters(filters);
+    return mockTasksQuery;
+  },
   useSharedTasksInfinite: () => mockSharedQuery,
   useCategories: () => ({ data: [] }),
   useStories: () => ({ data: [], refetch: jest.fn() }),
@@ -94,7 +99,7 @@ const openTaskActions = async (renderer) => {
 };
 
 let mounted;
-async function renderFeed(user) {
+async function renderFeed(user, props = {}) {
   // El menú de 3 puntos lee quién soy (y si soy superadmin) de useMe.
   Object.keys(mockMe).forEach((key) => delete mockMe[key]);
   Object.assign(mockMe, user);
@@ -103,7 +108,7 @@ async function renderFeed(user) {
     mounted = TestRenderer.create(
       <QueryClientProvider client={client}>
         <AuthContext.Provider value={{ user, isAdmin: Boolean(user?.is_staff || user?.is_superuser) }}>
-          <TasksScreen navigation={{ navigate: jest.fn() }} />
+          <TasksScreen navigation={{ navigate: jest.fn() }} {...props} />
         </AuthContext.Provider>
       </QueryClientProvider>,
     );
@@ -119,10 +124,40 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  act(() => setViewAs(null));
   act(() => mounted?.unmount());
   mounted = null;
   jest.useRealTimers();
   Alert.alert.mockRestore();
+});
+
+it('desde Explorar categorías abre el feed filtrado por esa categoría y su tipo', async () => {
+  const navigation = { navigate: jest.fn(), setParams: jest.fn() };
+  await renderFeed({ id: 'yo' }, {
+    navigation, route: { params: { categoryPath: 'Salud,Nutrición', categoryPch: 'peticiones' } },
+  });
+  expect(mockTasksFilters).toHaveBeenLastCalledWith(expect.objectContaining({ pch: 'peticiones', category: 'Salud,Nutrición' }));
+  expect(navigation.setParams).toHaveBeenCalledWith({ categoryPath: undefined, categoryPch: undefined });
+});
+
+it('ver como otra persona: su feed con un aviso para salir', async () => {
+  setViewAs({ id: 'ana-id', username: 'ana' });
+  const renderer = await renderFeed({ id: 'yo' });
+  expect(mockTasksFilters).toHaveBeenLastCalledWith(expect.objectContaining({ as_user: 'ana-id' }));
+  expect(textsOf(renderer)).toContain('Viendo el feed como @ana');
+
+  const exit = renderer.root.findAll((node) => node.props.accessibilityLabel === 'Salir de ver como' && node.props.onPress)[0];
+  await act(async () => { exit.props.onPress(); });
+  expect(mockTasksFilters).toHaveBeenLastCalledWith(expect.objectContaining({ as_user: undefined }));
+  expect(textsOf(renderer)).not.toContain('Viendo el feed como @ana');
+});
+
+it('el ícono de categorías abre Explorar categorías', async () => {
+  const navigation = { navigate: jest.fn(), setParams: jest.fn() };
+  const renderer = await renderFeed({ id: 'yo' }, { navigation });
+  const button = renderer.root.findAll((node) => node.props.accessibilityLabel === 'Explorar categorías' && node.props.onPress)[0];
+  await act(async () => { button.props.onPress(); });
+  expect(navigation.navigate).toHaveBeenCalledWith('CategoryExplorer', { pch: 'consejos', path: '' });
 });
 
 it('un superadmin da y quita el like de la App', async () => {

@@ -44,6 +44,8 @@ import TestimonialPost from '@components/TestimonialPost';
 import TaskActionsModal from '@components/TaskActionsModal';
 import useTaskActions from '@hooks/useTaskActions';
 import { profileShareLink, shareExternally } from '../utils/externalShare';
+import SocialLinks from '@components/SocialLinks';
+import { setViewAs } from '@hooks/useViewAs';
 
 // Controles opcionales del perfil (se guardan en el dispositivo; ocultos por defecto).
 const PROFILE_CONTROLS_KEY = 'profileControls';
@@ -57,10 +59,19 @@ const flattenPages = (data) =>
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
+// Alert.alert no hace nada en la web: ahí se avisa con window.alert.
+const notify = (title, message) => {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}\n\n${message}`);
+    return;
+  }
+  Alert.alert(title, message);
+};
+
 const ProfileScreen = ({ route, navigation }) => {
   const { signOut, user: sessionUser } = useContext(AuthContext);
   const queryClient = useQueryClient();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const detailItemWidth = Math.max(240, screenWidth - 80);
 
   const userId = route?.params?.userId || 'me';
@@ -350,6 +361,56 @@ const ProfileScreen = ({ route, navigation }) => {
   const toggleActivity = () => {
     setProfileMenuVisible(false);
     updateProfileControls({ showActivity: !profileControls.showActivity });
+  };
+
+  // Visitas: abrir un perfil ajeno cuenta como visita (una por persona y día).
+  useEffect(() => {
+    if (isCurrentUser || !socialUserId) return;
+    api.post(`users/${socialUserId}/visit/`).catch(() => {});
+  }, [isCurrentUser, socialUserId]);
+
+  const openProfileVisits = () => {
+    setProfileMenuVisible(false);
+    navigation.getParent()?.navigate('Profile', { screen: 'ProfileVisits' });
+  };
+
+  // Ver como esta persona: su feed (lo de quienes sigue), si lo permite.
+  const openViewAs = () => {
+    setProfileMenuVisible(false);
+    if (!socialStats?.can_view_feed) {
+      notify(
+        'Ver como esta persona',
+        `@${user?.username || route?.params?.userName || 'Esta persona'} no permite que otros vean su feed. Cada quien lo activa en su perfil: menú de 3 puntos → "Permitir ver como yo".`,
+      );
+      return;
+    }
+    // Queda activo en el feed, Reels y Top hasta tocar "Salir".
+    setViewAs({ id: socialUserId, username: user?.username || route?.params?.userName || '' });
+    navigation.getParent()?.navigate('Tasks', { screen: 'TasksList' });
+  };
+
+  // "Ver como yo": el dueño permite (o no) que otros vean su feed.
+  const [feedSaving, setFeedSaving] = useState(false);
+  const toggleFeedPublic = async () => {
+    setProfileMenuVisible(false);
+    if (!socialUserId || feedSaving) return;
+    const next = !socialStats?.feed_public;
+    setFeedSaving(true);
+    try {
+      await api.patch(`users/${socialUserId}/activity/`, { kind: 'feed', public: next });
+      refetchSocial();
+      queryClient.invalidateQueries({ queryKey: ['profileActivity', socialUserId] });
+      notify(
+        'Ver como yo',
+        next
+          ? 'Listo: en tu perfil ahora aparece "Ver como" para que otros vean tu feed.'
+          : 'Listo: nadie puede ver tu feed.',
+      );
+    } catch {
+      notify('Error', 'No se pudo cambiar. Intenta de nuevo.');
+    } finally {
+      setFeedSaving(false);
+    }
   };
 
   const toggleFilterAdd = () => {
@@ -683,6 +744,26 @@ const ProfileScreen = ({ route, navigation }) => {
         <RecommendButton userId={socialUserId} isCurrentUser={isCurrentUser} />
       </View>
 
+      <SocialLinks links={socialStats?.social_links} style={styles.socialLinks} />
+
+      {/* Ver como esta persona: con candado si no lo permite (al tocarlo explica cómo se activa). */}
+      {!isCurrentUser && socialStats ? (
+        <TouchableOpacity
+          style={[styles.viewAsChip, !socialStats.can_view_feed && styles.viewAsChipLocked]}
+          onPress={openViewAs}
+          accessibilityLabel="Ver su feed"
+        >
+          <Ionicons
+            name={socialStats.can_view_feed ? 'eye-outline' : 'lock-closed-outline'}
+            size={16}
+            color={socialStats.can_view_feed ? '#1864ab' : '#868e96'}
+          />
+          <Text style={[styles.viewAsChipText, !socialStats.can_view_feed && styles.viewAsChipTextLocked]}>
+            Ver como @{user?.username || route?.params?.userName || 'usuario'}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
       {socialStatsError ? (
         <TouchableOpacity
           style={styles.socialStatsError}
@@ -743,6 +824,50 @@ const ProfileScreen = ({ route, navigation }) => {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Los demás contadores del perfil. */}
+      {socialStats && !socialStatsError ? (
+        <View style={styles.socialStatsRow}>
+          <View style={styles.socialStat}>
+            <Text style={styles.socialStatCount}>{socialStats.posts_count ?? '—'}</Text>
+            <Text style={styles.socialStatLabel}>Publicaciones</Text>
+          </View>
+          <View style={styles.socialStat}>
+            <Text style={styles.socialStatCount}>{socialStats.profile_likes_count ?? '—'}</Text>
+            <Text style={styles.socialStatLabel}>Me gusta al perfil</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.socialStat}
+            onPress={() => { setShowFavoriteFeed(false); setViewMode('testimonials'); }}
+            accessibilityRole="button"
+            accessibilityLabel="Ver testimonios"
+          >
+            <Text style={styles.socialStatCount}>{socialStats.testimonials_count ?? '—'}</Text>
+            <Text style={styles.socialStatLabel}>Testimonios</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.socialStat}
+            onPress={() => { if (!showRecommendations) updateProfileControls({ showRecommendations: true }); }}
+            disabled={socialStats.recommendations_count == null}
+            accessibilityRole="button"
+            accessibilityLabel="Ver recomendaciones"
+          >
+            <Text style={styles.socialStatCount}>{socialStats.recommendations_count ?? '—'}</Text>
+            <Text style={styles.socialStatLabel}>Recomendaciones</Text>
+          </TouchableOpacity>
+          {isCurrentUser && socialStats.visits_30d != null ? (
+            <TouchableOpacity
+              style={styles.socialStat}
+              onPress={openProfileVisits}
+              accessibilityRole="button"
+              accessibilityLabel="Ver visitas a tu perfil"
+            >
+              <Text style={styles.socialStatCount}>{socialStats.visits_30d}</Text>
+              <Text style={styles.socialStatLabel}>Visitas (30 días)</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
 
       {!isCurrentUser ? (
         <View style={styles.profileActions}>
@@ -927,6 +1052,42 @@ const ProfileScreen = ({ route, navigation }) => {
           onPress={() => setProfileMenuVisible(false)}
         >
           <View style={styles.profileMenuCard}>
+            {/* Si no caben todas las opciones, el menú se desplaza. */}
+            <ScrollView style={{ maxHeight: Math.max(240, screenHeight - 140) }} bounces={false}>
+            {/* Tu actividad y "ver como": hasta arriba para que siempre se vean. */}
+            {isCurrentUser ? (
+              <TouchableOpacity
+                style={styles.profileMenuOption}
+                onPress={() => {
+                  setProfileMenuVisible(false);
+                  navigation.getParent()?.navigate('Profile', { screen: 'Activity' });
+                }}
+              >
+                <Ionicons name="pulse-outline" size={20} color="#4dabf7" />
+                <Text style={styles.profileMenuText}>Tu actividad (todo lo que haces y quién lo ve)</Text>
+              </TouchableOpacity>
+            ) : null}
+            {isCurrentUser ? (
+              <TouchableOpacity style={styles.profileMenuOption} onPress={openProfileVisits}>
+                <Ionicons name="walk-outline" size={20} color="#4dabf7" />
+                <Text style={styles.profileMenuText}>Visitas a tu perfil</Text>
+              </TouchableOpacity>
+            ) : null}
+            {isCurrentUser ? (
+              <TouchableOpacity style={styles.profileMenuOption} onPress={toggleFeedPublic} disabled={feedSaving}>
+                <Ionicons name={socialStats?.feed_public ? 'eye' : 'eye-off-outline'} size={20} color="#1864ab" />
+                <Text style={styles.profileMenuText}>
+                  {socialStats?.feed_public
+                    ? 'Ver como yo: permitido (toca para quitarlo)'
+                    : 'Permitir ver como yo (que otros vean tu feed)'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.profileMenuOption} onPress={openViewAs}>
+                <Ionicons name={socialStats?.can_view_feed ? 'eye-outline' : 'lock-closed-outline'} size={20} color="#1864ab" />
+                <Text style={styles.profileMenuText}>Ver como esta persona (su feed)</Text>
+              </TouchableOpacity>
+            )}
             {isCurrentUser ? (
               <>
             <TouchableOpacity style={styles.profileMenuOption} onPress={openFavoriteFeed}>
@@ -1130,7 +1291,7 @@ const ProfileScreen = ({ route, navigation }) => {
                 color="#4dabf7"
               />
               <Text style={styles.profileMenuText}>
-                {showActivity ? 'Dejar de ver la actividad' : 'Ver actividad (me gusta, comentarios, verificaciones)'}
+                {showActivity ? 'Dejar de ver la actividad' : 'Ver actividad en el perfil'}
               </Text>
             </TouchableOpacity>
             {isSuperAdmin && !isCurrentUser && adminState ? (
@@ -1178,6 +1339,7 @@ const ProfileScreen = ({ route, navigation }) => {
                 ) : null}
               </>
             ) : null}
+            </ScrollView>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1468,6 +1630,11 @@ const styles = StyleSheet.create({
   stat: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statText: { fontSize: 13, color: '#666', fontWeight: '600' },
   emptyText: { textAlign: 'center', color: '#999', marginTop: 30, marginHorizontal: 24, fontSize: 15, fontStyle: 'italic' },
+  socialLinks: { marginTop: 10 },
+  viewAsChip: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 6, marginTop: 10, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 16, backgroundColor: '#e7f5ff' },
+  viewAsChipText: { color: '#1864ab', fontWeight: '700', fontSize: 13 },
+  viewAsChipLocked: { backgroundColor: '#f1f3f5' },
+  viewAsChipTextLocked: { color: '#868e96' },
   writeTestimonial: {
     flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginBottom: 12, padding: 14,
     borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#b197fc', backgroundColor: '#f8f5ff',

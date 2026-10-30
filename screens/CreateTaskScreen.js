@@ -16,6 +16,7 @@ import { isPetition } from '../utils/petitionSupport';
 import { CURRENCIES, amountError, formatMoney, subscriptionErrorMessage } from '../utils/subscriptions';
 import { openPetitionSupportCheckout } from '@hooks/usePetitionSupport';
 import SupportAmountFields from '@components/SupportAmountFields';
+import TaskSearchPicker from '@components/TaskSearchPicker';
 
 // ⚡ DICCIONARIO INTELIGENTE DE SUBTEMAS
 const PREDEFINED_SUBTEMAS = {
@@ -103,6 +104,13 @@ const CreateTaskScreen = ({ navigation, route }) => {
   const [loadingApprove, setLoadingApprove] = useState(false);
   // Modo oculto: solo tú la ves en tu perfil, como vista previa, hasta publicarla.
   const [isHidden, setIsHidden] = useState(false);
+  // "Siguiente recomendado": qué publicación recomiendas ver después (series, podcasts).
+  const [nextTask, setNextTask] = useState(editTask?.next_task_info || null);
+  // "Anterior recomendado": solo cuenta el que eligió el autor (no el que se deduce).
+  const [previousTask, setPreviousTask] = useState(
+    editTask?.previous_task_info?.chosen ? editTask.previous_task_info : null,
+  );
+  const [seriesPicker, setSeriesPicker] = useState(null);
   // Apoyo monetario opcional al crear una petición: se paga en Stripe justo después de crearla.
   const [supportOnCreate, setSupportOnCreate] = useState(false);
   const [supportCurrency, setSupportCurrency] = useState('mxn');
@@ -403,6 +411,8 @@ const CreateTaskScreen = ({ navigation, route }) => {
         updateFormData.append('pch', tema);
         updateFormData.append('categories', finalCategories.join(','));
         updateFormData.append('is_hidden', isHidden ? 'true' : 'false');
+        updateFormData.append('next_task', nextTask?.id ? String(nextTask.id) : '');
+        updateFormData.append('previous_task', previousTask?.id ? String(previousTask.id) : '');
 
         const appendEditBlocks = async (blocks, prefix) => {
           const activeBlocks = blocks.filter(block => block.title.trim() || block.description.trim() || block.image);
@@ -457,6 +467,8 @@ const CreateTaskScreen = ({ navigation, route }) => {
 
     formData.append('categories', finalCategories.join(','));
     formData.append('is_hidden', isHidden && !groupId && !testimonialFor ? 'true' : 'false');
+    if (nextTask?.id) formData.append('next_task', String(nextTask.id));
+    if (previousTask?.id) formData.append('previous_task', String(previousTask.id));
     if (groupId) formData.append('group', groupId);
     if (testimonialFor) formData.append('testimonial_for', String(testimonialFor.id));
     
@@ -523,7 +535,7 @@ const CreateTaskScreen = ({ navigation, route }) => {
             ? `Publicada en ${groupName}.`
             : isHidden
               ? "Se guardó oculta en tu perfil. Solo tú la ves; publícala cuando quieras."
-              : "Aportación creada correctamente en Sumsal.",
+              : "Aportación creada correctamente.",
       );
       if (wantsSupport && createdTaskId) {
         // La petición ya existe: si el pago falla o se cancela, se puede apoyar después desde el menú de 3 puntos.
@@ -968,6 +980,46 @@ Puedes apoyarla después desde el menú de 3 puntos.`,
         </View>
       ) : null}
 
+      {testimonialFor ? null : (
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Anterior y siguiente recomendado (opcional)</Text>
+          <Text style={styles.visibilityHint}>
+            Qué recomiendas ver antes y después de esta (las partes de una serie, el podcast anterior y el próximo...).
+          </Text>
+          {[
+            ['previous', 'Anterior', previousTask, setPreviousTask, 'arrow-back-circle'],
+            ['next', 'Siguiente', nextTask, setNextTask, 'arrow-forward-circle'],
+          ].map(([mode, label, value, setValue, icon]) => (
+            <View key={mode}>
+              {value ? (
+                <View style={styles.nextTaskRow}>
+                  <Ionicons name={icon} size={20} color="#4dabf7" />
+                  <Text style={styles.nextTaskTitle} numberOfLines={1}>{label}: {value.title || 'Publicación'}</Text>
+                  <TouchableOpacity onPress={() => setValue(null)} accessibilityLabel={`Quitar ${label.toLowerCase()} recomendado`}>
+                    <Ionicons name="close-circle" size={20} color="#adb5bd" />
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+              <TouchableOpacity
+                style={styles.addBtn}
+                onPress={() => setSeriesPicker(mode)}
+                accessibilityLabel={`Elegir ${label.toLowerCase()} recomendado`}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#4dabf7" />
+                <Text style={styles.addBtnText}>{value ? `Cambiar ${label.toLowerCase()}` : `Elegir ${label.toLowerCase()}`}</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TaskSearchPicker
+            visible={Boolean(seriesPicker)}
+            onClose={() => setSeriesPicker(null)}
+            onSelect={(task) => (seriesPicker === 'previous' ? setPreviousTask : setNextTask)({ id: task.id, title: task.title })}
+            excludeTaskId={editTask?.id}
+            title={seriesPicker === 'previous' ? 'Anterior recomendado' : 'Siguiente recomendado'}
+          />
+        </View>
+      )}
+
       {groupId || testimonialFor ? null : (
       <View style={styles.sectionContainer}>
         <Text style={styles.sectionTitle}>¿Cómo la quieres compartir?</Text>
@@ -1022,6 +1074,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FEF6F5', padding: 16 },
   goBackBtn: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, paddingHorizontal: 5 },
   goBackText: { fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 8 },
+  nextTaskRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: '#e7f5ff' },
+  nextTaskTitle: { flex: 1, color: '#1864ab', fontWeight: '700' },
   groupBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, marginBottom: 16, borderRadius: 16, backgroundColor: '#e7f5ff' },
   groupBannerTitle: { fontSize: 15, fontWeight: '800', color: '#1971c2' },
   groupBannerText: { fontSize: 12, color: '#495057', marginTop: 2 },

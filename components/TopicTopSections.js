@@ -22,11 +22,12 @@ const PERIOD_LABELS = {
   top_month: 'Más likes en los últimos 30 días',
 };
 
-const TopicSection = ({ topic, navigation, onSelectTopic, sortBy }) => {
+const TopicSection = ({ topic, navigation, onSelectTopic, sortBy, asUser }) => {
   const { data: tasks = [], isLoading, isError, refetch } = useTasks({
     pch: topic.pch,
     sort_by: sortBy,
     page_size: 5,
+    as_user: asUser,
   });
 
   return (
@@ -88,7 +89,8 @@ const TopicSection = ({ topic, navigation, onSelectTopic, sortBy }) => {
 };
 
 // `sortBy`: periodo del top (top_day, top_week o top_month).
-const TopicTopSections = ({ navigation, onSelectTopic, sortBy = 'top_month' }) => (
+// `asUser`: ver el top como otra persona (lo de quienes sigue; ver hooks/useViewAs.js).
+const TopicTopSections = ({ navigation, onSelectTopic, sortBy = 'top_month', asUser }) => (
   <View style={styles.container}>
     {TOPICS.map(topic => (
       <TopicSection
@@ -97,6 +99,7 @@ const TopicTopSections = ({ navigation, onSelectTopic, sortBy = 'top_month' }) =
         navigation={navigation}
         onSelectTopic={onSelectTopic}
         sortBy={sortBy}
+        asUser={asUser}
       />
     ))}
   </View>

@@ -24,7 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
 
 // ─── Clave de almacenamiento en AsyncStorage ──────────────────────────────────
-export const CACHE_KEY = 'SUMSAL_REACT_QUERY_CACHE_V1';
+export const CACHE_KEY = 'APORTACIONES_REACT_QUERY_CACHE_V1';
 
 // ─── Tiempo máximo de validez del caché persistido ───────────────────────────
 // Si el caché tiene más de 24h, se descarta para forzar datos frescos

@@ -31,10 +31,13 @@ const mockSubscriptions = {
   stripe_enabled: true,
 };
 const mockUseSubscriptions = jest.fn(() => ({ data: mockSubscriptions, isLoading: false, isError: false, refetch: jest.fn(), isRefetching: false }));
+const mockNoCategories = { data: [], isLoading: false };
 jest.mock('@hooks/useApi', () => ({
   useMe: () => ({ data: { id: 'me' } }),
   useMyPetitionSupports: (...args) => mockUseSupports(...args),
   useMySubscriptions: (...args) => mockUseSubscriptions(...args),
+  // El filtro por categoría de la lista de quienes apoyaron.
+  useCategories: () => mockNoCategories,
 }));
 beforeEach(() => {
   mockUseSupports.mockReturnValue({ data: mockSupports, isLoading: false, isError: false, refetch: jest.fn(), isRefetching: false });
