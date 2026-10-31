@@ -13,7 +13,7 @@ const LOCAL_IP = Platform.OS === 'android' && __DEV__
   ? '10.0.2.2'
   : extra.apiLocalIp ?? '192.168.1.115';
 const API_PORT = extra.apiPort    ?? '8001';
-const REMOTE_API_URL = 'https://sumsal-backend.onrender.com/api/';
+const REMOTE_API_URL = 'https://aportaciones-backend.onrender.com/api/';
 const LOCAL_API_URL =
   Platform.OS === 'web'
     ? `http://localhost:${API_PORT}/api/`
