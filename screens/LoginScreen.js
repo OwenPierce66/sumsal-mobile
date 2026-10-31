@@ -7,7 +7,7 @@ import api, { saveAuthData } from '@api';
 import { AuthContext } from '@app';
 import { validateEmailOrUsername, validatePassword, runValidations } from '../utils/validation';
 
-const LoginScreen = ({ navigation }) => {
+const LoginScreen = ({ navigation, route }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({});       // errores por campo
@@ -24,6 +24,12 @@ const LoginScreen = ({ navigation }) => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, []);
+
+  // Al volver de recuperar la contraseña, el correo ya queda escrito
+  const returnedEmail = route?.params?.email;
+  useEffect(() => {
+    if (returnedEmail) setEmail(returnedEmail);
+  }, [returnedEmail]);
 
   // Limpia el error de un campo al empezar a escribir
   const clearFieldError = (field) => {
@@ -98,6 +104,8 @@ const LoginScreen = ({ navigation }) => {
       >
         <Text style={styles.title}>Iniciar sesión</Text>
 
+        {route?.params?.notice ? <Text style={styles.notice}>{route.params.notice}</Text> : null}
+
         {/* Email / Username */}
         <TextInput
           style={[styles.input, errors.email && styles.inputError]}
@@ -124,6 +132,13 @@ const LoginScreen = ({ navigation }) => {
           onSubmitEditing={handleLogin}
         />
         {errors.password ? <Text style={styles.fieldError}>{errors.password}</Text> : null}
+
+        <TouchableOpacity
+          style={styles.forgotLink}
+          onPress={() => navigation.navigate('ForgotPassword', { email: email.includes('@') ? email.trim() : '' })}
+        >
+          <Text style={[styles.linkText, styles.linkAction]}>¿Olvidaste tu contraseña?</Text>
+        </TouchableOpacity>
 
         {/* Error global del servidor */}
         {serverError ? <Text style={styles.serverError}>{serverError}</Text> : null}
@@ -183,6 +198,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 10,
     marginLeft: 4,
+  },
+  notice: {
+    color: '#2b8a3e',
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 14,
+    backgroundColor: '#ebfbee',
+    padding: 10,
+    borderRadius: 8,
+  },
+  forgotLink: {
+    alignSelf: 'flex-end',
+    marginTop: 8,
   },
   serverError: {
     color: '#e74c3c',

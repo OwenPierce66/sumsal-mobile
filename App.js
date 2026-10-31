@@ -96,6 +96,8 @@ import { setViewAs } from './hooks/useViewAs';
 import CategoryExplorerScreen from './screens/CategoryExplorerScreen';
 import ActivityScreen from './screens/ActivityScreen';
 import ProfileVisitsScreen from './screens/ProfileVisitsScreen';
+import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
+import DeleteAccountScreen from './screens/DeleteAccountScreen';
 
 import { NotificationsProvider } from './contexts/NotificationsContext';
 
@@ -238,6 +240,7 @@ const ProfileStackNavigator = () => {
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
       <Stack.Screen name="Activity" component={ActivityScreen} />
       <Stack.Screen name="ProfileVisits" component={ProfileVisitsScreen} />
+      <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
       <Stack.Screen name="UserProfile" component={ProfileScreen} />
       <Stack.Screen name="Subscriptions" component={SubscriptionsScreen} />
       <Stack.Screen name="PetitionSupports" component={PetitionSupportsScreen} />
@@ -487,15 +490,18 @@ signIn: async (token) => {
   }
   registerForPush(); // ← agregar esta línea
 },
-    signOut: async () => {
+    signOut: async ({ accountDeleted = false } = {}) => {
       try {
-        // Da de baja el token push de este dispositivo mientras la sesión aún es válida.
-        await unregisterForPush();
-        // Obtiene el refresh token cifrado y lo envía al servidor para blacklistearlo.
-        // Esto invalida la sesión en la BD — aunque alguien robe el token, ya no sirve.
-        const refreshToken = await SecureStorage.getItem('refreshToken');
-        if (refreshToken) {
-          await api.post('auth/logout/', { refresh: refreshToken });
+        // Con la cuenta ya borrada no queda nada que cerrar en el servidor.
+        if (!accountDeleted) {
+          // Da de baja el token push de este dispositivo mientras la sesión aún es válida.
+          await unregisterForPush();
+          // Obtiene el refresh token cifrado y lo envía al servidor para blacklistearlo.
+          // Esto invalida la sesión en la BD — aunque alguien robe el token, ya no sirve.
+          const refreshToken = await SecureStorage.getItem('refreshToken');
+          if (refreshToken) {
+            await api.post('auth/logout/', { refresh: refreshToken });
+          }
         }
       } catch (error) {
         // Si el servidor no responde (sin conexión, token ya expirado, etc.)
@@ -550,6 +556,7 @@ signIn: async (token) => {
                     <>
                       <Stack.Screen name="Login" component={LoginScreen} />
                       <Stack.Screen name="Register" component={RegisterScreen} />
+                      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
                     </>
                   ) : (
                     <Stack.Screen name="Home" component={AuthenticatedTabs} />

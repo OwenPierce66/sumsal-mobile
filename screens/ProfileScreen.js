@@ -1160,6 +1160,16 @@ const ProfileScreen = ({ route, navigation }) => {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.profileMenuOption}
+              onPress={() => {
+                setProfileMenuVisible(false);
+                navigation.navigate('DeleteAccount');
+              }}
+            >
+              <Ionicons name="trash-outline" size={20} color="#e03131" />
+              <Text style={styles.profileMenuText}>Eliminar cuenta</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileMenuOption}
               onPress={togglePersonalFilterVisibility}
             >
               <Ionicons
